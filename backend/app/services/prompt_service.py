@@ -150,7 +150,7 @@ class PromptService:
 3. 不要引用任何本批次中不存在的角色或组织名称
 4. 文本描述中不要使用中文引号（""），改用【】或《》"""
 
-    # 完整大纲生成提示词
+    # 向导大纲生成提示词
     COMPLETE_OUTLINE_GENERATION = """你是一位经验丰富的小说作家和编剧。请根据以下信息生成完整的{chapter_count}章小说大纲：
 
 基本信息：
@@ -639,7 +639,7 @@ class PromptService:
                                    target_words: int, time_period: str, location: str,
                                    atmosphere: str, rules: str, characters_info: str,
                                    requirements: str = "") -> str:
-        """获取完整大纲生成提示词"""
+        """获取向导大纲生成提示词"""
         return cls.format_prompt(
             cls.COMPLETE_OUTLINE_GENERATION,
             title=title,

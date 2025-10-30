@@ -1,7 +1,7 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Empty, Modal, message, Spin, Row, Col, Statistic, Space, Tag, Progress, Typography, Tooltip, Badge } from 'antd';
-import { EditOutlined, DeleteOutlined, BookOutlined, RocketOutlined, CalendarOutlined, FileTextOutlined, TrophyOutlined, FireOutlined, SettingOutlined } from '@ant-design/icons';
+import { Card, Button, Empty, Modal, message, Spin, Row, Col, Statistic, Space, Tag, Progress, Typography, Tooltip, Badge, Alert } from 'antd';
+import { EditOutlined, DeleteOutlined, BookOutlined, RocketOutlined, CalendarOutlined, FileTextOutlined, TrophyOutlined, FireOutlined, SettingOutlined, InfoCircleOutlined, CloseOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import { useProjectSync } from '../store/hooks';
 import type { ReactNode } from 'react';
@@ -13,6 +13,7 @@ const { Title, Text, Paragraph } = Typography;
 export default function ProjectList() {
   const navigate = useNavigate();
   const { projects, loading } = useStore();
+  const [showApiTip, setShowApiTip] = useState(true);
 
   const { refreshProjects, deleteProject } = useProjectSync();
 
@@ -194,6 +195,59 @@ export default function ProjectList() {
               <UserMenu />
             </Col>
           </Row>
+
+          {showApiTip && projects.length === 0 && (
+            <Alert
+              message={
+                <Space align="center" style={{ width: '100%' }}>
+                  <InfoCircleOutlined style={{ fontSize: 16, color: '#1890ff' }} />
+                  <Text strong style={{ fontSize: window.innerWidth <= 768 ? 13 : 14 }}>
+                    首次使用提示
+                  </Text>
+                </Space>
+              }
+              description={
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  <Text style={{ fontSize: window.innerWidth <= 768 ? 12 : 13 }}>
+                    在开始创作之前，请先配置您的AI接口。系统支持OpenAI和Anthropic两种接口。
+                  </Text>
+                  <Space size={8}>
+                    <Button
+                      type="primary"
+                      size="small"
+                      icon={<SettingOutlined />}
+                      onClick={() => navigate('/settings')}
+                      style={{
+                        borderRadius: 6,
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        border: 'none'
+                      }}
+                    >
+                      立即配置
+                    </Button>
+                    <Button
+                      size="small"
+                      onClick={() => setShowApiTip(false)}
+                      style={{ borderRadius: 6 }}
+                    >
+                      暂不提醒
+                    </Button>
+                  </Space>
+                </Space>
+              }
+              type="info"
+              showIcon={false}
+              closable
+              closeIcon={<CloseOutlined style={{ fontSize: 12 }} />}
+              onClose={() => setShowApiTip(false)}
+              style={{
+                marginTop: window.innerWidth <= 768 ? 16 : 24,
+                borderRadius: 12,
+                background: 'linear-gradient(135deg, #e6f7ff 0%, #f0f5ff 100%)',
+                border: '1px solid #91d5ff'
+              }}
+            />
+          )}
 
           {projects.length > 0 && (
             <Row gutter={[16, 16]} style={{ marginTop: window.innerWidth <= 768 ? 16 : 24 }}>

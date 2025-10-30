@@ -148,7 +148,7 @@ async def get_db(request: Request):
             
             logger.debug(f"📊 会话关闭 [User:{user_id}][ID:{session_id}] - 活跃:{_session_stats['active']}, 总创建:{_session_stats['created']}, 总关闭:{_session_stats['closed']}, 错误:{_session_stats['errors']}")
             
-            if _session_stats["active"] > 10:
+            if _session_stats["active"] > 100:
                 logger.warning(f"🚨 活跃会话数过多: {_session_stats['active']}，可能存在连接泄漏！")
             elif _session_stats["active"] < 0:
                 logger.error(f"🚨 活跃会话数异常: {_session_stats['active']}，统计可能不准确！")

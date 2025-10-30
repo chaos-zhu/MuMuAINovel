@@ -116,9 +116,9 @@ export default function SettingsPage() {
 
   const apiProviders = [
     { value: 'openai', label: 'OpenAI', defaultUrl: 'https://api.openai.com/v1' },
-    { value: 'azure', label: 'Azure OpenAI', defaultUrl: 'https://YOUR-RESOURCE.openai.azure.com' },
+    // { value: 'azure', label: 'Azure OpenAI', defaultUrl: 'https://YOUR-RESOURCE.openai.azure.com' },
     { value: 'anthropic', label: 'Anthropic', defaultUrl: 'https://api.anthropic.com' },
-    { value: 'custom', label: '自定义', defaultUrl: '' },
+    // { value: 'custom', label: '自定义', defaultUrl: '' },
   ];
 
   const handleProviderChange = (value: string) => {
