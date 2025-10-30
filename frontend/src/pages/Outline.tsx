@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
-import { Button, List, Modal, Form, Input, message, Empty, Space, Popconfirm, Card, Select, Radio, Tag } from 'antd';
+import { Button, List, Modal, Form, Input, message, Empty, Space, Popconfirm, Card, Select, Radio, Tag, Progress } from 'antd';
 import { EditOutlined, DeleteOutlined, ThunderboltOutlined, ArrowUpOutlined, ArrowDownOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import { useOutlineSync } from '../store/hooks';
 import { cardStyles } from '../components/CardStyles';
+import { SSEPostClient } from '../utils/sseClient';
 
 const { TextArea } = Input;
 
@@ -13,6 +14,11 @@ export default function Outline() {
   const [editForm] = Form.useForm();
   const [generateForm] = Form.useForm();
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
+  
+  // SSE进度状态
+  const [sseProgress, setSSEProgress] = useState(0);
+  const [sseMessage, setSSEMessage] = useState('');
+  const [sseModalVisible, setSSEModalVisible] = useState(false);
 
   useEffect(() => {
     const handleResize = () => {
@@ -23,13 +29,12 @@ export default function Outline() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // 使用同步 hooks（移除createOutline）
+  // 使用同步 hooks
   const {
     refreshOutlines,
     updateOutline,
     deleteOutline,
-    reorderOutlines,
-    generateOutlines
+    reorderOutlines
   } = useOutlineSync();
 
   // 初始加载大纲列表
@@ -159,9 +164,17 @@ export default function Outline() {
   const handleGenerate = async (values: GenerateFormValues) => {
     try {
       setIsGenerating(true);
-      // 如果是全新生成模式，keep_existing应该为false
-      const isNewMode = values.mode === 'new';
-      const result = await generateOutlines({
+      
+      // 关闭生成表单Modal
+      Modal.destroyAll();
+      
+      // 显示进度Modal
+      setSSEProgress(0);
+      setSSEMessage('正在连接AI服务...');
+      setSSEModalVisible(true);
+      
+      // 准备请求数据
+      const requestData = {
         project_id: currentProject.id,
         genre: currentProject.genre || '通用',
         theme: values.theme || currentProject.theme || '',
@@ -169,20 +182,44 @@ export default function Outline() {
         narrative_perspective: values.narrative_perspective || currentProject.narrative_perspective || '第三人称',
         target_words: currentProject.target_words || 100000,
         requirements: values.requirements,
-        // 续写参数
         mode: values.mode || 'auto',
         story_direction: values.story_direction,
         plot_stage: values.plot_stage || 'development',
-        keep_existing: !isNewMode,  // 全新生成模式下不保留旧大纲
+        provider: values.provider,
+        model: values.model
+      };
+      
+      // 使用SSE客户端
+      const apiUrl = `/api/outlines/generate-stream`;
+      const client = new SSEPostClient(apiUrl, requestData, {
+        onProgress: (msg: string, progress: number) => {
+          setSSEMessage(msg);
+          setSSEProgress(progress);
+        },
+        onResult: (data: any) => {
+          console.log('生成完成，结果:', data);
+        },
+        onError: (error: string) => {
+          message.error(`生成失败: ${error}`);
+          setSSEModalVisible(false);
+          setIsGenerating(false);
+        },
+        onComplete: () => {
+          message.success('大纲生成完成！');
+          setSSEModalVisible(false);
+          setIsGenerating(false);
+          // 刷新大纲列表
+          refreshOutlines();
+        }
       });
-      message.success(`成功生成 ${result.length} 条大纲`);
-      Modal.destroyAll();
-      // 刷新大纲列表，确保显示最新数据
-      await refreshOutlines();
+      
+      // 开始连接
+      client.connect();
+      
     } catch (error) {
       console.error('AI生成失败:', error);
       message.error('AI生成失败');
-    } finally {
+      setSSEModalVisible(false);
       setIsGenerating(false);
     }
   };
@@ -335,7 +372,38 @@ export default function Outline() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+    <>
+      {/* SSE进度Modal */}
+      <Modal
+        title="生成大纲中"
+        open={sseModalVisible}
+        footer={null}
+        closable={false}
+        centered
+        width={500}
+      >
+        <div style={{ padding: '20px 0' }}>
+          <Progress
+            percent={sseProgress}
+            status={sseProgress === 100 ? 'success' : 'active'}
+            strokeColor={{
+              '0%': '#108ee9',
+              '100%': '#87d068',
+            }}
+          />
+          <div style={{
+            marginTop: 16,
+            color: '#666',
+            fontSize: 14,
+            minHeight: 40,
+            lineHeight: '20px'
+          }}>
+            {sseMessage}
+          </div>
+        </div>
+      </Modal>
+
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* 固定头部 */}
       <div style={{
         position: 'sticky',
@@ -475,6 +543,7 @@ export default function Outline() {
         </Card>
         )}
       </div>
-    </div>
+      </div>
+    </>
   );
 }
