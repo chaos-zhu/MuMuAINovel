@@ -11,6 +11,31 @@ export interface User {
   last_login: string;
 }
 
+// 设置类型定义
+export interface Settings {
+  id: string;
+  user_id: string;
+  api_provider: string;
+  api_key: string;
+  api_base_url: string;
+  model_name: string;
+  temperature: number;
+  max_tokens: number;
+  preferences?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SettingsUpdate {
+  api_provider?: string;
+  api_key?: string;
+  api_base_url?: string;
+  model_name?: string;
+  temperature?: number;
+  max_tokens?: number;
+  preferences?: string;
+}
+
 // LinuxDO 授权 URL 响应
 export interface AuthUrlResponse {
   auth_url: string;

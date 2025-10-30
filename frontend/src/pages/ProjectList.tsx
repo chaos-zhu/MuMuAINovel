@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Button, Empty, Modal, message, Spin, Row, Col, Statistic, Space, Tag, Progress, Typography, Tooltip, Badge } from 'antd';
-import { EditOutlined, DeleteOutlined, BookOutlined, RocketOutlined, CalendarOutlined, FileTextOutlined, TrophyOutlined, FireOutlined } from '@ant-design/icons';
+import { EditOutlined, DeleteOutlined, BookOutlined, RocketOutlined, CalendarOutlined, FileTextOutlined, TrophyOutlined, FireOutlined, SettingOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import { useProjectSync } from '../store/hooks';
 import type { ReactNode } from 'react';
@@ -161,10 +161,35 @@ export default function ProjectList() {
                 style={{
                   borderRadius: 8,
                   background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                  border: 'none'
+                  border: 'none',
+                  boxShadow: '0 2px 8px rgba(102, 126, 234, 0.4)'
                 }}
               >
                 向导创建
+              </Button>
+              <Button
+                type="default"
+                size={window.innerWidth <= 768 ? 'middle' : 'large'}
+                icon={<SettingOutlined />}
+                onClick={() => navigate('/settings')}
+                style={{
+                  borderRadius: 8,
+                  borderColor: '#d9d9d9',
+                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                  transition: 'all 0.3s ease'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = '#667eea';
+                  e.currentTarget.style.color = '#667eea';
+                  e.currentTarget.style.boxShadow = '0 2px 12px rgba(102, 126, 234, 0.3)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = '#d9d9d9';
+                  e.currentTarget.style.color = 'rgba(0, 0, 0, 0.88)';
+                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
+                }}
+              >
+                API设置
               </Button>
               <UserMenu />
             </Col>

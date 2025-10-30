@@ -15,9 +15,10 @@ from app.schemas.character import (
     CharacterListResponse,
     CharacterGenerateRequest
 )
-from app.services.ai_service import ai_service
+from app.services.ai_service import AIService
 from app.services.prompt_service import prompt_service
 from app.logger import get_logger
+from app.api.settings import get_user_ai_service
 
 router = APIRouter(prefix="/characters", tags=["角色管理"])
 logger = get_logger(__name__)
@@ -134,7 +135,8 @@ async def delete_character(
 @router.post("/generate", response_model=CharacterResponse, summary="AI生成角色")
 async def generate_character(
     request: CharacterGenerateRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user_ai_service: AIService = Depends(get_user_ai_service)
 ):
     """
     使用AI生成角色卡
@@ -216,7 +218,7 @@ async def generate_character(
         logger.info(f"  - Prompt长度：{len(prompt)} 字符")
         
         try:
-            ai_response = await ai_service.generate_text(
+            ai_response = await user_ai_service.generate_text(
                 prompt=prompt,
                 provider=request.provider,
                 model=request.model

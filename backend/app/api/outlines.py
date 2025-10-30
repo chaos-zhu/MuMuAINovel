@@ -19,9 +19,10 @@ from app.schemas.outline import (
     OutlineGenerateRequest,
     OutlineReorderRequest
 )
-from app.services.ai_service import ai_service
+from app.services.ai_service import AIService
 from app.services.prompt_service import prompt_service
 from app.logger import get_logger
+from app.api.settings import get_user_ai_service
 
 router = APIRouter(prefix="/outlines", tags=["大纲管理"])
 logger = get_logger(__name__)
@@ -326,7 +327,8 @@ async def reorder_outlines(
 @router.post("/generate", response_model=OutlineListResponse, summary="AI生成/续写大纲")
 async def generate_outline(
     request: OutlineGenerateRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user_ai_service: AIService = Depends(get_user_ai_service)
 ):
     """
     使用AI生成或续写小说大纲 - 智能模式
@@ -363,7 +365,7 @@ async def generate_outline(
         # 模式：全新生成
         if actual_mode == "new":
             return await _generate_new_outline(
-                request, project, db
+                request, project, db, user_ai_service
             )
         
         # 模式：续写
@@ -375,7 +377,7 @@ async def generate_outline(
                 )
             
             return await _continue_outline(
-                request, project, existing_outlines, db
+                request, project, existing_outlines, db, user_ai_service
             )
         
         else:
@@ -394,7 +396,8 @@ async def generate_outline(
 async def _generate_new_outline(
     request: OutlineGenerateRequest,
     project: Project,
-    db: AsyncSession
+    db: AsyncSession,
+    user_ai_service: AIService
 ) -> OutlineListResponse:
     """全新生成大纲"""
     logger.info(f"全新生成大纲 - 项目: {project.id}, keep_existing: {request.keep_existing}")
@@ -427,7 +430,7 @@ async def _generate_new_outline(
     )
     
     # 调用AI
-    ai_response = await ai_service.generate_text(
+    ai_response = await user_ai_service.generate_text(
         prompt=prompt,
         provider=request.provider,
         model=request.model
@@ -473,7 +476,8 @@ async def _continue_outline(
     request: OutlineGenerateRequest,
     project: Project,
     existing_outlines: List[Outline],
-    db: AsyncSession
+    db: AsyncSession,
+    user_ai_service: AIService
 ) -> OutlineListResponse:
     """续写大纲"""
     logger.info(f"续写大纲 - 项目: {project.id}, 已有: {len(existing_outlines)} 章")
@@ -536,7 +540,7 @@ async def _continue_outline(
     )
     
     # 调用AI
-    ai_response = await ai_service.generate_text(
+    ai_response = await user_ai_service.generate_text(
         prompt=prompt,
         provider=request.provider,
         model=request.model

@@ -18,9 +18,10 @@ from app.schemas.chapter import (
     ChapterResponse,
     ChapterListResponse
 )
-from app.services.ai_service import ai_service
+from app.services.ai_service import AIService
 from app.services.prompt_service import prompt_service
 from app.logger import get_logger
+from app.api.settings import get_user_ai_service
 
 router = APIRouter(prefix="/chapters", tags=["章节管理"])
 logger = get_logger(__name__)
@@ -247,7 +248,8 @@ async def check_can_generate(
 @router.post("/{chapter_id}/generate", summary="AI创作章节内容")
 async def generate_chapter_content(
     chapter_id: str,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user_ai_service: AIService = Depends(get_user_ai_service)
 ):
     """
     根据大纲、前置章节内容和项目信息AI创作章节完整内容
@@ -372,7 +374,7 @@ async def generate_chapter_content(
         logger.info(f"开始AI创作章节 {chapter_id}")
         
         # 调用AI生成
-        ai_content = await ai_service.generate_text(
+        ai_content = await user_ai_service.generate_text(
             prompt=prompt
         )
         
@@ -410,7 +412,8 @@ async def generate_chapter_content(
 @router.post("/{chapter_id}/generate-stream", summary="AI创作章节内容（流式）")
 async def generate_chapter_content_stream(
     chapter_id: str,
-    request: Request
+    request: Request,
+    user_ai_service: AIService = Depends(get_user_ai_service)
 ):
     """
     根据大纲、前置章节内容和项目信息AI创作章节完整内容（流式返回）
@@ -569,7 +572,7 @@ async def generate_chapter_content_stream(
                 
                 # 流式生成内容
                 full_content = ""
-                async for chunk in ai_service.generate_text_stream(prompt=prompt):
+                async for chunk in user_ai_service.generate_text_stream(prompt=prompt):
                     full_content += chunk
                     yield f"data: {json.dumps({'type': 'content', 'content': chunk}, ensure_ascii=False)}\n\n"
                     await asyncio.sleep(0)  # 让出控制权

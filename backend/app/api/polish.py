@@ -5,9 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.database import get_db
 from app.models.generation_history import GenerationHistory
 from app.schemas.polish import PolishRequest, PolishResponse
-from app.services.ai_service import ai_service
+from app.services.ai_service import AIService
 from app.services.prompt_service import prompt_service
 from app.logger import get_logger
+from app.api.settings import get_user_ai_service
 
 router = APIRouter(prefix="/polish", tags=["AI去味"])
 logger = get_logger(__name__)
@@ -16,7 +17,8 @@ logger = get_logger(__name__)
 @router.post("", response_model=PolishResponse, summary="AI去味")
 async def polish_text(
     request: PolishRequest,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user_ai_service: AIService = Depends(get_user_ai_service)
 ):
     """
     AI去味 - 将AI生成的文本改写得更像人类作家的手笔
@@ -83,7 +85,8 @@ async def polish_batch(
     project_id: int = None,
     provider: str = None,
     model: str = None,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    user_ai_service: AIService = Depends(get_user_ai_service)
 ):
     """
     批量处理多个文本的AI去味
@@ -98,7 +101,7 @@ async def polish_batch(
             
             prompt = prompt_service.get_denoising_prompt(original_text=text)
             
-            polished_text = await ai_service.generate_text(
+            polished_text = await user_ai_service.generate_text(
                 prompt=prompt,
                 provider=provider,
                 model=model

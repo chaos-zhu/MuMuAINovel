@@ -23,6 +23,8 @@ import type {
   PolishTextRequest,
   GenerateCharactersResponse,
   GenerateOutlineResponse,
+  Settings,
+  SettingsUpdate,
 } from '../types';
 
 const api = axios.create({
@@ -122,6 +124,21 @@ export const userApi = {
   deleteUser: (userId: string) => api.delete(`/users/${userId}`),
   
   getUser: (userId: string) => api.get<unknown, User>(`/users/${userId}`),
+};
+
+export const settingsApi = {
+  getSettings: () => api.get<unknown, Settings>('/settings'),
+  
+  saveSettings: (data: SettingsUpdate) =>
+    api.post<unknown, Settings>('/settings', data),
+  
+  updateSettings: (data: SettingsUpdate) =>
+    api.put<unknown, Settings>('/settings', data),
+  
+  deleteSettings: () => api.delete<unknown, { message: string; user_id: string }>('/settings'),
+  
+  getAvailableModels: (params: { api_key: string; api_base_url: string; provider: string }) =>
+    api.get<unknown, { provider: string; models: Array<{ value: string; label: string; description: string }>; count?: number }>('/settings/models', { params }),
 };
 
 export const projectApi = {
