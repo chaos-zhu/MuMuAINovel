@@ -507,43 +507,6 @@ MuMuAINovel/
 - Swagger UI：`http://localhost:8000/docs`
 - ReDoc：`http://localhost:8000/redoc`
 
-## 🔧 开发指南
-
-### 后端开发
-
-```bash
-cd backend
-
-# 激活虚拟环境
-source .venv/bin/activate  # Linux/Mac
-# 或
-.venv\Scripts\activate     # Windows
-
-# 启动开发服务器（热重载）
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-```
-
-### 前端开发
-
-```bash
-cd frontend
-
-# 启动开发服务器
-npm run dev
-
-# 构建生产版本
-npm run build
-
-# 预览生产版本
-npm run preview
-```
-
-### 代码规范
-
-- **后端**：遵循 PEP 8 规范
-- **前端**：使用 ESLint + TypeScript 严格模式
-- **提交**：建议使用语义化提交信息
-
 ## 🤝 贡献
 
 欢迎提交 Issue 和 Pull Request！
