@@ -10,6 +10,7 @@ import Characters from './pages/Characters';
 import Relationships from './pages/Relationships';
 import Organizations from './pages/Organizations';
 import Chapters from './pages/Chapters';
+import WritingStyles from './pages/WritingStyles';
 import Settings from './pages/Settings';
 // import Polish from './pages/Polish';
 import Login from './pages/Login';
@@ -41,6 +42,7 @@ function App() {
             <Route path="relationships" element={<Relationships />} />
             <Route path="organizations" element={<Organizations />} />
             <Route path="chapters" element={<Chapters />} />
+            <Route path="writing-styles" element={<WritingStyles />} />
             {/* <Route path="polish" element={<Polish />} /> */}
           </Route>
         </Routes>

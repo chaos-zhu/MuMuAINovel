@@ -226,6 +226,62 @@ async def _init_relationship_types(user_id: str):
 
 
 
+async def _init_global_writing_styles(user_id: str):
+    """为指定用户初始化全局预设写作风格
+    
+    全局预设风格的 project_id 为 NULL，所有用户共享
+    只在第一次创建数据库时插入一次
+    
+    Args:
+        user_id: 用户ID
+    """
+    from app.models.writing_style import WritingStyle
+    from app.services.prompt_service import WritingStyleManager
+    
+    try:
+        engine = await get_engine(user_id)
+        AsyncSessionLocal = async_sessionmaker(
+            engine,
+            class_=AsyncSession,
+            expire_on_commit=False
+        )
+        
+        async with AsyncSessionLocal() as session:
+            # 检查是否已存在全局预设风格
+            result = await session.execute(
+                select(WritingStyle).where(WritingStyle.project_id.is_(None))
+            )
+            existing = result.scalars().first()
+            
+            if existing:
+                logger.info(f"用户 {user_id} 的全局预设风格已存在，跳过初始化")
+                return
+            
+            logger.info(f"开始为用户 {user_id} 插入全局预设写作风格...")
+            
+            # 获取所有预设风格配置
+            presets = WritingStyleManager.get_all_presets()
+            
+            for index, (preset_id, preset_data) in enumerate(presets.items(), start=1):
+                style = WritingStyle(
+                    project_id=None,  # NULL 表示全局预设
+                    name=preset_data["name"],
+                    style_type="preset",
+                    preset_id=preset_id,
+                    description=preset_data["description"],
+                    prompt_content=preset_data["prompt_content"],
+                    order_index=index
+                )
+                session.add(style)
+            
+            await session.commit()
+            logger.info(f"成功为用户 {user_id} 插入 {len(presets)} 个全局预设写作风格")
+            
+    except Exception as e:
+        logger.error(f"用户 {user_id} 初始化全局预设写作风格失败: {str(e)}", exc_info=True)
+        raise
+
+
 async def init_db(user_id: str):
     """初始化指定用户的数据库,创建所有表并插入预置数据
     
@@ -240,6 +296,7 @@ async def init_db(user_id: str):
             await conn.run_sync(Base.metadata.create_all)
         
         await _init_relationship_types(user_id)
+        await _init_global_writing_styles(user_id)
         
         logger.info(f"用户 {user_id} 的数据库初始化成功")
     except Exception as e:

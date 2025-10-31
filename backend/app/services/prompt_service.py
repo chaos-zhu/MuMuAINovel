@@ -1,6 +1,111 @@
 """提示词管理服务"""
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import json
+
+
+class WritingStyleManager:
+    """写作风格管理器"""
+    
+    # 预设风格配置
+    PRESET_STYLES = {
+        "natural": {
+            "name": "自然流畅",
+            "description": "像普通人讲故事一样自然，不刻意修饰，有生活气息",
+            "prompt_content": """
+**自然流畅风格要求：**
+- 用简单朴实的语言叙述，避免华丽辞藻
+- 像在和朋友聊天一样讲故事
+- 保持轻松自然的节奏，不要刻意营造氛围
+- 多用短句，少用长句和排比
+- 让读者感觉舒服，不要让人觉得在"看文学作品"
+"""
+        },
+        "classical": {
+            "name": "古典优雅",
+            "description": "典雅精致的文学风格，注重意境和韵味",
+            "prompt_content": """
+**古典优雅风格要求：**
+- 使用优美典雅的语言，注重文字的韵律感
+- 善用比喻、拟人等修辞手法
+- 注重意境营造，追求诗意美感
+- 可适当引用古诗词或典故（需符合世界观）
+- 保持端庄雅致的叙述节奏
+"""
+        },
+        "modern": {
+            "name": "现代简约",
+            "description": "简洁明快的现代风格，注重效率和直接表达",
+            "prompt_content": """
+**现代简约风格要求：**
+- 语言简洁有力，直达重点
+- 多用短句和短段落，节奏明快
+- 避免冗长描写，注重信息密度
+- 使用现代口语化表达
+- 情节推进快速，少做环境渲染
+"""
+        },
+        "poetic": {
+            "name": "诗意抒情",
+            "description": "富有诗意和情感张力的抒情风格",
+            "prompt_content": """
+**诗意抒情风格要求：**
+- 注重情感表达和内心描写
+- 善用景物描写烘托情绪
+- 语言富有韵律和美感
+- 细腻刻画人物心理活动
+- 营造情感氛围，引发共鸣
+"""
+        },
+        "concise": {
+            "name": "精炼利落",
+            "description": "惜字如金的简练风格，每个字都有意义",
+            "prompt_content": """
+**精炼利落风格要求：**
+- 删除所有冗余描写，每句话都要有作用
+- 多用动词，少用形容词和副词
+- 对话干脆利落，不拖泥带水
+- 环境描写点到为止
+- 用最少的字数传达最多的信息
+"""
+        },
+        "vivid": {
+            "name": "生动形象",
+            "description": "画面感强烈，让读者如临其境",
+            "prompt_content": """
+**生动形象风格要求：**
+- 注重细节描写，让场景具体可感
+- 调动五感（视觉、听觉、触觉、嗅觉、味觉）
+- 使用鲜明的比喻和形象化语言
+- 让读者能"看到"场景和动作
+- 人物表情、动作要具体生动
+"""
+        }
+    }
+    
+    @classmethod
+    def get_preset_style(cls, preset_id: str) -> Optional[Dict[str, str]]:
+        """获取预设风格配置"""
+        return cls.PRESET_STYLES.get(preset_id)
+    
+    @classmethod
+    def get_all_presets(cls) -> Dict[str, Dict[str, str]]:
+        """获取所有预设风格"""
+        return cls.PRESET_STYLES
+    
+    @staticmethod
+    def apply_style_to_prompt(base_prompt: str, style_content: str) -> str:
+        """
+        将写作风格应用到基础提示词中
+        
+        Args:
+            base_prompt: 基础提示词
+            style_content: 风格要求内容
+            
+        Returns:
+            组合后的提示词
+        """
+        # 在基础提示词末尾添加风格要求
+        return f"{base_prompt}\n\n{style_content}\n\n请直接输出章节正文内容，不要包含章节标题和其他说明文字。"
 
 
 class PromptService:
@@ -362,15 +467,6 @@ class PromptService:
 6. 字数不得低于3000字
 7. 语言自然流畅，避免AI痕迹
 
-**写作风格要求（重要）：**
-- 让故事自然流淌，写到哪算哪
-- 结尾处直接结束情节，不要加总结性段落
-- 不要在章节末尾写"这一天/这一夜就这样过去了"之类的总结句
-- 不要用"他/她陷入了沉思"作为结尾
-- 避免刻意的情感升华或哲理感悟收尾
-- 章节结尾可以戛然而止，可以是对话，可以是动作，可以是悬念
-- 就像在讲一个故事，讲完了就停，不需要画龙点睛
-
 请直接输出章节正文内容，不要包含章节标题和其他说明文字。"""
 
     # 章节完整创作提示词（带前置章节上下文）
@@ -428,15 +524,6 @@ class PromptService:
 5. **承上启下**：
 - 开头自然衔接上一章结尾
 - 结尾为下一章做好铺垫
-
-**写作风格要求（重要）：**
-- 让故事自然流淌，写到哪算哪
-- 结尾处直接结束情节，不要加总结性段落
-- 不要在章节末尾写"这一天/这一夜就这样过去了"之类的总结句
-- 不要用"他/她陷入了沉思"作为结尾
-- 避免刻意的情感升华或哲理感悟收尾
-- 章节结尾可以戛然而止，可以是对话，可以是动作，可以是悬念
-- 就像在讲一个故事，讲完了就停，不需要画龙点睛
 
 请直接输出章节正文内容，不要包含章节标题和其他说明文字。"""
 
@@ -662,9 +749,14 @@ class PromptService:
                                      location: str, atmosphere: str, rules: str,
                                      characters_info: str, outlines_context: str,
                                      chapter_number: int, chapter_title: str,
-                                     chapter_outline: str) -> str:
-        """获取章节完整创作提示词"""
-        return cls.format_prompt(
+                                     chapter_outline: str, style_content: str = "") -> str:
+        """
+        获取章节完整创作提示词
+        
+        Args:
+            style_content: 写作风格要求内容，如果提供则会追加到提示词中
+        """
+        base_prompt = cls.format_prompt(
             cls.CHAPTER_GENERATION,
             title=title,
             theme=theme,
@@ -680,6 +772,12 @@ class PromptService:
             chapter_title=chapter_title,
             chapter_outline=chapter_outline
         )
+        
+        # 如果有风格要求，应用到提示词中
+        if style_content:
+            return WritingStyleManager.apply_style_to_prompt(base_prompt, style_content)
+        
+        return base_prompt
     
     @classmethod
     def get_chapter_generation_with_context_prompt(cls, title: str, theme: str, genre: str,
@@ -687,9 +785,15 @@ class PromptService:
                                                    location: str, atmosphere: str, rules: str,
                                                    characters_info: str, outlines_context: str,
                                                    previous_content: str, chapter_number: int,
-                                                   chapter_title: str, chapter_outline: str) -> str:
-        """获取章节完整创作提示词（带前置章节上下文）"""
-        return cls.format_prompt(
+                                                   chapter_title: str, chapter_outline: str,
+                                                   style_content: str = "") -> str:
+        """
+        获取章节完整创作提示词（带前置章节上下文）
+        
+        Args:
+            style_content: 写作风格要求内容，如果提供则会追加到提示词中
+        """
+        base_prompt = cls.format_prompt(
             cls.CHAPTER_GENERATION_WITH_CONTEXT,
             title=title,
             theme=theme,
@@ -706,6 +810,12 @@ class PromptService:
             chapter_title=chapter_title,
             chapter_outline=chapter_outline
         )
+        
+        # 如果有风格要求，应用到提示词中
+        if style_content:
+            return WritingStyleManager.apply_style_to_prompt(base_prompt, style_content)
+        
+        return base_prompt
     
     @classmethod
     def get_outline_prompt(cls, genre: str, theme: str, target_words: int,

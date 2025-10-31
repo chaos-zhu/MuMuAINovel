@@ -25,6 +25,11 @@ import type {
   GenerateOutlineResponse,
   Settings,
   SettingsUpdate,
+  WritingStyle,
+  WritingStyleCreate,
+  WritingStyleUpdate,
+  PresetStyle,
+  WritingStyleListResponse,
 } from '../types';
 
 const api = axios.create({
@@ -208,9 +213,36 @@ export const chapterApi = {
   
   checkCanGenerate: (chapterId: string) =>
     api.get<unknown, import('../types').ChapterCanGenerateResponse>(`/chapters/${chapterId}/can-generate`),
+};
+
+export const writingStyleApi = {
+  // 获取预设风格列表
+  getPresetStyles: () =>
+    api.get<unknown, PresetStyle[]>('/writing-styles/presets/list'),
   
-  generateChapterContent: (chapterId: string) =>
-    api.post<unknown, { content: string }>(`/chapters/${chapterId}/generate`, {}),
+  // 获取项目的所有风格
+  getProjectStyles: (projectId: string) =>
+    api.get<unknown, WritingStyleListResponse>(`/writing-styles/project/${projectId}`),
+  
+  // 创建新风格（基于预设或自定义）
+  createStyle: (data: WritingStyleCreate) =>
+    api.post<unknown, WritingStyle>('/writing-styles', data),
+  
+  // 更新风格
+  updateStyle: (styleId: number, data: WritingStyleUpdate) =>
+    api.put<unknown, WritingStyle>(`/writing-styles/${styleId}`, data),
+  
+  // 删除风格
+  deleteStyle: (styleId: number) =>
+    api.delete<unknown, { message: string }>(`/writing-styles/${styleId}`),
+  
+  // 设置默认风格
+  setDefaultStyle: (styleId: number, projectId: string) =>
+    api.post<unknown, WritingStyle>(`/writing-styles/${styleId}/set-default`, { project_id: projectId }),
+  
+  // 为项目初始化默认风格（如果没有任何风格）
+  initializeDefaultStyles: (projectId: string) =>
+    api.post<unknown, WritingStyleListResponse>(`/writing-styles/project/${projectId}/initialize`, {}),
 };
 
 export const polishApi = {

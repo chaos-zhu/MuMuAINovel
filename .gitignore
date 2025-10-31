@@ -103,3 +103,6 @@ dmypy.json
 .ipynb_checkpoints
 
 data/
+docs/
+data_old/
+backend/migrate_all_databases.py

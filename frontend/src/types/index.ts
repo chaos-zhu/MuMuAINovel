@@ -298,6 +298,50 @@ export interface ApiResponse<T> {
   message?: string;
 }
 
+// 写作风格类型定义
+export interface WritingStyle {
+  id: number;
+  project_id: string;
+  name: string;
+  style_type: 'preset' | 'custom';
+  preset_id?: string;
+  description?: string;
+  prompt_content: string;
+  is_default: boolean;
+  order_index: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WritingStyleCreate {
+  project_id: string;
+  name: string;
+  style_type: 'preset' | 'custom';
+  preset_id?: string;
+  description?: string;
+  prompt_content: string;
+  is_default?: boolean;
+}
+
+export interface WritingStyleUpdate {
+  name?: string;
+  description?: string;
+  prompt_content?: string;
+  order_index?: number;
+}
+
+export interface PresetStyle {
+  id: string;
+  name: string;
+  description: string;
+  prompt_content: string;
+}
+
+export interface WritingStyleListResponse {
+  styles: WritingStyle[];
+  total: number;
+}
+
 export interface PaginationResponse<T> {
   items: T[];
   total: number;

@@ -12,6 +12,8 @@ from app.models.character import Character
 from app.models.outline import Outline
 from app.models.chapter import Chapter
 from app.models.relationship import CharacterRelationship, Organization, OrganizationMember, RelationshipType
+from app.models.writing_style import WritingStyle
+from app.models.project_default_style import ProjectDefaultStyle
 from app.services.ai_service import AIService
 from app.services.prompt_service import prompt_service
 from app.logger import get_logger
@@ -132,8 +134,32 @@ async def world_building_generator(
         )
         db.add(project)
         await db.commit()
-        db_committed = True
         await db.refresh(project)
+        
+        # 自动设置默认写作风格为第一个全局预设风格
+        try:
+            result = await db.execute(
+                select(WritingStyle).where(
+                    WritingStyle.project_id.is_(None),
+                    WritingStyle.order_index == 1
+                ).limit(1)
+            )
+            first_style = result.scalar_one_or_none()
+            
+            if first_style:
+                default_style = ProjectDefaultStyle(
+                    project_id=project.id,
+                    style_id=first_style.id
+                )
+                db.add(default_style)
+                await db.commit()
+                logger.info(f"为项目 {project.id} 自动设置默认风格: {first_style.name}")
+            else:
+                logger.warning(f"未找到order_index=1的全局预设风格，项目 {project.id} 未设置默认风格")
+        except Exception as e:
+            logger.warning(f"设置默认写作风格失败: {e}，不影响项目创建")
+        
+        db_committed = True
         
         # 发送最终结果
         yield await SSEResponse.send_result({

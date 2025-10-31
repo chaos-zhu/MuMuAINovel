@@ -40,6 +40,7 @@ async def create_project(
         await db.commit()
         await db.refresh(db_project)
         logger.info(f"项目创建成功: {db_project.id}")
+        
         return db_project
     except Exception as e:
         logger.error(f"创建项目失败: {str(e)}", exc_info=True)
