@@ -13,7 +13,7 @@ class SettingsBase(BaseModel):
     api_base_url: Optional[str] = Field(default=None, description="自定义API地址")
     model_name: Optional[str] = Field(default="gpt-4", description="模型名称")
     temperature: Optional[float] = Field(default=0.7, ge=0.0, le=2.0, description="温度参数")
-    max_tokens: Optional[int] = Field(default=2000, ge=1, le=32000, description="最大token数")
+    max_tokens: Optional[int] = Field(default=2000, ge=1, description="最大token数")
     preferences: Optional[str] = Field(default=None, description="其他偏好设置(JSON)")
 
 

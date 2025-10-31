@@ -480,14 +480,13 @@ export default function SettingsPage() {
                   name="max_tokens"
                   rules={[
                     { required: true, message: '请输入最大token数' },
-                    { type: 'number', min: 1, max: 32000, message: '请输入1-32000之间的数字' }
+                    { type: 'number', min: 1, message: '请输入大于0的数字' }
                   ]}
                 >
                   <InputNumber
                     size={isMobile ? 'middle' : 'large'}
                     style={{ width: '100%' }}
                     min={1}
-                    max={32000}
                     placeholder="2000"
                   />
                 </Form.Item>

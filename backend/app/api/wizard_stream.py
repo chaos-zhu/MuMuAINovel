@@ -732,22 +732,22 @@ async def outline_generator(
     db: AsyncSession,
     user_ai_service: AIService
 ) -> AsyncGenerator[str, None]:
-    """大纲生成流式生成器 - 向导固定生成前8章作为开局"""
+    """大纲生成流式生成器 - 向导固定生成前5章作为开局"""
     db_committed = False
     try:
         yield await SSEResponse.send_progress("开始生成大纲...", 5)
         
         project_id = data.get("project_id")
-        # 向导固定生成8章，忽略传入的chapter_count
-        chapter_count = 8
+        # 向导固定生成5章，忽略传入的chapter_count
+        chapter_count = 5
         narrative_perspective = data.get("narrative_perspective")
         target_words = data.get("target_words", 100000)
         requirements = data.get("requirements", "")
         provider = data.get("provider")
         model = data.get("model")
         
-        # 8章一次性生成，不需要分批
-        BATCH_SIZE = 8
+        # 5章一次性生成，不需要分批
+        BATCH_SIZE = 5
         MAX_RETRIES = 3
         
         # 获取项目信息
@@ -809,7 +809,7 @@ async def outline_generator(
                         previous_context += f"\n请确保第{start_chapter}-{end_chapter}章与前文情节自然衔接,保持故事连贯性。\n"
                     
                     # 向导专用的开局大纲要求
-                    batch_requirements = f"{requirements}\n\n【重要说明】这是小说的开局部分，请生成前8章大纲，重点关注：\n"
+                    batch_requirements = f"{requirements}\n\n【重要说明】这是小说的开局部分，请生成前5章大纲，重点关注：\n"
                     batch_requirements += "1. 引入主要角色和世界观设定\n"
                     batch_requirements += "2. 建立主线冲突和故事钩子\n"
                     batch_requirements += "3. 展开初期情节，为后续发展埋下伏笔\n"
@@ -820,9 +820,9 @@ async def outline_generator(
                         title=project.title,
                         theme=project.theme or "未设定",
                         genre=project.genre or "通用",
-                        chapter_count=8,  # 固定8章
+                        chapter_count=5,  # 固定5章
                         narrative_perspective=narrative_perspective,
-                        target_words=target_words // 10,  # 开局约占总字数的1/10
+                        target_words=target_words // 20,  # 开局约占总字数的1/20
                         time_period=project.world_time_period or "未设定",
                         location=project.world_location or "未设定",
                         atmosphere=project.world_atmosphere or "未设定",
@@ -940,8 +940,8 @@ async def outline_generator(
             )
             db.add(chapter)
         
-        # 更新项目（向导固定生成8章作为开局）
-        project.chapter_count = 8
+        # 更新项目（向导固定生成5章作为开局）
+        project.chapter_count = 5
         project.narrative_perspective = narrative_perspective
         project.target_words = target_words
         project.status = "writing"
