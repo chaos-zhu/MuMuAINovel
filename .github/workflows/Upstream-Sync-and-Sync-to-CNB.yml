@@ -1,0 +1,57 @@
+name: Upstream Sync and Sync to CNB
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    # 每6小时运行一次
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  # 第一个任务：同步上游仓库
+  sync_with_upstream:
+    name: Sync with Upstream
+    runs-on: ubuntu-latest
+    if: ${{ github.event.repository.fork }}
+    steps:
+      - name: Checkout target repo
+        uses: actions/checkout@v3
+
+      - name: Sync Upstream
+        uses: aormsby/Fork-Sync-With-Upstream-action@v3.4
+        with:
+          target_repo_token: ${{ secrets.GITHUB_TOKEN }}
+          upstream_sync_repo: xiamuceer-j/MuMuAINovel
+          upstream_sync_branch: main
+          target_sync_branch: main
+          test_mode: false
+
+      - name: Check for Failure
+        if: failure()
+        run: |
+          echo "[Error] Due to a change in the workflow file of the upstream repository, GitHub has automatically suspended the scheduled automatic update. You need to manually sync your fork."
+          exit 1
+
+  # 第二个任务：在第一个任务完成后执行
+  sync_to_cnb:
+    name: Sync to CNB Repository
+    runs-on: ubuntu-latest
+    needs: sync_with_upstream   # 等待上游同步任务完成
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Sync to CNB Repository
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:${{ github.workspace }} \
+            -w ${{ github.workspace }} \
+            -e PLUGIN_TARGET_URL="https://cnb.cool/chaoszhu/MuMuAINovel.git" \
+            -e PLUGIN_AUTH_TYPE="https" \
+            -e PLUGIN_USERNAME="cnb" \
+            -e PLUGIN_PASSWORD=${{ secrets.CNB_ACCESS_TOKEN }} \
+            -e PLUGIN_SYNC_MODE="rebase" \
+            tencentcom/git-sync
