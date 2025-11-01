@@ -4,8 +4,8 @@ name: Sync to CNB
 on:
   push:
   schedule:
-    # 每5小时运行一次
-    - cron: "0 */5 * * *"
+    # 每6小时运行一次
+    - cron: "0 */6 * * *"
   workflow_dispatch:
 
 jobs:
