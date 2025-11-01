@@ -1,15 +1,18 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Form, Input, Button, Select, Slider, InputNumber, message, Space, Typography, Spin, Modal, Tooltip, Alert } from 'antd';
+import { Card, Form, Input, Button, Select, Slider, InputNumber, message, Space, Typography, Spin, Modal, Tooltip, Alert, Grid } from 'antd';
 import { SettingOutlined, SaveOutlined, DeleteOutlined, ReloadOutlined, ArrowLeftOutlined, InfoCircleOutlined} from '@ant-design/icons';
 import { settingsApi } from '../services/api';
 import type { SettingsUpdate } from '../types';
 
 const { Title, Paragraph } = Typography;
 const { Option } = Select;
+const { useBreakpoint } = Grid;
 
 export default function SettingsPage() {
   const navigate = useNavigate();
+  const screens = useBreakpoint();
+  const isMobile = !screens.md; // md断点是768px
   const [form] = Form.useForm();
   const [loading, setLoading] = useState(false);
   const [initialLoading, setInitialLoading] = useState(true);
@@ -179,34 +182,62 @@ export default function SettingsPage() {
     <div style={{
       minHeight: '100vh',
       background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      padding: window.innerWidth <= 768 ? '20px 16px' : '40px 24px'
+      padding: isMobile ? '16px 12px' : '40px 24px'
     }}>
-      <div style={{ maxWidth: 800, margin: '0 auto' }}>
+      <div style={{
+        maxWidth: isMobile ? '100%' : 800,
+        margin: '0 auto'
+      }}>
         <Card
           variant="borderless"
           style={{
             background: 'rgba(255, 255, 255, 0.95)',
-            borderRadius: window.innerWidth <= 768 ? 12 : 16,
+            borderRadius: isMobile ? 12 : 16,
             boxShadow: '0 8px 32px rgba(0, 0, 0, 0.1)',
           }}
+          styles={{
+            body: {
+              padding: isMobile ? '16px' : '24px'
+            }
+          }}
         >
-          <Space direction="vertical" size="large" style={{ width: '100%' }}>
+          <Space direction="vertical" size={isMobile ? 'middle' : 'large'} style={{ width: '100%' }}>
             {/* 标题栏 */}
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-              <Space>
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              flexWrap: 'wrap',
+              gap: '8px'
+            }}>
+              <Space size={isMobile ? 'small' : 'middle'}>
                 <Button
                   icon={<ArrowLeftOutlined />}
                   onClick={() => navigate('/')}
                   type="text"
+                  size={isMobile ? 'middle' : 'large'}
                 />
-                <Title level={window.innerWidth <= 768 ? 3 : 2} style={{ margin: 0 }}>
+                <Title
+                  level={isMobile ? 4 : 2}
+                  style={{
+                    margin: 0,
+                    fontSize: isMobile ? '18px' : undefined
+                  }}
+                >
                   <SettingOutlined style={{ marginRight: 8, color: '#667eea' }} />
-                  AI API 设置
+                  {isMobile ? 'API 设置' : 'AI API 设置'}
                 </Title>
               </Space>
             </div>
 
-            <Paragraph type="secondary" style={{ marginBottom: 0 }}>
+            <Paragraph
+              type="secondary"
+              style={{
+                marginBottom: 0,
+                fontSize: isMobile ? '13px' : '14px',
+                lineHeight: isMobile ? '1.5' : '1.6'
+              }}
+            >
               配置你的AI API接口参数，这些设置将用于小说生成、角色创建等AI功能。
             </Paragraph>
 
@@ -215,7 +246,7 @@ export default function SettingsPage() {
               <Alert
                 message="使用 .env 文件中的默认配置"
                 description={
-                  <div>
+                  <div style={{ fontSize: isMobile ? '12px' : '14px' }}>
                     <p style={{ margin: '8px 0' }}>
                       当前显示的是从服务器 <code>.env</code> 文件读取的默认配置。
                     </p>
@@ -226,7 +257,7 @@ export default function SettingsPage() {
                 }
                 type="info"
                 showIcon
-                style={{ marginBottom: 16 }}
+                style={{ marginBottom: isMobile ? 12 : 16 }}
               />
             )}
 
@@ -236,7 +267,7 @@ export default function SettingsPage() {
                 message="使用已保存的个人配置"
                 type="success"
                 showIcon
-                style={{ marginBottom: 16 }}
+                style={{ marginBottom: isMobile ? 12 : 16 }}
               />
             )}
 
@@ -250,17 +281,17 @@ export default function SettingsPage() {
               >
                 <Form.Item
                   label={
-                    <Space>
+                    <Space size={4}>
                       <span>API 提供商</span>
                       <Tooltip title="选择你的AI服务提供商">
-                        <InfoCircleOutlined style={{ color: '#8c8c8c' }} />
+                        <InfoCircleOutlined style={{ color: '#8c8c8c', fontSize: isMobile ? '12px' : '14px' }} />
                       </Tooltip>
                     </Space>
                   }
                   name="api_provider"
                   rules={[{ required: true, message: '请选择API提供商' }]}
                 >
-                  <Select size="large" onChange={handleProviderChange}>
+                  <Select size={isMobile ? 'middle' : 'large'} onChange={handleProviderChange}>
                     {apiProviders.map(provider => (
                       <Option key={provider.value} value={provider.value}>
                         {provider.label}
@@ -271,10 +302,10 @@ export default function SettingsPage() {
 
                 <Form.Item
                   label={
-                    <Space>
+                    <Space size={4}>
                       <span>API 密钥</span>
                       <Tooltip title="你的API密钥，将加密存储">
-                        <InfoCircleOutlined style={{ color: '#8c8c8c' }} />
+                        <InfoCircleOutlined style={{ color: '#8c8c8c', fontSize: isMobile ? '12px' : '14px' }} />
                       </Tooltip>
                     </Space>
                   }
@@ -282,7 +313,7 @@ export default function SettingsPage() {
                   rules={[{ required: true, message: '请输入API密钥' }]}
                 >
                   <Input.Password
-                    size="large"
+                    size={isMobile ? 'middle' : 'large'}
                     placeholder="sk-..."
                     autoComplete="new-password"
                   />
@@ -290,10 +321,10 @@ export default function SettingsPage() {
 
                 <Form.Item
                   label={
-                    <Space>
+                    <Space size={4}>
                       <span>API 地址</span>
                       <Tooltip title="API的基础URL地址">
-                        <InfoCircleOutlined style={{ color: '#8c8c8c' }} />
+                        <InfoCircleOutlined style={{ color: '#8c8c8c', fontSize: isMobile ? '12px' : '14px' }} />
                       </Tooltip>
                     </Space>
                   }
@@ -304,17 +335,17 @@ export default function SettingsPage() {
                   ]}
                 >
                   <Input
-                    size="large"
+                    size={isMobile ? 'middle' : 'large'}
                     placeholder="https://api.openai.com/v1"
                   />
                 </Form.Item>
 
                 <Form.Item
                   label={
-                    <Space>
+                    <Space size={4}>
                       <span>模型名称</span>
                       <Tooltip title="AI模型的名称，如 gpt-4, gpt-3.5-turbo">
-                        <InfoCircleOutlined style={{ color: '#8c8c8c' }} />
+                        <InfoCircleOutlined style={{ color: '#8c8c8c', fontSize: isMobile ? '12px' : '14px' }} />
                       </Tooltip>
                     </Space>
                   }
@@ -322,9 +353,9 @@ export default function SettingsPage() {
                   rules={[{ required: true, message: '请输入或选择模型名称' }]}
                 >
                   <Select
-                    size="large"
+                    size={isMobile ? 'middle' : 'large'}
                     showSearch
-                    placeholder="输入模型名称或点击获取"
+                    placeholder={isMobile ? "选择模型" : "输入模型名称或点击获取"}
                     optionFilterProp="label"
                     loading={fetchingModels}
                     onFocus={handleModelSelectFocus}
@@ -336,17 +367,17 @@ export default function SettingsPage() {
                       <>
                         {menu}
                         {fetchingModels && (
-                          <div style={{ padding: '8px 12px', color: '#8c8c8c', textAlign: 'center' }}>
+                          <div style={{ padding: '8px 12px', color: '#8c8c8c', textAlign: 'center', fontSize: isMobile ? '12px' : '14px' }}>
                             <Spin size="small" /> 正在获取模型列表...
                           </div>
                         )}
                         {!fetchingModels && modelOptions.length === 0 && modelsFetched && (
-                          <div style={{ padding: '8px 12px', color: '#ff4d4f', textAlign: 'center' }}>
+                          <div style={{ padding: '8px 12px', color: '#ff4d4f', textAlign: 'center', fontSize: isMobile ? '12px' : '14px' }}>
                             未能获取到模型列表，请检查 API 配置
                           </div>
                         )}
                         {!fetchingModels && modelOptions.length === 0 && !modelsFetched && (
-                          <div style={{ padding: '8px 12px', color: '#8c8c8c', textAlign: 'center' }}>
+                          <div style={{ padding: '8px 12px', color: '#8c8c8c', textAlign: 'center', fontSize: isMobile ? '12px' : '14px' }}>
                             点击输入框自动获取模型列表
                           </div>
                         )}
@@ -354,44 +385,46 @@ export default function SettingsPage() {
                     )}
                     notFoundContent={
                       fetchingModels ? (
-                        <div style={{ padding: '8px 12px', textAlign: 'center' }}>
+                        <div style={{ padding: '8px 12px', textAlign: 'center', fontSize: isMobile ? '12px' : '14px' }}>
                           <Spin size="small" /> 加载中...
                         </div>
                       ) : (
-                        <div style={{ padding: '8px 12px', color: '#8c8c8c', textAlign: 'center' }}>
+                        <div style={{ padding: '8px 12px', color: '#8c8c8c', textAlign: 'center', fontSize: isMobile ? '12px' : '14px' }}>
                           未找到匹配的模型
                         </div>
                       )
                     }
                     suffixIcon={
-                      <div
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (!fetchingModels) {
-                            setModelsFetched(false);
-                            handleFetchModels(false);
-                          }
-                        }}
-                        style={{
-                          cursor: fetchingModels ? 'not-allowed' : 'pointer',
-                          display: 'flex',
-                          alignItems: 'center',
-                          padding: '0 4px',
-                          height: '100%',
-                          marginRight: -8
-                        }}
-                        title="重新获取模型列表"
-                      >
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<ReloadOutlined />}
-                          loading={fetchingModels}
-                          style={{ pointerEvents: 'none' }}
+                      !isMobile ? (
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (!fetchingModels) {
+                              setModelsFetched(false);
+                              handleFetchModels(false);
+                            }
+                          }}
+                          style={{
+                            cursor: fetchingModels ? 'not-allowed' : 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            padding: '0 4px',
+                            height: '100%',
+                            marginRight: -8
+                          }}
+                          title="重新获取模型列表"
                         >
-                          刷新
-                        </Button>
-                      </div>
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<ReloadOutlined />}
+                            loading={fetchingModels}
+                            style={{ pointerEvents: 'none' }}
+                          >
+                            刷新
+                          </Button>
+                        </div>
+                      ) : undefined
                     }
                     options={modelOptions.map(model => ({
                       value: model.value,
@@ -400,9 +433,9 @@ export default function SettingsPage() {
                     }))}
                     optionRender={(option) => (
                       <div>
-                        <div style={{ fontWeight: 500 }}>{option.data.label}</div>
+                        <div style={{ fontWeight: 500, fontSize: isMobile ? '13px' : '14px' }}>{option.data.label}</div>
                         {option.data.description && (
-                          <div style={{ fontSize: '12px', color: '#8c8c8c' }}>
+                          <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#8c8c8c', marginTop: '2px' }}>
                             {option.data.description}
                           </div>
                         )}
@@ -413,10 +446,10 @@ export default function SettingsPage() {
 
                 <Form.Item
                   label={
-                    <Space>
+                    <Space size={4}>
                       <span>温度参数</span>
                       <Tooltip title="控制输出的随机性，值越高越随机（0.0-2.0）">
-                        <InfoCircleOutlined style={{ color: '#8c8c8c' }} />
+                        <InfoCircleOutlined style={{ color: '#8c8c8c', fontSize: isMobile ? '12px' : '14px' }} />
                       </Tooltip>
                     </Space>
                   }
@@ -427,75 +460,118 @@ export default function SettingsPage() {
                     max={2}
                     step={0.1}
                     marks={{
-                      0: '0.0',
-                      0.7: '0.7',
-                      1: '1.0',
-                      2: '2.0'
+                      0: { style: { fontSize: isMobile ? '11px' : '12px' }, label: '0.0' },
+                      0.7: { style: { fontSize: isMobile ? '11px' : '12px' }, label: '0.7' },
+                      1: { style: { fontSize: isMobile ? '11px' : '12px' }, label: '1.0' },
+                      2: { style: { fontSize: isMobile ? '11px' : '12px' }, label: '2.0' }
                     }}
                   />
                 </Form.Item>
 
                 <Form.Item
                   label={
-                    <Space>
+                    <Space size={4}>
                       <span>最大 Token 数</span>
                       <Tooltip title="单次请求的最大token数量">
-                        <InfoCircleOutlined style={{ color: '#8c8c8c' }} />
+                        <InfoCircleOutlined style={{ color: '#8c8c8c', fontSize: isMobile ? '12px' : '14px' }} />
                       </Tooltip>
                     </Space>
                   }
                   name="max_tokens"
                   rules={[
                     { required: true, message: '请输入最大token数' },
-                    { type: 'number', min: 1, max: 32000, message: '请输入1-32000之间的数字' }
+                    { type: 'number', min: 1, message: '请输入大于0的数字' }
                   ]}
                 >
                   <InputNumber
-                    size="large"
+                    size={isMobile ? 'middle' : 'large'}
                     style={{ width: '100%' }}
                     min={1}
-                    max={32000}
                     placeholder="2000"
                   />
                 </Form.Item>
 
                 {/* 操作按钮 */}
-                <Form.Item style={{ marginBottom: 0, marginTop: 32 }}>
-                  <Space size="middle" style={{ width: '100%', justifyContent: 'space-between' }}>
-                    <Space>
+                <Form.Item style={{ marginBottom: 0, marginTop: isMobile ? 24 : 32 }}>
+                  {isMobile ? (
+                    // 移动端：垂直堆叠布局
+                    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
                       <Button
                         type="primary"
                         size="large"
                         icon={<SaveOutlined />}
                         htmlType="submit"
                         loading={loading}
+                        block
                         style={{
                           background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                          border: 'none'
+                          border: 'none',
+                          height: '44px'
                         }}
                       >
                         保存设置
                       </Button>
-                      <Button
-                        size="large"
-                        icon={<ReloadOutlined />}
-                        onClick={handleReset}
-                      >
-                        重置
-                      </Button>
+                      <Space size="middle" style={{ width: '100%' }}>
+                        <Button
+                          size="large"
+                          icon={<ReloadOutlined />}
+                          onClick={handleReset}
+                          style={{ flex: 1, height: '44px' }}
+                        >
+                          重置
+                        </Button>
+                        {hasSettings && (
+                          <Button
+                            danger
+                            size="large"
+                            icon={<DeleteOutlined />}
+                            onClick={handleDelete}
+                            loading={loading}
+                            style={{ flex: 1, height: '44px' }}
+                          >
+                            删除
+                          </Button>
+                        )}
+                      </Space>
                     </Space>
-                    {hasSettings && (
-                      <Button
-                        danger
-                        size="large"
-                        icon={<DeleteOutlined />}
-                        onClick={handleDelete}
-                        loading={loading}
-                      >
-                        删除设置
-                      </Button>
-                    )}
-                  </Space>
+                  ) : (
+                    // 桌面端：原有的水平布局
+                    <Space size="middle" style={{ width: '100%', justifyContent: 'space-between' }}>
+                      <Space>
+                        <Button
+                          type="primary"
+                          size="large"
+                          icon={<SaveOutlined />}
+                          htmlType="submit"
+                          loading={loading}
+                          style={{
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            border: 'none'
+                          }}
+                        >
+                          保存设置
+                        </Button>
+                        <Button
+                          size="large"
+                          icon={<ReloadOutlined />}
+                          onClick={handleReset}
+                        >
+                          重置
+                        </Button>
+                      </Space>
+                      {hasSettings && (
+                        <Button
+                          danger
+                          size="large"
+                          icon={<DeleteOutlined />}
+                          onClick={handleDelete}
+                          loading={loading}
+                        >
+                          删除设置
+                        </Button>
+                      )}
+                    </Space>
+                  )}
                 </Form.Item>
               </Form>
             </Spin>

@@ -685,6 +685,7 @@ export default function ProjectWizardNew() {
                       rules: worldBuilding.rules,
                     });
                   }}
+                  disabled={isEditingWorld}
                   size={isMobile ? 'middle' : 'middle'}
                   style={isMobile ? { minWidth: 100 } : undefined}
                 >
@@ -696,10 +697,12 @@ export default function ProjectWizardNew() {
                   onConfirm={handleRegenerateWorldBuilding}
                   okText="确定"
                   cancelText="取消"
+                  disabled={isEditingWorld}
                 >
                   <Button
                     icon={<RedoOutlined />}
                     loading={isRegeneratingWorld}
+                    disabled={isEditingWorld}
                     size={isMobile ? 'middle' : 'middle'}
                     style={isMobile ? { minWidth: 100 } : undefined}
                   >
@@ -771,6 +774,7 @@ export default function ProjectWizardNew() {
                 size="large"
                 block
                 onClick={handlePrev}
+                disabled={isEditingWorld}
                 style={{ height: isMobile ? 44 : 40 }}
               >
                 上一步
@@ -1019,12 +1023,12 @@ export default function ProjectWizardNew() {
           <Text strong style={{ marginLeft: 24 }}>目标字数：</Text>{basicInfo.target_words?.toLocaleString()} 字
         </Paragraph>
         <Paragraph type="secondary">
-          向导将为您生成前8章的开局大纲，建立故事框架和主要冲突。后续您可以在大纲管理页面继续扩展故事。
+          向导将为您生成前5章的开局大纲，建立故事框架和主要冲突。后续您可以在大纲管理页面继续扩展故事。
         </Paragraph>
       </div>
 
       <Form layout="vertical" onFinish={() => handleGenerateOutline({
-        chapter_count: 8,  // 固定8章
+        chapter_count: 5,  // 固定5章
         narrative_perspective: basicInfo.narrative_perspective,
         target_words: basicInfo.target_words
       })}>
@@ -1048,7 +1052,7 @@ export default function ProjectWizardNew() {
               loading={loading}
               style={{ height: isMobile ? 44 : 40 }}
             >
-              {loading ? '生成开局大纲（8章）' : '生成开局大纲（8章）'}
+              {loading ? '生成开局大纲（5章）' : '生成开局大纲（5章）'}
             </Button>
           </Col>
         </Row>
@@ -1086,7 +1090,7 @@ export default function ProjectWizardNew() {
           paddingLeft: isMobile ? 8 : 0,
           paddingRight: isMobile ? 8 : 0
         }}>
-          《{basicInfo.title}》已成功创建，包含{characters.length}个角色和8章开局大纲
+          《{basicInfo.title}》已成功创建，包含{characters.length}个角色和5章开局大纲
         </Paragraph>
         
         <Space

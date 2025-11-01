@@ -55,3 +55,8 @@ class ChapterListResponse(BaseModel):
     """章节列表响应模型"""
     total: int
     items: list[ChapterResponse]
+
+
+class ChapterGenerateRequest(BaseModel):
+    """AI生成章节内容的请求模型"""
+    style_id: Optional[int] = Field(None, description="写作风格ID，不提供则不使用任何风格")

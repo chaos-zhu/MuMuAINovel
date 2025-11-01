@@ -3,8 +3,8 @@ import { List, Button, Modal, Form, Input, Select, message, Empty, Space, Badge,
 import { EditOutlined, FileTextOutlined, ThunderboltOutlined, LockOutlined, DownloadOutlined, SettingOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import { useChapterSync } from '../store/hooks';
-import { projectApi } from '../services/api';
-import type { Chapter, ChapterUpdate, ApiError } from '../types';
+import { projectApi, writingStyleApi } from '../services/api';
+import type { Chapter, ChapterUpdate, ApiError, WritingStyle } from '../types';
 import { cardStyles } from '../components/CardStyles';
 
 const { TextArea } = Input;
@@ -20,6 +20,8 @@ export default function Chapters() {
   const [editorForm] = Form.useForm();
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const contentTextAreaRef = useRef<any>(null);
+  const [writingStyles, setWritingStyles] = useState<WritingStyle[]>([]);
+  const [selectedStyleId, setSelectedStyleId] = useState<number | undefined>();
 
   useEffect(() => {
     const handleResize = () => {
@@ -39,9 +41,28 @@ export default function Chapters() {
   useEffect(() => {
     if (currentProject?.id) {
       refreshChapters();
+      loadWritingStyles();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProject?.id]);
+
+  const loadWritingStyles = async () => {
+    if (!currentProject?.id) return;
+    
+    try {
+      const response = await writingStyleApi.getProjectStyles(currentProject.id);
+      setWritingStyles(response.styles);
+      
+      // 设置默认风格为初始选中
+      const defaultStyle = response.styles.find(s => s.is_default);
+      if (defaultStyle) {
+        setSelectedStyleId(defaultStyle.id);
+      }
+    } catch (error) {
+      console.error('加载写作风格失败:', error);
+      message.error('加载写作风格失败');
+    }
+  };
 
   if (!currentProject) return null;
 
@@ -146,7 +167,7 @@ export default function Chapters() {
             textArea.scrollTop = textArea.scrollHeight;
           }
         }
-      });
+      }, selectedStyleId);
       
       message.success('AI创作成功');
     } catch (error) {
@@ -163,6 +184,8 @@ export default function Chapters() {
       c => c.chapter_number < chapter.chapter_number
     ).sort((a, b) => a.chapter_number - b.chapter_number);
 
+    const selectedStyle = writingStyles.find(s => s.id === selectedStyleId);
+
     const modal = Modal.confirm({
       title: 'AI创作章节内容',
       width: 700,
@@ -175,6 +198,9 @@ export default function Chapters() {
             <li>项目的世界观设定</li>
             <li>相关角色信息</li>
             <li><strong>前面已完成章节的内容（确保剧情连贯）</strong></li>
+            {selectedStyle && (
+              <li><strong>写作风格：{selectedStyle.name}</strong></li>
+            )}
           </ul>
           
           {previousChapters.length > 0 && (
@@ -219,6 +245,17 @@ export default function Chapters() {
         });
         
         try {
+          if (!selectedStyleId) {
+            message.error('请先选择写作风格');
+            modal.update({
+              okButtonProps: { danger: true, loading: false },
+              cancelButtonProps: { disabled: false },
+              closable: true,
+              maskClosable: true,
+              keyboard: true,
+            });
+            return;
+          }
           await handleGenerate();
           modal.destroy();
         } catch (error) {
@@ -524,6 +561,35 @@ export default function Chapters() {
                 );
               })()}
             </Space.Compact>
+          </Form.Item>
+
+          <Form.Item
+            label="写作风格"
+            tooltip="选择AI创作时使用的写作风格，可在写作风格菜单中管理"
+            required
+          >
+            <Select
+              placeholder="请选择写作风格"
+              value={selectedStyleId}
+              onChange={setSelectedStyleId}
+              size="large"
+              disabled={isGenerating}
+              style={{ width: '100%' }}
+              status={!selectedStyleId ? 'error' : undefined}
+            >
+              {writingStyles.map(style => (
+                <Select.Option key={style.id} value={style.id}>
+                  {style.name}
+                  {style.is_default && ' (默认)'}
+                  {style.description && ` - ${style.description}`}
+                </Select.Option>
+              ))}
+            </Select>
+            {!selectedStyleId && (
+              <div style={{ color: '#ff4d4f', fontSize: 12, marginTop: 4 }}>
+                请选择写作风格
+              </div>
+            )}
           </Form.Item>
 
           <Form.Item label="章节内容" name="content">

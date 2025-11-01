@@ -12,6 +12,7 @@ import {
   MenuUnfoldOutlined,
   ApartmentOutlined,
   BankOutlined,
+  EditOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../store';
 import { useCharacterSync, useOutlineSync, useChapterSync } from '../store/hooks';
@@ -121,6 +122,11 @@ export default function ProjectDetail() {
       icon: <BookOutlined />,
       label: <Link to={`/project/${projectId}/chapters`}>章节管理</Link>,
     },
+    {
+      key: 'writing-styles',
+      icon: <EditOutlined />,
+      label: <Link to={`/project/${projectId}/writing-styles`}>写作风格</Link>,
+    },
     // {
     //   key: 'polish',
     //   icon: <ToolOutlined />,
@@ -137,6 +143,7 @@ export default function ProjectDetail() {
     if (path.includes('/outline')) return 'outline';
     if (path.includes('/characters')) return 'characters';
     if (path.includes('/chapters')) return 'chapters';
+    if (path.includes('/writing-styles')) return 'writing-styles';
     // if (path.includes('/polish')) return 'polish';
     return 'world-setting'; // 默认选中世界设定
   }, [location.pathname]);

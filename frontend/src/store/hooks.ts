@@ -298,24 +298,11 @@ export function useChapterSync() {
     }
   }, [removeChapter]);
 
-  // AI生成章节内容（带同步）
-  const generateChapterContent = useCallback(async (chapterId: string) => {
-    try {
-      const result = await chapterApi.generateChapterContent(chapterId);
-      // 直接调用 API 更新
-      const updated = await chapterApi.updateChapter(chapterId, { content: result.content });
-      updateChapter(chapterId, updated);
-      return result;
-    } catch (error) {
-      console.error('AI生成章节内容失败:', error);
-      throw error;
-    }
-  }, [updateChapter]);
-
   // AI流式生成章节内容（带同步）
   const generateChapterContentStream = useCallback(async (
     chapterId: string,
-    onProgress?: (content: string) => void
+    onProgress?: (content: string) => void,
+    styleId?: number
   ) => {
     try {
       // 使用fetch处理流式响应
@@ -324,6 +311,7 @@ export function useChapterSync() {
         headers: {
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify(styleId ? { style_id: styleId } : {}),
       });
 
       if (!response.ok) {
@@ -394,7 +382,6 @@ export function useChapterSync() {
     createChapter,
     updateChapter: updateChapterSync,
     deleteChapter,
-    generateChapterContent,
     generateChapterContentStream,
   };
 }

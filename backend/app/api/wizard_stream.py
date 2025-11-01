@@ -12,6 +12,8 @@ from app.models.character import Character
 from app.models.outline import Outline
 from app.models.chapter import Chapter
 from app.models.relationship import CharacterRelationship, Organization, OrganizationMember, RelationshipType
+from app.models.writing_style import WritingStyle
+from app.models.project_default_style import ProjectDefaultStyle
 from app.services.ai_service import AIService
 from app.services.prompt_service import prompt_service
 from app.logger import get_logger
@@ -132,8 +134,32 @@ async def world_building_generator(
         )
         db.add(project)
         await db.commit()
-        db_committed = True
         await db.refresh(project)
+        
+        # 自动设置默认写作风格为第一个全局预设风格
+        try:
+            result = await db.execute(
+                select(WritingStyle).where(
+                    WritingStyle.project_id.is_(None),
+                    WritingStyle.order_index == 1
+                ).limit(1)
+            )
+            first_style = result.scalar_one_or_none()
+            
+            if first_style:
+                default_style = ProjectDefaultStyle(
+                    project_id=project.id,
+                    style_id=first_style.id
+                )
+                db.add(default_style)
+                await db.commit()
+                logger.info(f"为项目 {project.id} 自动设置默认风格: {first_style.name}")
+            else:
+                logger.warning(f"未找到order_index=1的全局预设风格，项目 {project.id} 未设置默认风格")
+        except Exception as e:
+            logger.warning(f"设置默认写作风格失败: {e}，不影响项目创建")
+        
+        db_committed = True
         
         # 发送最终结果
         yield await SSEResponse.send_result({
@@ -706,22 +732,22 @@ async def outline_generator(
     db: AsyncSession,
     user_ai_service: AIService
 ) -> AsyncGenerator[str, None]:
-    """大纲生成流式生成器 - 向导固定生成前8章作为开局"""
+    """大纲生成流式生成器 - 向导固定生成前5章作为开局"""
     db_committed = False
     try:
         yield await SSEResponse.send_progress("开始生成大纲...", 5)
         
         project_id = data.get("project_id")
-        # 向导固定生成8章，忽略传入的chapter_count
-        chapter_count = 8
+        # 向导固定生成5章，忽略传入的chapter_count
+        chapter_count = 5
         narrative_perspective = data.get("narrative_perspective")
         target_words = data.get("target_words", 100000)
         requirements = data.get("requirements", "")
         provider = data.get("provider")
         model = data.get("model")
         
-        # 8章一次性生成，不需要分批
-        BATCH_SIZE = 8
+        # 5章一次性生成，不需要分批
+        BATCH_SIZE = 5
         MAX_RETRIES = 3
         
         # 获取项目信息
@@ -783,7 +809,7 @@ async def outline_generator(
                         previous_context += f"\n请确保第{start_chapter}-{end_chapter}章与前文情节自然衔接,保持故事连贯性。\n"
                     
                     # 向导专用的开局大纲要求
-                    batch_requirements = f"{requirements}\n\n【重要说明】这是小说的开局部分，请生成前8章大纲，重点关注：\n"
+                    batch_requirements = f"{requirements}\n\n【重要说明】这是小说的开局部分，请生成前5章大纲，重点关注：\n"
                     batch_requirements += "1. 引入主要角色和世界观设定\n"
                     batch_requirements += "2. 建立主线冲突和故事钩子\n"
                     batch_requirements += "3. 展开初期情节，为后续发展埋下伏笔\n"
@@ -794,9 +820,9 @@ async def outline_generator(
                         title=project.title,
                         theme=project.theme or "未设定",
                         genre=project.genre or "通用",
-                        chapter_count=8,  # 固定8章
+                        chapter_count=5,  # 固定5章
                         narrative_perspective=narrative_perspective,
-                        target_words=target_words // 10,  # 开局约占总字数的1/10
+                        target_words=target_words // 20,  # 开局约占总字数的1/20
                         time_period=project.world_time_period or "未设定",
                         location=project.world_location or "未设定",
                         atmosphere=project.world_atmosphere or "未设定",
@@ -914,8 +940,8 @@ async def outline_generator(
             )
             db.add(chapter)
         
-        # 更新项目（向导固定生成8章作为开局）
-        project.chapter_count = 8
+        # 更新项目（向导固定生成5章作为开局）
+        project.chapter_count = 5
         project.narrative_perspective = narrative_perspective
         project.target_words = target_words
         project.status = "writing"

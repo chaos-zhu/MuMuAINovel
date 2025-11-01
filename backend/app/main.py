@@ -7,18 +7,18 @@ from fastapi.exceptions import RequestValidationError
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from app.config import settings
+from app.config import settings as config_settings
 from app.database import close_db, _session_stats
 from app.logger import setup_logging, get_logger
 from app.middleware import RequestIDMiddleware
 from app.middleware.auth_middleware import AuthMiddleware
 
 setup_logging(
-    level=settings.log_level,
-    log_to_file=settings.log_to_file,
-    log_file_path=settings.log_file_path,
-    max_bytes=settings.log_max_bytes,
-    backup_count=settings.log_backup_count
+    level=config_settings.log_level,
+    log_to_file=config_settings.log_to_file,
+    log_file_path=config_settings.log_file_path,
+    max_bytes=config_settings.log_max_bytes,
+    backup_count=config_settings.log_backup_count
 )
 logger = get_logger(__name__)
 
@@ -34,8 +34,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title=settings.app_name,
-    version=settings.app_version,
+    title=config_settings.app_name,
+    version=config_settings.app_version,
     description="AI写小说工具 - 智能小说创作助手",
     lifespan=lifespan
 )
@@ -60,14 +60,14 @@ async def global_exception_handler(request: Request, exc: Exception):
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
             "detail": "服务器内部错误",
-            "message": str(exc) if settings.debug else "请稍后重试"
+            "message": str(exc) if config_settings.debug else "请稍后重试"
         }
     )
 
 app.add_middleware(RequestIDMiddleware)
 app.add_middleware(AuthMiddleware)
 
-if settings.debug:
+if config_settings.debug:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
@@ -78,7 +78,7 @@ if settings.debug:
 else:
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.cors_origins,
+        allow_origins=config_settings.cors_origins,
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
@@ -114,7 +114,7 @@ async def db_session_stats():
 from app.api import (
     projects, outlines, characters, chapters,
     wizard_stream, relationships, organizations,
-    auth, users, settings
+    auth, users, settings, writing_styles
 )
 
 app.include_router(auth.router, prefix="/api")
@@ -128,6 +128,7 @@ app.include_router(characters.router, prefix="/api")
 app.include_router(chapters.router, prefix="/api")
 app.include_router(relationships.router, prefix="/api")
 app.include_router(organizations.router, prefix="/api")
+app.include_router(writing_styles.router, prefix="/api")
 
 static_dir = Path(__file__).parent.parent / "static"
 if static_dir.exists():
@@ -161,7 +162,7 @@ else:
     async def root():
         return {
             "message": "欢迎使用AI Story Creator",
-            "version": settings.app_version,
+            "version": config_settings.app_version,
             "docs": "/docs",
             "notice": "请先构建前端: cd frontend && npm run build"
         }
@@ -171,7 +172,7 @@ if __name__ == "__main__":
     import uvicorn
     uvicorn.run(
         "app.main:app",
-        host=settings.app_host,
-        port=settings.app_port,
-        reload=settings.debug
+        host=config_settings.app_host,
+        port=config_settings.app_port,
+        reload=config_settings.debug
     )
