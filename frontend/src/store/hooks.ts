@@ -302,7 +302,8 @@ export function useChapterSync() {
   const generateChapterContentStream = useCallback(async (
     chapterId: string,
     onProgress?: (content: string) => void,
-    styleId?: number
+    styleId?: number,
+    targetWordCount?: number
   ) => {
     try {
       // 使用fetch处理流式响应
@@ -311,7 +312,10 @@ export function useChapterSync() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify(styleId ? { style_id: styleId } : {}),
+        body: JSON.stringify({
+          style_id: styleId,
+          target_word_count: targetWordCount
+        }),
       });
 
       if (!response.ok) {

@@ -260,6 +260,7 @@ async def characters_generator(
             # 重试逻辑
             retry_count = 0
             batch_success = False
+            batch_error_message = ""
             
             while retry_count < MAX_RETRIES and not batch_success:
                 try:
@@ -326,37 +327,24 @@ async def characters_generator(
                     if not isinstance(characters_data, list):
                         characters_data = [characters_data]
                     
-                    # 验证生成数量是否精确
+                    # 严格验证生成数量是否精确匹配
                     if len(characters_data) != current_batch_size:
-                        logger.warning(f"批次{batch_idx+1}生成数量不匹配: 期望{current_batch_size}, 实际{len(characters_data)}")
+                        error_msg = f"批次{batch_idx+1}生成数量不正确: 期望{current_batch_size}个, 实际{len(characters_data)}个"
+                        logger.error(error_msg)
                         
-                        # 如果数量不足,重试
-                        if len(characters_data) < current_batch_size:
-                            if retry_count < MAX_RETRIES - 1:
-                                retry_count += 1
-                                yield await SSEResponse.send_progress(
-                                    f"⚠️ 生成数量不足(期望{current_batch_size},实际{len(characters_data)}),准备重试...",
-                                    batch_progress,
-                                    "warning"
-                                )
-                                continue
-                            else:
-                                # 最后一次重试仍不足，记录但继续使用
-                                logger.warning(f"批次{batch_idx+1}多次重试后仍数量不足，使用当前结果")
-                                yield await SSEResponse.send_progress(
-                                    f"⚠️ 批次{batch_idx+1}生成{len(characters_data)}个（期望{current_batch_size}），继续处理",
-                                    batch_progress,
-                                    "warning"
-                                )
-                        # 如果数量过多,只取需要的数量并发出警告
-                        else:
-                            logger.warning(f"批次{batch_idx+1}生成过多角色({len(characters_data)}>{current_batch_size}),将只取前{current_batch_size}个")
+                        # 如果还有重试机会，继续重试
+                        if retry_count < MAX_RETRIES - 1:
+                            retry_count += 1
                             yield await SSEResponse.send_progress(
-                                f"⚠️ AI生成过多，截取前{current_batch_size}个角色",
+                                f"⚠️ {error_msg}，准备重试...",
                                 batch_progress,
                                 "warning"
                             )
-                            characters_data = characters_data[:current_batch_size]
+                            continue
+                        else:
+                            # 最后一次重试仍失败，直接返回错误
+                            yield await SSEResponse.send_error(error_msg)
+                            return
                     
                     all_characters.extend(characters_data)
                     batch_success = True
@@ -364,6 +352,7 @@ async def characters_generator(
                     
                 except json.JSONDecodeError as e:
                     logger.error(f"批次{batch_idx+1}解析失败(尝试{retry_count+1}/{MAX_RETRIES}): {e}")
+                    batch_error_message = f"JSON解析失败: {str(e)}"
                     retry_count += 1
                     if retry_count < MAX_RETRIES:
                         yield await SSEResponse.send_progress(
@@ -371,14 +360,9 @@ async def characters_generator(
                             batch_progress,
                             "warning"
                         )
-                    else:
-                        yield await SSEResponse.send_progress(
-                            f"批次{batch_idx+1}多次重试失败，跳过",
-                            batch_progress,
-                            "warning"
-                        )
                 except Exception as e:
                     logger.error(f"批次{batch_idx+1}生成异常(尝试{retry_count+1}/{MAX_RETRIES}): {e}")
+                    batch_error_message = f"生成异常: {str(e)}"
                     retry_count += 1
                     if retry_count < MAX_RETRIES:
                         yield await SSEResponse.send_progress(
@@ -386,16 +370,15 @@ async def characters_generator(
                             batch_progress,
                             "warning"
                         )
-                    else:
-                        yield await SSEResponse.send_progress(
-                            f"批次{batch_idx+1}多次重试失败，跳过",
-                            batch_progress,
-                            "warning"
-                        )
-        
-        if not all_characters:
-            yield await SSEResponse.send_error("所有批次都生成失败，请重试")
-            return
+            
+            # 检查批次是否成功
+            if not batch_success:
+                error_msg = f"批次{batch_idx+1}在{MAX_RETRIES}次重试后仍然失败"
+                if batch_error_message:
+                    error_msg += f": {batch_error_message}"
+                logger.error(error_msg)
+                yield await SSEResponse.send_error(error_msg)
+                return
         
         # 保存到数据库 - 分阶段处理以保证一致性
         yield await SSEResponse.send_progress("验证角色数据...", 82)
@@ -664,6 +647,10 @@ async def characters_generator(
         logger.info(f"  - 创建组织详情：{len(organization_name_to_obj)} 个")
         logger.info(f"  - 创建角色关系：{relationships_created} 条")
         logger.info(f"  - 创建组织成员：{members_created} 条")
+        
+        # 更新项目的角色数量
+        project.character_count = len(created_characters)
+        logger.info(f"✅ 更新项目角色数量: {project.character_count}")
         
         await db.commit()
         db_committed = True

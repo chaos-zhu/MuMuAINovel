@@ -38,7 +38,7 @@
 - [✔] **自定义写作风格** - 支持自定义AI写作风格和语言风格
 - [ ] **支持数据导入导出** - 支持项目数据的导入和导出功能
 - [ ] **添加prompt调整界面** - 提供可视化的prompt模板编辑和调整界面
-- [ ] **开放章节内容字数限制** - 支持用户在生成章节内容时设置字数 @wyf007
+- [✔] **开放章节内容字数限制** - 支持用户在生成章节内容时设置字数 @wyf007
 - [ ] **设定追溯与矛盾检测** - 对大纲、世界观、角色档案中的设定支持悬停查看注释，显示相关章节来源和佐证原文；自动检测新章节与已有设定的矛盾（吃书），标记为"矛盾"设定并提供解决建议，当新设定解决矛盾后自动更新注释说明 @lulujiang
 - [ ] **思维链与章节关系图谱** - 为每章建立思维链，总结与上文的逻辑关系、明暗线发展；可选的章节关系满图功能，自动识别和标注伏笔埋设与揭晓、角色出场与呼应等内在联系，帮助提升小说结构的紧密性和连贯性 @lulujiang
 
@@ -209,40 +209,6 @@ networks:
 
 访问地址：`http://your-server-ip:8800`
 
-#### 4. 反向代理配置（Nginx）
-
-推荐使用 Nginx 配置 HTTPS：
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-    return 301 https://$server_name$request_uri;
-}
-
-server {
-    listen 443 ssl http2;
-    server_name your-domain.com;
-
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-
-    location / {
-        proxy_pass http://localhost:8800;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto $scheme;
-        
-        # 支持 SSE（服务器推送事件）
-        proxy_buffering off;
-        proxy_cache off;
-        proxy_set_header Connection '';
-        proxy_http_version 1.1;
-        chunked_transfer_encoding off;
-    }
-}
-```
 
 配置后记得更新 `.env` 中的 `LINUXDO_REDIRECT_URI` 和 `FRONTEND_URL`。
 
@@ -282,9 +248,6 @@ services:
 OPENAI_API_KEY=your_openai_key_here
 OPENAI_BASE_URL=https://api.openai.com/v1
 
-# Google Gemini 配置（推荐，免费额度大）
-# GEMINI_API_KEY=your_gemini_key_here
-
 # Anthropic 配置
 # ANTHROPIC_API_KEY=your_anthropic_key_here
 # ANTHROPIC_BASE_URL=https://api.anthropic.com
@@ -293,18 +256,6 @@ OPENAI_BASE_URL=https://api.openai.com/v1
 # New API 中转服务
 # OPENAI_API_KEY=your_newapi_key_here
 # OPENAI_BASE_URL=https://api.new-api.com/v1
-
-# API2D 中转服务
-# OPENAI_API_KEY=your_api2d_key_here
-# OPENAI_BASE_URL=https://api.api2d.com/v1
-
-# OpenAI-SB 中转服务
-# OPENAI_API_KEY=your_openai_sb_key_here
-# OPENAI_BASE_URL=https://api.openai-sb.com/v1
-
-# 其他支持 OpenAI 格式的中转服务
-# OPENAI_API_KEY=your_api_key_here
-# OPENAI_BASE_URL=https://your-api-proxy.com/v1
 
 # 默认 AI 提供商和模型
 DEFAULT_AI_PROVIDER=openai
@@ -330,6 +281,12 @@ LOCAL_AUTH_ENABLED=true
 LOCAL_AUTH_USERNAME=admin
 LOCAL_AUTH_PASSWORD=your_secure_password_here
 LOCAL_AUTH_DISPLAY_NAME=管理员
+
+# 会话配置
+# 会话过期时间（分钟），默认120分钟（2小时）
+SESSION_EXPIRE_MINUTES=120
+# 会话刷新阈值（分钟），剩余时间少于此值时可刷新，默认30分钟
+SESSION_REFRESH_THRESHOLD_MINUTES=30
 
 # ===== CORS 配置（生产环境）=====
 # CORS_ORIGINS=https://your-domain.com,https://www.your-domain.com

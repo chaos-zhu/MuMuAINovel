@@ -115,6 +115,8 @@ export const authApi = {
   
   getCurrentUser: () => api.get<unknown, User>('/auth/user'),
   
+  refreshSession: () => api.post<unknown, { message: string; expire_at: number; remaining_minutes: number }>('/auth/refresh'),
+  
   logout: () => api.post('/auth/logout'),
 };
 
@@ -144,6 +146,20 @@ export const settingsApi = {
   
   getAvailableModels: (params: { api_key: string; api_base_url: string; provider: string }) =>
     api.get<unknown, { provider: string; models: Array<{ value: string; label: string; description: string }>; count?: number }>('/settings/models', { params }),
+  
+  testApiConnection: (params: { api_key: string; api_base_url: string; provider: string; model_name: string }) =>
+    api.post<unknown, {
+      success: boolean;
+      message: string;
+      response_time_ms?: number;
+      provider?: string;
+      model?: string;
+      response_preview?: string;
+      details?: Record<string, boolean>;
+      error?: string;
+      error_type?: string;
+      suggestions?: string[];
+    }>('/settings/test', params),
 };
 
 export const projectApi = {

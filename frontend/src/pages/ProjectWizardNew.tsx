@@ -25,6 +25,7 @@ export default function ProjectWizardNew() {
   const [form] = Form.useForm();
   const [characterForm] = Form.useForm();
   const [worldForm] = Form.useForm();
+  const [generateForm] = Form.useForm();
   const [current, setCurrent] = useState(0);
   const [loading, setLoading] = useState(false);
   const [isResumingWizard, setIsResumingWizard] = useState(false);
@@ -814,11 +815,85 @@ export default function ProjectWizardNew() {
     return (
       <Card>
         <div style={{ marginBottom: 16 }}>
-          <Title level={isMobile ? 5 : 4} style={{ margin: 0, fontSize: isMobile ? 16 : undefined }}>
-            角色与组织列表 (当前: {safeCharacters.length}个，目标: {requiredCharacterCount}个)
-          </Title>
+          <div style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: isMobile ? 'flex-start' : 'center',
+            marginBottom: 12,
+            flexDirection: isMobile ? 'column' : 'row',
+            gap: isMobile ? 12 : 0
+          }}>
+            <Title level={isMobile ? 5 : 4} style={{ margin: 0, fontSize: isMobile ? 16 : undefined }}>
+              角色与组织列表 (当前: {safeCharacters.length}个，目标: {requiredCharacterCount}个)
+            </Title>
+            <Button
+              type="dashed"
+              icon={<TeamOutlined />}
+              onClick={() => {
+                Modal.confirm({
+                  title: 'AI生成角色',
+                  width: 600,
+                  centered: true,
+                  content: (
+                    <Form form={generateForm} layout="vertical" style={{ marginTop: 16 }}>
+                      <Form.Item
+                        label="角色名称"
+                        name="name"
+                      >
+                        <Input placeholder="如：张三、李四（可选，AI会自动生成）" />
+                      </Form.Item>
+                      <Form.Item
+                        label="角色定位"
+                        name="role_type"
+                        rules={[{ required: true, message: '请选择角色定位' }]}
+                      >
+                        <Select placeholder="选择角色定位">
+                          <Select.Option value="protagonist">主角</Select.Option>
+                          <Select.Option value="supporting">配角</Select.Option>
+                          <Select.Option value="antagonist">反派</Select.Option>
+                        </Select>
+                      </Form.Item>
+                      <Form.Item label="背景设定" name="background">
+                        <TextArea rows={3} placeholder="简要描述角色背景和故事环境..." />
+                      </Form.Item>
+                    </Form>
+                  ),
+                  okText: '生成',
+                  cancelText: '取消',
+                  onOk: async () => {
+                    try {
+                      const values = await generateForm.validateFields();
+                      setLoading(true);
+                      
+                      // 调用单个角色生成API
+                      const newCharacter = await characterApi.generateCharacter({
+                        project_id: projectId,
+                        name: values.name,
+                        role_type: values.role_type,
+                        background: values.background,
+                      });
+                      
+                      // 添加到列表
+                      setCharacters([...safeCharacters, newCharacter]);
+                      message.success('AI生成角色成功');
+                      generateForm.resetFields();
+                    } catch (error) {
+                      const apiError = error as ApiError;
+                      message.error('AI生成失败：' + (apiError.response?.data?.detail || apiError.message || '未知错误'));
+                    } finally {
+                      setLoading(false);
+                    }
+                  }
+                });
+              }}
+              disabled={loading}
+              size={isMobile ? 'middle' : 'middle'}
+            >
+              AI生成角色
+            </Button>
+          </div>
           <Paragraph type="secondary" style={{ margin: '8px 0 0 0', fontSize: isMobile ? 12 : 14 }}>
-            所有角色均由AI生成，您可以点击卡片上的编辑按钮进行调整
+            所有角色均由AI生成，您可以点击卡片上的编辑按钮进行调整，或使用"AI生成角色"按钮继续生成
           </Paragraph>
         </div>
 

@@ -328,9 +328,9 @@ export default function WritingStyles() {
           createForm.resetFields();
         }}
         footer={null}
-        centered={!isMobile}
-        width={isMobile ? '100%' : 600}
-        style={isMobile ? { top: 0, paddingBottom: 0, maxWidth: '100vw' } : undefined}
+        centered
+        width={isMobile ? 'calc(100vw - 32px)' : 600}
+        style={isMobile ? { maxWidth: 'calc(100vw - 32px)', margin: '0 16px' } : undefined}
       >
         <Form
           form={createForm}
@@ -387,9 +387,9 @@ export default function WritingStyles() {
           setEditingStyle(null);
         }}
         footer={null}
-        centered={!isMobile}
-        width={isMobile ? '100%' : 600}
-        style={isMobile ? { top: 0, paddingBottom: 0, maxWidth: '100vw' } : undefined}
+        centered
+        width={isMobile ? 'calc(100vw - 32px)' : 600}
+        style={isMobile ? { maxWidth: 'calc(100vw - 32px)', margin: '0 16px' } : undefined}
       >
         <Form form={editForm} layout="vertical" onFinish={handleUpdate} style={{ marginTop: 16 }}>
           <Form.Item

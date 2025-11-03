@@ -6,11 +6,19 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from typing import Optional
 import hashlib
+from datetime import datetime, timedelta, timezone
 from app.services.oauth_service import LinuxDOOAuthService
 from app.user_manager import user_manager
 from app.database import init_db
 from app.logger import get_logger
 from app.config import settings
+
+# 中国时区 UTC+8
+CHINA_TZ = timezone(timedelta(hours=8))
+
+def get_china_now():
+    """获取中国当前时间"""
+    return datetime.now(CHINA_TZ)
 
 logger = get_logger(__name__)
 
@@ -84,12 +92,28 @@ async def local_login(request: LocalLoginRequest, response: Response):
     except Exception as e:
         logger.error(f"本地用户 {user.user_id} 数据库初始化失败: {e}")
     
-    # 设置 Cookie（7天有效）
+    # 设置 Cookie（2小时有效）
+    max_age = settings.SESSION_EXPIRE_MINUTES * 60
     response.set_cookie(
         key="user_id",
         value=user.user_id,
-        max_age=7 * 24 * 60 * 60,  # 7天
+        max_age=max_age,
         httponly=True,
+        samesite="lax"
+    )
+    
+    # 设置过期时间戳 Cookie（用于前端判断）
+    china_now = get_china_now()
+    expire_time = china_now + timedelta(minutes=settings.SESSION_EXPIRE_MINUTES)
+    expire_at = int(expire_time.timestamp())
+    
+    logger.info(f"✅ [登录] 用户 {user.user_id} 登录成功，会话有效期 {settings.SESSION_EXPIRE_MINUTES} 分钟")
+    
+    response.set_cookie(
+        key="session_expire_at",
+        value=str(expire_at),
+        max_age=max_age,
+        httponly=False,  # 前端需要读取
         samesite="lax"
     )
     
@@ -180,12 +204,28 @@ async def _handle_callback(
     logger.info(f"OAuth回调成功，重定向到前端: {redirect_url}")
     redirect_response = RedirectResponse(url=redirect_url)
     
-    # 设置 httponly Cookie（7天有效）
+    # 设置 httponly Cookie（2小时有效）
+    max_age = settings.SESSION_EXPIRE_MINUTES * 60
     redirect_response.set_cookie(
         key="user_id",
         value=user.user_id,
-        max_age=7 * 24 * 60 * 60,  # 7天
+        max_age=max_age,
         httponly=True,
+        samesite="lax"
+    )
+    
+    # 设置过期时间戳 Cookie（用于前端判断）
+    china_now = get_china_now()
+    expire_time = china_now + timedelta(minutes=settings.SESSION_EXPIRE_MINUTES)
+    expire_at = int(expire_time.timestamp())
+    
+    logger.info(f"✅ [OAuth登录] 用户 {user.user_id} 登录成功，会话有效期 {settings.SESSION_EXPIRE_MINUTES} 分钟")
+    
+    redirect_response.set_cookie(
+        key="session_expire_at",
+        value=str(expire_at),
+        max_age=max_age,
+        httponly=False,  # 前端需要读取
         samesite="lax"
     )
     
@@ -214,10 +254,80 @@ async def callback_alias(
     return await _handle_callback(code, state, error, response)
 
 
+@router.post("/refresh")
+async def refresh_session(request: Request, response: Response):
+    """刷新会话 - 延长登录状态"""
+    # 检查是否已登录
+    if not hasattr(request.state, "user") or not request.state.user:
+        raise HTTPException(status_code=401, detail="未登录，无法刷新会话")
+    
+    user = request.state.user
+    
+    # 检查当前会话是否即将过期（剩余时间少于阈值）
+    session_expire_at = request.cookies.get("session_expire_at")
+    if session_expire_at:
+        try:
+            expire_timestamp = int(session_expire_at)
+            current_timestamp = int(get_china_now().timestamp())
+            remaining_minutes = (expire_timestamp - current_timestamp) / 60
+            
+            # 如果剩余时间大于刷新阈值，不需要刷新
+            if remaining_minutes > settings.SESSION_REFRESH_THRESHOLD_MINUTES:
+                logger.info(f"⏱️ [刷新会话] 用户 {user.user_id} 会话仍有效，剩余 {int(remaining_minutes)} 分钟")
+                return {
+                    "message": "会话仍然有效，无需刷新",
+                    "remaining_minutes": int(remaining_minutes),
+                    "expire_at": expire_timestamp
+                }
+        except (ValueError, TypeError):
+            pass  # Cookie 格式错误，继续刷新
+    
+    # 刷新 Cookie
+    max_age = settings.SESSION_EXPIRE_MINUTES * 60
+    response.set_cookie(
+        key="user_id",
+        value=user.user_id,
+        max_age=max_age,
+        httponly=True,
+        samesite="lax"
+    )
+    
+    # 更新过期时间戳
+    china_now = get_china_now()
+    expire_time = china_now + timedelta(minutes=settings.SESSION_EXPIRE_MINUTES)
+    expire_at = int(expire_time.timestamp())
+    
+    logger.info(f"[刷新会话] 用户: {user.user_id}")
+    logger.info(f"[刷新会话] 中国当前时间: {china_now.strftime('%Y-%m-%d %H:%M:%S')} (UTC+8)")
+    logger.info(f"[刷新会话] 中国过期时间: {expire_time.strftime('%Y-%m-%d %H:%M:%S')} (UTC+8)")
+    logger.info(f"[刷新会话] 过期时间戳 (秒): {expire_at}")
+    logger.info(f"[刷新会话] Cookie max_age (秒): {max_age}")
+    
+    response.set_cookie(
+        key="session_expire_at",
+        value=str(expire_at),
+        max_age=max_age,
+        httponly=False,
+        samesite="lax"
+    )
+    
+    logger.info(f"用户 {user.user_id} 刷新会话成功")
+    return {
+        "message": "会话刷新成功",
+        "expire_at": expire_at,
+        "remaining_minutes": settings.SESSION_EXPIRE_MINUTES
+    }
+
+
 @router.post("/logout")
-async def logout(response: Response):
+async def logout(request: Request, response: Response):
     """退出登录"""
+    user_id = getattr(request.state, 'user_id', None)
+    if user_id:
+        logger.info(f"🚪 [退出] 用户 {user_id} 退出登录")
+    
     response.delete_cookie("user_id")
+    response.delete_cookie("session_expire_at")
     return {"message": "退出登录成功"}
 
 

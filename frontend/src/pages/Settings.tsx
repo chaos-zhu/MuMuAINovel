@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Form, Input, Button, Select, Slider, InputNumber, message, Space, Typography, Spin, Modal, Tooltip, Alert, Grid } from 'antd';
-import { SettingOutlined, SaveOutlined, DeleteOutlined, ReloadOutlined, ArrowLeftOutlined, InfoCircleOutlined} from '@ant-design/icons';
+import { SettingOutlined, SaveOutlined, DeleteOutlined, ReloadOutlined, ArrowLeftOutlined, InfoCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { settingsApi } from '../services/api';
 import type { SettingsUpdate } from '../types';
 
@@ -21,6 +21,17 @@ export default function SettingsPage() {
   const [modelOptions, setModelOptions] = useState<Array<{ value: string; label: string; description: string }>>([]);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [modelsFetched, setModelsFetched] = useState(false);
+  const [testingApi, setTestingApi] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    success: boolean;
+    message: string;
+    response_time_ms?: number;
+    response_preview?: string;
+    error?: string;
+    error_type?: string;
+    suggestions?: string[];
+  } | null>(null);
+  const [showTestResult, setShowTestResult] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -175,6 +186,52 @@ export default function SettingsPage() {
     // 如果还没有获取过模型列表，自动获取
     if (!modelsFetched && !fetchingModels) {
       handleFetchModels(true); // silent模式，不显示成功消息
+    }
+  };
+
+  const handleTestConnection = async () => {
+    const apiKey = form.getFieldValue('api_key');
+    const apiBaseUrl = form.getFieldValue('api_base_url');
+    const provider = form.getFieldValue('api_provider');
+    const modelName = form.getFieldValue('model_name');
+
+    if (!apiKey || !apiBaseUrl || !provider || !modelName) {
+      message.warning('请先填写完整的配置信息');
+      return;
+    }
+
+    setTestingApi(true);
+    setTestResult(null);
+    
+    try {
+      const result = await settingsApi.testApiConnection({
+        api_key: apiKey,
+        api_base_url: apiBaseUrl,
+        provider: provider,
+        model_name: modelName
+      });
+      
+      setTestResult(result);
+      setShowTestResult(true);
+      
+      if (result.success) {
+        message.success(`测试成功！响应时间: ${result.response_time_ms}ms`);
+      } else {
+        message.error('API 测试失败，请查看详细信息');
+      }
+    } catch (error: any) {
+      const errorMsg = error?.response?.data?.detail || '测试请求失败';
+      message.error(errorMsg);
+      setTestResult({
+        success: false,
+        message: '测试请求失败',
+        error: errorMsg,
+        error_type: 'RequestError',
+        suggestions: ['请检查网络连接', '请确认后端服务是否正常运行']
+      });
+      setShowTestResult(true);
+    } finally {
+      setTestingApi(false);
     }
   };
 
@@ -491,6 +548,94 @@ export default function SettingsPage() {
                   />
                 </Form.Item>
 
+                {/* 测试结果展示 */}
+                {showTestResult && testResult && (
+                  <Alert
+                    message={
+                      <Space>
+                        {testResult.success ? (
+                          <CheckCircleOutlined style={{ color: '#52c41a', fontSize: isMobile ? '16px' : '18px' }} />
+                        ) : (
+                          <CloseCircleOutlined style={{ color: '#ff4d4f', fontSize: isMobile ? '16px' : '18px' }} />
+                        )}
+                        <span style={{ fontSize: isMobile ? '14px' : '16px', fontWeight: 500 }}>
+                          {testResult.message}
+                        </span>
+                      </Space>
+                    }
+                    description={
+                      <div style={{ marginTop: 8 }}>
+                        {testResult.success ? (
+                          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                            {testResult.response_time_ms && (
+                              <div style={{ fontSize: isMobile ? '12px' : '14px' }}>
+                                ⚡ 响应时间: <strong>{testResult.response_time_ms} ms</strong>
+                              </div>
+                            )}
+                            {testResult.response_preview && (
+                              <div style={{
+                                fontSize: isMobile ? '12px' : '13px',
+                                padding: '8px 12px',
+                                background: '#f6ffed',
+                                borderRadius: '4px',
+                                border: '1px solid #b7eb8f',
+                                marginTop: '8px'
+                              }}>
+                                <div style={{ marginBottom: '4px', fontWeight: 500 }}>AI 响应预览:</div>
+                                <div style={{ color: '#595959' }}>{testResult.response_preview}</div>
+                              </div>
+                            )}
+                            <div style={{ color: '#52c41a', fontSize: isMobile ? '12px' : '13px', marginTop: '4px' }}>
+                              ✓ API 配置正确，可以正常使用
+                            </div>
+                          </Space>
+                        ) : (
+                          <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                            {testResult.error && (
+                              <div style={{
+                                fontSize: isMobile ? '12px' : '13px',
+                                padding: '8px 12px',
+                                background: '#fff2e8',
+                                borderRadius: '4px',
+                                border: '1px solid #ffbb96',
+                                color: '#d4380d'
+                              }}>
+                                <strong>错误信息:</strong> {testResult.error}
+                              </div>
+                            )}
+                            {testResult.error_type && (
+                              <div style={{ fontSize: isMobile ? '11px' : '12px', color: '#8c8c8c' }}>
+                                错误类型: {testResult.error_type}
+                              </div>
+                            )}
+                            {testResult.suggestions && testResult.suggestions.length > 0 && (
+                              <div style={{ marginTop: '8px' }}>
+                                <div style={{ fontSize: isMobile ? '12px' : '13px', fontWeight: 500, marginBottom: '4px' }}>
+                                  💡 解决建议:
+                                </div>
+                                <ul style={{
+                                  margin: 0,
+                                  paddingLeft: isMobile ? '16px' : '20px',
+                                  fontSize: isMobile ? '12px' : '13px',
+                                  color: '#595959'
+                                }}>
+                                  {testResult.suggestions.map((suggestion, index) => (
+                                    <li key={index} style={{ marginBottom: '4px' }}>{suggestion}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                          </Space>
+                        )}
+                      </div>
+                    }
+                    type={testResult.success ? 'success' : 'error'}
+                    closable
+                    onClose={() => setShowTestResult(false)}
+                    style={{ marginBottom: isMobile ? 16 : 24 }}
+                  />
+                )}
+
                 {/* 操作按钮 */}
                 <Form.Item style={{ marginBottom: 0, marginTop: isMobile ? 24 : 32 }}>
                   {isMobile ? (
@@ -535,9 +680,58 @@ export default function SettingsPage() {
                       </Space>
                     </Space>
                   ) : (
-                    // 桌面端：原有的水平布局
-                    <Space size="middle" style={{ width: '100%', justifyContent: 'space-between' }}>
-                      <Space>
+                    // 桌面端：删除在左边，测试、重置和保存在右边
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      gap: '16px',
+                      flexWrap: 'wrap'
+                    }}>
+                      {/* 左侧：删除按钮 */}
+                      {hasSettings ? (
+                        <Button
+                          danger
+                          size="large"
+                          icon={<DeleteOutlined />}
+                          onClick={handleDelete}
+                          loading={loading}
+                          style={{
+                            minWidth: '100px'
+                          }}
+                        >
+                          删除配置
+                        </Button>
+                      ) : (
+                        <div /> // 占位符，保持右侧按钮位置
+                      )}
+                      
+                      {/* 右侧：测试、重置和保存按钮组 */}
+                      <Space size="middle">
+                        <Button
+                          size="large"
+                          icon={<ThunderboltOutlined />}
+                          onClick={handleTestConnection}
+                          loading={testingApi}
+                          style={{
+                            borderColor: '#52c41a',
+                            color: '#52c41a',
+                            fontWeight: 500,
+                            minWidth: '100px'
+                          }}
+                        >
+                          {testingApi ? '测试中...' : '测试'}
+                        </Button>
+                        <Button
+                          size="large"
+                          icon={<ReloadOutlined />}
+                          onClick={handleReset}
+                          style={{
+                            minWidth: '100px'
+                          }}
+                        >
+                          重置
+                        </Button>
                         <Button
                           type="primary"
                           size="large"
@@ -546,31 +740,15 @@ export default function SettingsPage() {
                           loading={loading}
                           style={{
                             background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                            border: 'none'
+                            border: 'none',
+                            minWidth: '120px',
+                            fontWeight: 500
                           }}
                         >
-                          保存设置
-                        </Button>
-                        <Button
-                          size="large"
-                          icon={<ReloadOutlined />}
-                          onClick={handleReset}
-                        >
-                          重置
+                          保存
                         </Button>
                       </Space>
-                      {hasSettings && (
-                        <Button
-                          danger
-                          size="large"
-                          icon={<DeleteOutlined />}
-                          onClick={handleDelete}
-                          loading={loading}
-                        >
-                          删除设置
-                        </Button>
-                      )}
-                    </Space>
+                    </div>
                   )}
                 </Form.Item>
               </Form>

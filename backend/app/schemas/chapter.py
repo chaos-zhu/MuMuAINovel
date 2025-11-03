@@ -60,3 +60,9 @@ class ChapterListResponse(BaseModel):
 class ChapterGenerateRequest(BaseModel):
     """AI生成章节内容的请求模型"""
     style_id: Optional[int] = Field(None, description="写作风格ID，不提供则不使用任何风格")
+    target_word_count: Optional[int] = Field(
+        3000,
+        description="目标字数，默认3000字",
+        ge=500,   # 最小500字
+        le=10000  # 最大10000字
+    )

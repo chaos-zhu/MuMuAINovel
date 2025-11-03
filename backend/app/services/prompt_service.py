@@ -460,7 +460,7 @@ class PromptService:
 3. 符合角色性格设定
 4. 体现世界观特色
 5. 使用{narrative_perspective}视角
-6. 字数不得低于3000字
+6. 字数要求：不得低于{target_word_count}字
 7. 语言自然流畅，避免AI痕迹
 
 请直接输出章节正文内容，不要包含章节标题和其他说明文字。"""
@@ -513,7 +513,7 @@ class PromptService:
 
 4. **写作风格**：
 - 使用{narrative_perspective}视角
-- 字数不得低于3000字
+- 字数要求：不得低于{target_word_count}字
 - 语言自然流畅，避免AI痕迹
 - 体现世界观特色
 
@@ -741,16 +741,18 @@ class PromptService:
     
     @classmethod
     def get_chapter_generation_prompt(cls, title: str, theme: str, genre: str,
-                                     narrative_perspective: str, time_period: str,
-                                     location: str, atmosphere: str, rules: str,
-                                     characters_info: str, outlines_context: str,
-                                     chapter_number: int, chapter_title: str,
-                                     chapter_outline: str, style_content: str = "") -> str:
+                                      narrative_perspective: str, time_period: str,
+                                      location: str, atmosphere: str, rules: str,
+                                      characters_info: str, outlines_context: str,
+                                      chapter_number: int, chapter_title: str,
+                                      chapter_outline: str, style_content: str = "",
+                                      target_word_count: int = 3000) -> str:
         """
         获取章节完整创作提示词
         
         Args:
             style_content: 写作风格要求内容，如果提供则会追加到提示词中
+            target_word_count: 目标字数，默认3000字
         """
         base_prompt = cls.format_prompt(
             cls.CHAPTER_GENERATION,
@@ -766,7 +768,8 @@ class PromptService:
             outlines_context=outlines_context,
             chapter_number=chapter_number,
             chapter_title=chapter_title,
-            chapter_outline=chapter_outline
+            chapter_outline=chapter_outline,
+            target_word_count=target_word_count
         )
         
         # 如果有风格要求，应用到提示词中
@@ -782,12 +785,14 @@ class PromptService:
                                                    characters_info: str, outlines_context: str,
                                                    previous_content: str, chapter_number: int,
                                                    chapter_title: str, chapter_outline: str,
-                                                   style_content: str = "") -> str:
+                                                   style_content: str = "",
+                                                   target_word_count: int = 3000) -> str:
         """
         获取章节完整创作提示词（带前置章节上下文）
         
         Args:
             style_content: 写作风格要求内容，如果提供则会追加到提示词中
+            target_word_count: 目标字数，默认3000字
         """
         base_prompt = cls.format_prompt(
             cls.CHAPTER_GENERATION_WITH_CONTEXT,
@@ -804,7 +809,8 @@ class PromptService:
             previous_content=previous_content,
             chapter_number=chapter_number,
             chapter_title=chapter_title,
-            chapter_outline=chapter_outline
+            chapter_outline=chapter_outline,
+            target_word_count=target_word_count
         )
         
         # 如果有风格要求，应用到提示词中

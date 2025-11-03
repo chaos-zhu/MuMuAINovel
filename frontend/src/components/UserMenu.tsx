@@ -292,7 +292,7 @@ export default function UserMenu() {
             padding: 0,
             display: 'flex',
             flexDirection: 'column',
-            height: 'calc(100vh - 200px)',
+            height: 'calc(100vh - 380px)',
           }
         }}
       >
@@ -314,7 +314,7 @@ export default function UserMenu() {
               rowKey="user_id"
               loading={loading}
               pagination={false}
-              scroll={{ x: 800, y: 'calc(100vh - 340px)' }}
+              scroll={{ x: 800, y: 'calc(100vh - 520px)' }}
               sticky
             />
           </div>

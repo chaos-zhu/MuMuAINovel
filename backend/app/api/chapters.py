@@ -261,11 +261,13 @@ async def generate_chapter_content_stream(
     
     请求体参数：
     - style_id: 可选，指定使用的写作风格ID。不提供则不使用任何风格
+    - target_word_count: 可选，目标字数，默认3000字，范围500-10000字
     
     注意：此函数不使用依赖注入的db，而是在生成器内部创建独立的数据库会话
     以避免流式响应期间的连接泄漏问题
     """
     style_id = generate_request.style_id
+    target_word_count = generate_request.target_word_count or 3000
     # 预先验证章节存在性（使用临时会话）
     async for temp_db in get_db(request):
         try:
@@ -415,7 +417,8 @@ async def generate_chapter_content_stream(
                         chapter_number=current_chapter.chapter_number,
                         chapter_title=current_chapter.title,
                         chapter_outline=outline.content if outline else current_chapter.summary or '暂无大纲',
-                        style_content=style_content
+                        style_content=style_content,
+                        target_word_count=target_word_count
                     )
                 else:
                     prompt = prompt_service.get_chapter_generation_prompt(
@@ -432,7 +435,8 @@ async def generate_chapter_content_stream(
                         chapter_number=current_chapter.chapter_number,
                         chapter_title=current_chapter.title,
                         chapter_outline=outline.content if outline else current_chapter.summary or '暂无大纲',
-                        style_content=style_content
+                        style_content=style_content,
+                        target_word_count=target_word_count
                     )
                 
                 logger.info(f"开始AI流式创作章节 {chapter_id}")

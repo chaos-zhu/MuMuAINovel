@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from typing import Dict, Any, List
 from pathlib import Path
+from pydantic import BaseModel
 import httpx
 
 from app.database import get_db
@@ -297,3 +298,167 @@ async def get_available_models(
             status_code=500,
             detail=f"获取模型列表失败: {str(e)}"
         )
+
+
+class ApiTestRequest(BaseModel):
+    """API 测试请求模型"""
+    api_key: str
+    api_base_url: str
+    provider: str
+    model_name: str
+
+
+@router.post("/test")
+async def test_api_connection(data: ApiTestRequest):
+    """
+    测试 API 连接和配置是否正确
+    
+    Args:
+        data: 包含 API 配置的请求数据
+    
+    Returns:
+        测试结果包含状态、响应时间和详细信息
+    """
+    api_key = data.api_key
+    api_base_url = data.api_base_url
+    provider = data.provider
+    model_name = data.model_name
+    import time
+    
+    try:
+        start_time = time.time()
+        
+        # 创建临时 AI 服务实例
+        test_service = AIService(
+            api_provider=provider,
+            api_key=api_key,
+            api_base_url=api_base_url,
+            default_model=model_name,
+            default_temperature=0.7,
+            default_max_tokens=100
+        )
+        
+        # 发送简单的测试请求
+        test_prompt = "请用一句话回复：测试成功"
+        
+        logger.info(f"🧪 开始测试 API 连接")
+        logger.info(f"  - 提供商: {provider}")
+        logger.info(f"  - 模型: {model_name}")
+        logger.info(f"  - Base URL: {api_base_url}")
+        
+        response = await test_service.generate_text(
+            prompt=test_prompt,
+            provider=provider,
+            model=model_name,
+            temperature=0.7,
+            max_tokens=8000
+        )
+        
+        end_time = time.time()
+        response_time = round((end_time - start_time) * 1000, 2)  # 转换为毫秒
+        
+        logger.info(f"✅ API 测试成功")
+        logger.info(f"  - 响应时间: {response_time}ms")
+        logger.info(f"  - 响应内容: {response[:100] if response else 'N/A'}")
+        
+        return {
+            "success": True,
+            "message": "API 连接测试成功",
+            "response_time_ms": response_time,
+            "provider": provider,
+            "model": model_name,
+            "response_preview": response[:100] if response and len(response) > 100 else response,
+            "details": {
+                "api_available": True,
+                "model_accessible": True,
+                "response_valid": bool(response)
+            }
+        }
+        
+    except ValueError as e:
+        # 配置错误
+        error_msg = str(e)
+        logger.error(f"❌ API 配置错误: {error_msg}")
+        return {
+            "success": False,
+            "message": "API 配置错误",
+            "error": error_msg,
+            "error_type": "ConfigurationError",
+            "suggestions": [
+                "请检查 API Key 是否正确",
+                "请确认 API Base URL 格式正确",
+                "请验证所选提供商是否匹配"
+            ]
+        }
+        
+    except TimeoutError as e:
+        # 超时错误
+        error_msg = str(e)
+        logger.error(f"❌ API 请求超时: {error_msg}")
+        return {
+            "success": False,
+            "message": "API 请求超时",
+            "error": error_msg,
+            "error_type": "TimeoutError",
+            "suggestions": [
+                "请检查网络连接",
+                "请确认 API Base URL 是否可访问",
+                "如果使用代理，请检查代理设置"
+            ]
+        }
+        
+    except Exception as e:
+        # 其他错误
+        error_msg = str(e)
+        error_type = type(e).__name__
+        
+        logger.error(f"❌ API 测试失败: {error_msg}")
+        logger.error(f"  - 错误类型: {error_type}")
+        
+        # 分析错误原因并提供建议
+        suggestions = []
+        if "blocked" in error_msg.lower():
+            suggestions = [
+                "请求被 API 提供商阻止",
+                "可能原因：API Key 被限制或地区限制",
+                "建议：检查 API Key 状态和账户余额",
+                "建议：尝试更换 API Base URL 或使用代理"
+            ]
+        elif "unauthorized" in error_msg.lower() or "401" in error_msg:
+            suggestions = [
+                "API Key 认证失败",
+                "建议：检查 API Key 是否正确",
+                "建议：确认 API Key 是否过期"
+            ]
+        elif "not found" in error_msg.lower() or "404" in error_msg:
+            suggestions = [
+                "API 端点不存在或模型不可用",
+                "建议：检查 API Base URL 是否正确",
+                "建议：确认模型名称是否正确"
+            ]
+        elif "rate limit" in error_msg.lower() or "429" in error_msg:
+            suggestions = [
+                "API 请求频率超限",
+                "建议：稍后重试",
+                "建议：升级 API 套餐"
+            ]
+        elif "insufficient" in error_msg.lower() or "quota" in error_msg.lower():
+            suggestions = [
+                "API 配额不足",
+                "建议：检查账户余额",
+                "建议：充值或升级套餐"
+            ]
+        else:
+            suggestions = [
+                "请检查所有配置参数是否正确",
+                "请确认网络连接正常",
+                "请查看详细错误信息"
+            ]
+        
+        return {
+            "success": False,
+            "message": "API 测试失败",
+            "error": error_msg,
+            "error_type": error_type,
+            "suggestions": suggestions
+        }

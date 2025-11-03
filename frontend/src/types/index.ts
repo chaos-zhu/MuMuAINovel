@@ -224,6 +224,12 @@ export interface ChapterUpdate {
   status?: 'draft' | 'writing' | 'completed';
 }
 
+// 章节生成请求类型
+export interface ChapterGenerateRequest {
+  style_id?: number;
+  target_word_count?: number;
+}
+
 // 章节生成检查响应
 export interface ChapterCanGenerateResponse {
   can_generate: boolean;

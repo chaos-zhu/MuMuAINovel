@@ -41,58 +41,7 @@ class AIService:
         # 初始化OpenAI客户端
         openai_key = api_key if api_provider == "openai" else app_settings.openai_api_key
         if openai_key:
-            # 创建自定义的httpx客户端来避免proxies参数问题
             try:
-                # 配置连接池限制，支持高并发
-                # max_keepalive_connections: 保持活跃的连接数（提高复用率）
-                # max_connections: 最大并发连接数（防止资源耗尽）
-                limits = httpx.Limits(
-                    max_keepalive_connections=50,  # 保持50个活跃连接
-                    max_connections=100,            # 最多100个并发连接
-                    keepalive_expiry=30.0          # 30秒后过期未使用的连接
-                )
-                
-                # 使用httpx.AsyncClient并设置超时和连接池
-                # connect: 连接超时10秒
-                # read: 读取超时180秒（3分钟，适合长文本生成）
-                # write: 写入超时10秒
-                # pool: 连接池超时10秒
-                http_client = httpx.AsyncClient(
-                    timeout=httpx.Timeout(
-                        connect=10.0,
-                        read=180.0,
-                        write=10.0,
-                        pool=10.0
-                    ),
-                    limits=limits
-                )
-                
-                client_kwargs = {
-                    "api_key": openai_key,
-                    "http_client": http_client
-                }
-                
-                # 优先使用用户提供的base_url，否则使用全局配置
-                base_url = api_base_url if api_provider == "openai" else app_settings.openai_base_url
-                if base_url:
-                    client_kwargs["base_url"] = base_url
-                
-                self.openai_client = AsyncOpenAI(**client_kwargs)
-                logger.info("✅ OpenAI客户端初始化成功")
-                logger.info("   - 超时设置：连接10s，读取180s")
-                logger.info("   - 连接池：50个保活连接，最大100个并发")
-            except Exception as e:
-                logger.error(f"OpenAI客户端初始化失败: {e}")
-                self.openai_client = None
-        else:
-            self.openai_client = None
-            logger.warning("OpenAI API key未配置")
-        
-        # 初始化Anthropic客户端
-        anthropic_key = api_key if api_provider == "anthropic" else app_settings.anthropic_api_key
-        if anthropic_key:
-            try:
-                # 为Anthropic设置相同的超时和连接池配置
                 limits = httpx.Limits(
                     max_keepalive_connections=50,
                     max_connections=100,
@@ -100,13 +49,56 @@ class AIService:
                 )
                 
                 http_client = httpx.AsyncClient(
-                    timeout=httpx.Timeout(
-                        connect=10.0,
-                        read=180.0,
-                        write=10.0,
-                        pool=10.0
-                    ),
-                    limits=limits
+                    timeout=httpx.Timeout(connect=60.0, read=180.0, write=60.0, pool=60.0),
+                    limits=limits,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    }
+                )
+                
+                client_kwargs = {
+                    "api_key": openai_key,
+                    "http_client": http_client
+                }
+                
+                base_url = api_base_url if api_provider == "openai" else app_settings.openai_base_url
+                if base_url:
+                    client_kwargs["base_url"] = base_url
+                
+                self.openai_client = AsyncOpenAI(**client_kwargs)
+                self.openai_http_client = http_client
+                self.openai_api_key = openai_key
+                self.openai_base_url = base_url
+                logger.info("✅ OpenAI客户端初始化成功")
+            except Exception as e:
+                logger.error(f"OpenAI客户端初始化失败: {e}")
+                self.openai_client = None
+                self.openai_http_client = None
+                self.openai_api_key = None
+                self.openai_base_url = None
+        else:
+            self.openai_client = None
+            self.openai_http_client = None
+            self.openai_api_key = None
+            self.openai_base_url = None
+            logger.warning("OpenAI API key未配置")
+        
+        # 初始化Anthropic客户端
+        anthropic_key = api_key if api_provider == "anthropic" else app_settings.anthropic_api_key
+        if anthropic_key:
+            try:
+                limits = httpx.Limits(
+                    max_keepalive_connections=50,
+                    max_connections=100,
+                    keepalive_expiry=30.0
+                )
+                
+                http_client = httpx.AsyncClient(
+                    timeout=httpx.Timeout(connect=60.0, read=180.0, write=60.0, pool=60.0),
+                    limits=limits,
+                    headers={
+                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    }
                 )
                 
                 client_kwargs = {
@@ -114,15 +106,12 @@ class AIService:
                     "http_client": http_client
                 }
                 
-                # 优先使用用户提供的base_url，否则使用全局配置
                 base_url = api_base_url if api_provider == "anthropic" else app_settings.anthropic_base_url
                 if base_url:
                     client_kwargs["base_url"] = base_url
                 
                 self.anthropic_client = AsyncAnthropic(**client_kwargs)
                 logger.info("✅ Anthropic客户端初始化成功")
-                logger.info("   - 超时设置：连接10s，读取180s")
-                logger.info("   - 连接池：50个保活连接，最大100个并发")
             except Exception as e:
                 logger.error(f"Anthropic客户端初始化失败: {e}")
                 self.anthropic_client = None
@@ -219,7 +208,7 @@ class AIService:
         system_prompt: Optional[str]
     ) -> str:
         """使用OpenAI生成文本"""
-        if not self.openai_client:
+        if not self.openai_http_client:
             raise ValueError("OpenAI客户端未初始化，请检查API key配置")
         
         messages = []
@@ -228,39 +217,76 @@ class AIService:
         messages.append({"role": "user", "content": prompt})
         
         try:
-            logger.info(f"🔵 开始调用OpenAI API")
+            logger.info(f"🔵 开始调用OpenAI API（直接HTTP请求）")
             logger.info(f"  - 模型: {model}")
             logger.info(f"  - 温度: {temperature}")
             logger.info(f"  - 最大tokens: {max_tokens}")
             logger.info(f"  - Prompt长度: {len(prompt)} 字符")
             logger.info(f"  - 消息数量: {len(messages)}")
             
-            response = await self.openai_client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens
-            )
+            url = f"{self.openai_base_url}/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {self.openai_api_key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            }
+            
+            logger.debug(f"  - 请求URL: {url}")
+            logger.debug(f"  - 请求头: Authorization=Bearer ***")
+            
+            response = await self.openai_http_client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+            
+            data = response.json()
             
             logger.info(f"✅ OpenAI API调用成功")
-            logger.info(f"  - 响应ID: {response.id if hasattr(response, 'id') else 'N/A'}")
-            logger.info(f"  - 选项数量: {len(response.choices)}")
+            logger.info(f"  - 响应ID: {data.get('id', 'N/A')}")
+            logger.info(f"  - 选项数量: {len(data.get('choices', []))}")
             
-            if not response.choices:
+            if not data.get('choices'):
                 logger.error("❌ OpenAI返回的choices为空")
-                return ""
+                raise ValueError("API返回的响应格式错误：choices字段为空")
             
-            content = response.choices[0].message.content
-            logger.info(f"  - 返回内容长度: {len(content) if content else 0} 字符")
+            choice = data['choices'][0]
+            message = choice.get('message', {})
+            finish_reason = choice.get('finish_reason')
+            
+            # DeepSeek R1特殊处理：只使用content（最终答案），忽略reasoning_content（思考过程）
+            # reasoning_content是AI的思考过程，不是我们需要的JSON结果
+            content = message.get('content', '')
+            
+            # 检查是否因达到长度限制而截断
+            if finish_reason == 'length':
+                logger.warning(f"⚠️  响应因达到max_tokens限制而被截断")
+                logger.warning(f"  - 当前max_tokens: {max_tokens}")
+                logger.warning(f"  - 建议: 增加max_tokens参数（推荐2000+）")
             
             if content:
+                logger.info(f"  - 返回内容长度: {len(content)} 字符")
+                logger.info(f"  - 完成原因: {finish_reason}")
                 logger.info(f"  - 返回内容预览（前200字符）: {content[:200]}")
                 return content
             else:
-                logger.error("❌ OpenAI返回了空内容")
-                logger.error(f"  - 完整响应: {response}")
-                raise ValueError("AI返回了空内容，请检查API配置或稍后重试")
+                logger.error("❌ AI返回了空内容")
+                logger.error(f"  - 完整响应: {data}")
+                logger.error(f"  - 完成原因: {finish_reason}")
+                
+                # 提供更详细的错误信息
+                if finish_reason == 'length':
+                    raise ValueError(f"AI响应被截断且无有效内容。请增加max_tokens参数（当前: {max_tokens}，建议: 2000+）")
+                else:
+                    raise ValueError(f"AI返回了空内容（finish_reason: {finish_reason}），请检查API配置或稍后重试")
             
+        except httpx.HTTPStatusError as e:
+            logger.error(f"❌ OpenAI API调用失败 (HTTP {e.response.status_code})")
+            logger.error(f"  - 错误信息: {e.response.text}")
+            logger.error(f"  - 模型: {model}")
+            raise Exception(f"API返回错误 ({e.response.status_code}): {e.response.text}")
         except Exception as e:
             logger.error(f"❌ OpenAI API调用失败")
             logger.error(f"  - 错误类型: {type(e).__name__}")
@@ -277,7 +303,7 @@ class AIService:
         system_prompt: Optional[str]
     ) -> AsyncGenerator[str, None]:
         """使用OpenAI流式生成文本"""
-        if not self.openai_client:
+        if not self.openai_http_client:
             raise ValueError("OpenAI客户端未初始化，请检查API key配置")
         
         messages = []
@@ -286,35 +312,78 @@ class AIService:
         messages.append({"role": "user", "content": prompt})
         
         try:
-            logger.info(f"🔵 开始调用OpenAI流式API")
+            logger.info(f"🔵 开始调用OpenAI流式API（直接HTTP请求）")
             logger.info(f"  - 模型: {model}")
             logger.info(f"  - Prompt长度: {len(prompt)} 字符")
             logger.info(f"  - 最大tokens: {max_tokens}")
             
-            stream = await self.openai_client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                stream=True
-            )
+            url = f"{self.openai_base_url}/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {self.openai_api_key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "stream": True
+            }
             
-            logger.info(f"✅ OpenAI流式API连接成功，开始接收数据...")
-            
-            chunk_count = 0
-            async for chunk in stream:
-                if chunk.choices and len(chunk.choices) > 0:
-                    if chunk.choices[0].delta.content:
-                        chunk_count += 1
-                        yield chunk.choices[0].delta.content
-            
-            logger.info(f"✅ OpenAI流式生成完成，共接收 {chunk_count} 个chunk")
+            async with self.openai_http_client.stream('POST', url, headers=headers, json=payload) as response:
+                response.raise_for_status()
+                logger.info(f"✅ OpenAI流式API连接成功，开始接收数据...")
+                
+                chunk_count = 0
+                has_content = False
+                finish_reason = None
+                
+                async for line in response.aiter_lines():
+                    if line.startswith('data: '):
+                        data_str = line[6:]
+                        if data_str.strip() == '[DONE]':
+                            break
+                        
+                        try:
+                            import json
+                            data = json.loads(data_str)
+                            if 'choices' in data and len(data['choices']) > 0:
+                                choice = data['choices'][0]
+                                delta = choice.get('delta', {})
+                                finish_reason = choice.get('finish_reason') or finish_reason
+                                
+                                # DeepSeek R1特殊处理：只收集content（最终答案），忽略reasoning_content（思考过程）
+                                # reasoning_content是AI的思考过程，不是我们需要的JSON结果
+                                content = delta.get('content', '')
+                                
+                                if content:
+                                    chunk_count += 1
+                                    has_content = True
+                                    yield content
+                        except json.JSONDecodeError:
+                            continue
+                
+                # 检查是否因长度限制截断
+                if finish_reason == 'length':
+                    logger.warning(f"⚠️  流式响应因达到max_tokens限制而被截断")
+                    logger.warning(f"  - 当前max_tokens: {max_tokens}")
+                    logger.warning(f"  - 建议: 增加max_tokens参数（推荐2000+）")
+                
+                if not has_content:
+                    logger.warning(f"⚠️  流式响应未返回任何内容")
+                    logger.warning(f"  - 完成原因: {finish_reason}")
+                
+                logger.info(f"✅ OpenAI流式生成完成，共接收 {chunk_count} 个chunk，完成原因: {finish_reason}")
             
         except httpx.TimeoutException as e:
             logger.error(f"❌ OpenAI流式API超时")
             logger.error(f"  - 错误: {str(e)}")
             logger.error(f"  - 提示: 请检查网络连接或考虑缩短prompt长度")
             raise TimeoutError(f"AI服务超时（180秒），请稍后重试或减少上下文长度") from e
+        except httpx.HTTPStatusError as e:
+            logger.error(f"❌ OpenAI流式API调用失败 (HTTP {e.response.status_code})")
+            logger.error(f"  - 错误信息: {await e.response.aread()}")
+            raise
         except Exception as e:
             logger.error(f"❌ OpenAI流式API调用失败: {str(e)}")
             logger.error(f"  - 错误类型: {type(e).__name__}")
@@ -389,7 +458,7 @@ class AIService:
             raise
 
 
-# 创建全局AI服务实例（使用环境变量配置，用于向后兼容）
+# 创建全局AI服务实例
 ai_service = AIService()
 
 

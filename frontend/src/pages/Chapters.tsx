@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { List, Button, Modal, Form, Input, Select, message, Empty, Space, Badge, Tag, Card, Tooltip } from 'antd';
+import { List, Button, Modal, Form, Input, Select, message, Empty, Space, Badge, Tag, Card, Tooltip, InputNumber } from 'antd';
 import { EditOutlined, FileTextOutlined, ThunderboltOutlined, LockOutlined, DownloadOutlined, SettingOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import { useChapterSync } from '../store/hooks';
@@ -22,6 +22,7 @@ export default function Chapters() {
   const contentTextAreaRef = useRef<any>(null);
   const [writingStyles, setWritingStyles] = useState<WritingStyle[]>([]);
   const [selectedStyleId, setSelectedStyleId] = useState<number | undefined>();
+  const [targetWordCount, setTargetWordCount] = useState<number>(3000);
 
   useEffect(() => {
     const handleResize = () => {
@@ -167,7 +168,7 @@ export default function Chapters() {
             textArea.scrollTop = textArea.scrollHeight;
           }
         }
-      }, selectedStyleId);
+      }, selectedStyleId, targetWordCount);
       
       message.success('AI创作成功');
     } catch (error) {
@@ -201,6 +202,7 @@ export default function Chapters() {
             {selectedStyle && (
               <li><strong>写作风格：{selectedStyle.name}</strong></li>
             )}
+            <li><strong>目标字数：{targetWordCount}字</strong></li>
           </ul>
           
           {previousChapters.length > 0 && (
@@ -519,7 +521,7 @@ export default function Chapters() {
         } : undefined}
         styles={{
           body: {
-            maxHeight: isMobile ? 'calc(100vh - 150px)' : 'calc(85vh - 110px)',
+            maxHeight: isMobile ? 'calc(100vh - 150px)' : 'calc(100vh - 110px)',
             overflowY: 'auto',
             padding: isMobile ? '16px 12px' : '8px'
           }
@@ -590,6 +592,27 @@ export default function Chapters() {
                 请选择写作风格
               </div>
             )}
+          </Form.Item>
+
+          <Form.Item
+            label="目标字数"
+            tooltip="AI生成章节时的目标字数，实际生成字数可能略有偏差"
+          >
+            <InputNumber
+              min={500}
+              max={10000}
+              step={100}
+              value={targetWordCount}
+              onChange={(value) => setTargetWordCount(value || 3000)}
+              size="large"
+              disabled={isGenerating}
+              style={{ width: '100%' }}
+              formatter={(value) => `${value} 字`}
+              parser={(value) => value?.replace(' 字', '') as any}
+            />
+            <div style={{ color: '#666', fontSize: 12, marginTop: 4 }}>
+              建议范围：500-10000字，默认3000字
+            </div>
           </Form.Item>
 
           <Form.Item label="章节内容" name="content">
