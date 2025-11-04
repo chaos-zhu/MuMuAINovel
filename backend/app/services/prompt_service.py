@@ -315,7 +315,7 @@ class PromptService:
 2. 数组中要包含{chapter_count}个章节对象
 3. 文本中不要使用中文引号（""），改用【】或《》"""
     
-    # 大纲续写提示词
+    # 大纲续写提示词（记忆增强版）
     OUTLINE_CONTINUE_GENERATION = """你是一位经验丰富的小说作家和编剧。请基于以下信息续写小说大纲：
 
 【项目信息】
@@ -340,6 +340,11 @@ class PromptService:
 【最近剧情】
 {recent_plot}
 
+【🧠 智能记忆系统 - 续写参考】
+以下是从故事记忆库中检索到的相关信息，请在续写大纲时参考：
+
+{memory_context}
+
 【续写指导】
 - 当前情节阶段：{plot_stage_instruction}
 - 起始章节编号：第{start_chapter}章
@@ -348,10 +353,12 @@ class PromptService:
 
 请生成第{start_chapter}章到第{end_chapter}章的大纲。
 要求：
-- 与前文自然衔接，保持故事连贯性
-- 遵循情节阶段的发展要求
-- 保持与已有章节相同的风格和详细程度
-- 推进角色成长和情节发展
+- **剧情连贯性**：与前文自然衔接，保持故事连贯性
+- **记忆参考**：适当参考记忆系统中的伏笔、钩子和情节点
+- **伏笔回收**：可以考虑回收未完结的伏笔，制造呼应
+- **角色发展**：遵循角色在前文中的成长轨迹
+- **情节阶段**：遵循情节阶段的发展要求
+- **风格一致**：保持与已有章节相同的风格和详细程度
 
 **重要格式要求：**
 1. 只返回纯JSON数组格式，不要包含任何markdown标记、代码块标记或其他说明文字
@@ -465,7 +472,7 @@ class PromptService:
 
 请直接输出章节正文内容，不要包含章节标题和其他说明文字。"""
 
-    # 章节完整创作提示词（带前置章节上下文）
+    # 章节完整创作提示词（带前置章节上下文和记忆增强）
     CHAPTER_GENERATION_WITH_CONTEXT = """你是一位专业的小说作家。请根据以下信息创作本章内容：
 
 项目信息：
@@ -488,6 +495,11 @@ class PromptService:
 
 【已完成的前置章节内容】
 {previous_content}
+
+【🧠 智能记忆系统 - 重要参考】
+以下是从故事记忆库中检索到的相关信息，请在创作时适当参考和呼应：
+
+{memory_context}
 
 本章信息：
 - 章节序号：第{chapter_number}章
@@ -518,8 +530,15 @@ class PromptService:
 - 体现世界观特色
 
 5. **承上启下**：
-- 开头自然衔接上一章结尾
-- 结尾为下一章做好铺垫
+   - 开头自然衔接上一章结尾
+   - 结尾为下一章做好铺垫
+
+6. **记忆系统使用指南**：
+   - **最近章节记忆**：保持情节连贯，注意角色状态和剧情发展
+   - **语义相关记忆**：参考相似情节的处理方式
+   - **未完结伏笔**：适当时机可以回收伏笔，制造呼应效果
+   - **角色状态记忆**：确保角色行为符合其发展轨迹
+   - **重要情节点**：与关键剧情保持一致
 
 请直接输出章节正文内容，不要包含章节标题和其他说明文字。"""
 
@@ -746,14 +765,26 @@ class PromptService:
                                       characters_info: str, outlines_context: str,
                                       chapter_number: int, chapter_title: str,
                                       chapter_outline: str, style_content: str = "",
-                                      target_word_count: int = 3000) -> str:
+                                      target_word_count: int = 3000,
+                                      memory_context: dict = None) -> str:
         """
         获取章节完整创作提示词
         
         Args:
             style_content: 写作风格要求内容，如果提供则会追加到提示词中
             target_word_count: 目标字数，默认3000字
+            memory_context: 记忆上下文（可选）
         """
+        # 格式化记忆上下文
+        memory_text = ""
+        if memory_context:
+            memory_text = "\n【🧠 智能记忆系统 - 重要参考】\n"
+            memory_text += memory_context.get('recent_context', '')
+            memory_text += "\n" + memory_context.get('relevant_memories', '')
+            memory_text += "\n" + memory_context.get('foreshadows', '')
+            memory_text += "\n" + memory_context.get('character_states', '')
+            memory_text += "\n" + memory_context.get('plot_points', '')
+        
         base_prompt = cls.format_prompt(
             cls.CHAPTER_GENERATION,
             title=title,
@@ -772,6 +803,13 @@ class PromptService:
             target_word_count=target_word_count
         )
         
+        # 插入记忆上下文
+        if memory_text:
+            base_prompt = base_prompt.replace(
+                "本章信息：",
+                memory_text + "\n\n本章信息："
+            )
+        
         # 如果有风格要求，应用到提示词中
         if style_content:
             return WritingStyleManager.apply_style_to_prompt(base_prompt, style_content)
@@ -786,14 +824,27 @@ class PromptService:
                                                    previous_content: str, chapter_number: int,
                                                    chapter_title: str, chapter_outline: str,
                                                    style_content: str = "",
-                                                   target_word_count: int = 3000) -> str:
+                                                   target_word_count: int = 3000,
+                                                   memory_context: dict = None) -> str:
         """
-        获取章节完整创作提示词（带前置章节上下文）
+        获取章节完整创作提示词（带前置章节上下文和记忆增强）
         
         Args:
             style_content: 写作风格要求内容，如果提供则会追加到提示词中
             target_word_count: 目标字数，默认3000字
+            memory_context: 记忆上下文（可选）
         """
+        # 格式化记忆上下文
+        memory_text = ""
+        if memory_context:
+            memory_text = memory_context.get('recent_context', '')
+            memory_text += "\n" + memory_context.get('relevant_memories', '')
+            memory_text += "\n" + memory_context.get('foreshadows', '')
+            memory_text += "\n" + memory_context.get('character_states', '')
+            memory_text += "\n" + memory_context.get('plot_points', '')
+        else:
+            memory_text = "暂无相关记忆"
+        
         base_prompt = cls.format_prompt(
             cls.CHAPTER_GENERATION_WITH_CONTEXT,
             title=title,
@@ -810,7 +861,8 @@ class PromptService:
             chapter_number=chapter_number,
             chapter_title=chapter_title,
             chapter_outline=chapter_outline,
-            target_word_count=target_word_count
+            target_word_count=target_word_count,
+            memory_context=memory_text
         )
         
         # 如果有风格要求，应用到提示词中
@@ -839,9 +891,22 @@ class PromptService:
                                     current_chapter_count: int, all_chapters_brief: str,
                                     recent_plot: str, plot_stage_instruction: str,
                                     start_chapter: int, story_direction: str,
-                                    requirements: str = "") -> str:
-        """获取大纲续写提示词"""
+                                    requirements: str = "",
+                                    memory_context: dict = None) -> str:
+        """获取大纲续写提示词（支持记忆增强）"""
         end_chapter = start_chapter + chapter_count - 1
+        
+        # 格式化记忆上下文
+        memory_text = ""
+        if memory_context:
+            memory_text = memory_context.get('recent_context', '')
+            memory_text += "\n" + memory_context.get('relevant_memories', '')
+            memory_text += "\n" + memory_context.get('foreshadows', '')
+            memory_text += "\n" + memory_context.get('character_states', '')
+            memory_text += "\n" + memory_context.get('plot_points', '')
+        else:
+            memory_text = "暂无相关记忆（可能是首次续写或记忆库为空）"
+        
         return cls.format_prompt(
             cls.OUTLINE_CONTINUE_GENERATION,
             title=title,
@@ -861,7 +926,8 @@ class PromptService:
             start_chapter=start_chapter,
             end_chapter=end_chapter,
             story_direction=story_direction,
-            requirements=requirements or "无特殊要求"
+            requirements=requirements or "无特殊要求",
+            memory_context=memory_text
         )
     
     @classmethod

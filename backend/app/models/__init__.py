@@ -13,6 +13,8 @@ from app.models.relationship import (
     Organization,
     OrganizationMember
 )
+from app.models.memory import StoryMemory, PlotAnalysis
+from app.models.analysis_task import AnalysisTask
 
 __all__ = [
     "Project",
@@ -27,4 +29,7 @@ __all__ = [
     "CharacterRelationship",
     "Organization",
     "OrganizationMember",
+    "StoryMemory",
+    "PlotAnalysis",
+    "AnalysisTask",
 ]

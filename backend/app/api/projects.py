@@ -1,9 +1,11 @@
 """项目管理API"""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, delete
 from typing import List
+import json
+from urllib.parse import quote
 from app.database import get_db
 from app.models.project import Project
 from app.models.character import Character
@@ -17,6 +19,12 @@ from app.schemas.project import (
     ProjectResponse,
     ProjectListResponse
 )
+from app.schemas.import_export import (
+    ExportOptions,
+    ImportValidationResult,
+    ImportResult
+)
+from app.services.import_export_service import ImportExportService
 from app.logger import get_logger
 from app.utils.data_consistency import (
     run_full_data_consistency_check,
@@ -413,3 +421,167 @@ async def fix_project_member_counts(
     except Exception as e:
         logger.error(f"修复成员计数失败: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"修复失败: {str(e)}")
+
+
+@router.post("/{project_id}/export-data", summary="导出项目数据为JSON")
+async def export_project_data(
+    project_id: str,
+    options: ExportOptions,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    导出项目完整数据为JSON格式
+    
+    Args:
+        project_id: 项目ID
+        options: 导出选项
+    
+    Returns:
+        JSON文件下载
+    """
+    try:
+        logger.info(f"开始导出项目数据: {project_id}")
+        
+        # 检查项目是否存在
+        result = await db.execute(
+            select(Project).where(Project.id == project_id)
+        )
+        project = result.scalar_one_or_none()
+        
+        if not project:
+            logger.warning(f"项目不存在: {project_id}")
+            raise HTTPException(status_code=404, detail="项目不存在")
+        
+        # 导出数据
+        export_data = await ImportExportService.export_project(
+            project_id=project_id,
+            db=db,
+            include_generation_history=options.include_generation_history,
+            include_writing_styles=options.include_writing_styles
+        )
+        
+        # 转换为JSON
+        json_content = export_data.model_dump_json(indent=2, exclude_none=True, by_alias=True)
+        
+        # 生成文件名
+        safe_title = "".join(c for c in project.title if c.isalnum() or c in (' ', '-', '_'))
+        from datetime import datetime
+        date_str = datetime.now().strftime("%Y%m%d")
+        filename = f"project_{safe_title}_{date_str}.json"
+        encoded_filename = quote(filename)
+        
+        logger.info(f"项目数据导出成功: {filename}")
+        
+        return Response(
+            content=json_content.encode('utf-8'),
+            media_type="application/json; charset=utf-8",
+            headers={
+                "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}",
+                "Content-Type": "application/json; charset=utf-8"
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"导出项目数据失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"导出失败: {str(e)}")
+
+
+@router.post("/validate-import", response_model=ImportValidationResult, summary="验证导入文件")
+async def validate_import_file(
+    file: UploadFile = File(...)
+):
+    """
+    验证导入文件的格式和内容
+    
+    Args:
+        file: 上传的JSON文件
+    
+    Returns:
+        验证结果
+    """
+    try:
+        logger.info(f"验证导入文件: {file.filename}")
+        
+        # 检查文件类型
+        if not file.filename.endswith('.json'):
+            raise HTTPException(status_code=400, detail="只支持JSON格式文件")
+        
+        # 读取文件内容
+        content = await file.read()
+        
+        # 检查文件大小（50MB限制）
+        max_size = 50 * 1024 * 1024  # 50MB
+        if len(content) > max_size:
+            raise HTTPException(status_code=413, detail="文件大小超过50MB限制")
+        
+        # 解析JSON
+        try:
+            data = json.loads(content.decode('utf-8'))
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"无效的JSON格式: {str(e)}")
+        
+        # 验证数据
+        validation_result = ImportExportService.validate_import_data(data)
+        
+        logger.info(f"文件验证完成: valid={validation_result.valid}")
+        return validation_result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"验证导入文件失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"验证失败: {str(e)}")
+
+
+@router.post("/import", response_model=ImportResult, summary="导入项目")
+async def import_project(
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    导入项目数据（创建新项目）
+    
+    Args:
+        file: 上传的JSON文件
+    
+    Returns:
+        导入结果
+    """
+    try:
+        logger.info(f"开始导入项目: {file.filename}")
+        
+        # 检查文件类型
+        if not file.filename.endswith('.json'):
+            raise HTTPException(status_code=400, detail="只支持JSON格式文件")
+        
+        # 读取文件内容
+        content = await file.read()
+        
+        # 检查文件大小
+        max_size = 50 * 1024 * 1024  # 50MB
+        if len(content) > max_size:
+            raise HTTPException(status_code=413, detail="文件大小超过50MB限制")
+        
+        # 解析JSON
+        try:
+            data = json.loads(content.decode('utf-8'))
+        except json.JSONDecodeError as e:
+            raise HTTPException(status_code=400, detail=f"无效的JSON格式: {str(e)}")
+        
+        # 导入数据
+        import_result = await ImportExportService.import_project(data, db)
+        
+        if import_result.success:
+            logger.info(f"项目导入成功: {import_result.project_id}")
+        else:
+            logger.warning(f"项目导入失败: {import_result.message}")
+        
+        return import_result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"导入项目失败: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")

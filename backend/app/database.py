@@ -15,6 +15,15 @@ logger = get_logger(__name__)
 # 创建基类
 Base = declarative_base()
 
+# 导入所有模型，确保 Base.metadata 能够发现它们
+# 这必须在 Base 创建之后、init_db 之前导入
+from app.models import (
+    Project, Outline, Character, Chapter, GenerationHistory,
+    Settings, WritingStyle, ProjectDefaultStyle,
+    RelationshipType, CharacterRelationship, Organization, OrganizationMember,
+    StoryMemory, PlotAnalysis, AnalysisTask
+)
+
 # 引擎缓存：每个用户一个引擎
 _engine_cache: Dict[str, Any] = {}
 

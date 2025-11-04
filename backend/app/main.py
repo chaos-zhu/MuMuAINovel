@@ -114,7 +114,7 @@ async def db_session_stats():
 from app.api import (
     projects, outlines, characters, chapters,
     wizard_stream, relationships, organizations,
-    auth, users, settings, writing_styles
+    auth, users, settings, writing_styles, memories
 )
 
 app.include_router(auth.router, prefix="/api")
@@ -129,6 +129,7 @@ app.include_router(chapters.router, prefix="/api")
 app.include_router(relationships.router, prefix="/api")
 app.include_router(organizations.router, prefix="/api")
 app.include_router(writing_styles.router, prefix="/api")
+app.include_router(memories.router)  # 记忆管理API (已包含/api前缀)
 
 static_dir = Path(__file__).parent.parent / "static"
 if static_dir.exists():

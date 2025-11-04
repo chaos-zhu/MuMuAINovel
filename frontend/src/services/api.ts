@@ -147,7 +147,7 @@ export const settingsApi = {
   getAvailableModels: (params: { api_key: string; api_base_url: string; provider: string }) =>
     api.get<unknown, { provider: string; models: Array<{ value: string; label: string; description: string }>; count?: number }>('/settings/models', { params }),
   
-  testApiConnection: (params: { api_key: string; api_base_url: string; provider: string; model_name: string }) =>
+  testApiConnection: (params: { api_key: string; api_base_url: string; provider: string; llm_model: string }) =>
     api.post<unknown, {
       success: boolean;
       message: string;
@@ -176,6 +176,71 @@ export const projectApi = {
   
   exportProject: (id: string) => {
     window.open(`/api/projects/${id}/export`, '_blank');
+  },
+  
+  // 导出项目数据为JSON
+  exportProjectData: async (id: string, options: { include_generation_history?: boolean; include_writing_styles?: boolean }) => {
+    const response = await axios.post(
+      `/api/projects/${id}/export-data`,
+      options,
+      {
+        responseType: 'blob',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      }
+    );
+    
+    // 从响应头获取文件名
+    const contentDisposition = response.headers['content-disposition'];
+    let filename = 'project_export.json';
+    if (contentDisposition) {
+      const matches = /filename\*=UTF-8''(.+)/.exec(contentDisposition);
+      if (matches && matches[1]) {
+        filename = decodeURIComponent(matches[1]);
+      }
+    }
+    
+    // 创建下载链接
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', filename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
+  
+  // 验证导入文件
+  validateImportFile: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post<unknown, {
+      valid: boolean;
+      version: string;
+      project_name?: string;
+      statistics: Record<string, number>;
+      errors: string[];
+      warnings: string[];
+    }>('/projects/validate-import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  
+  // 导入项目
+  importProject: (file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post<unknown, {
+      success: boolean;
+      project_id?: string;
+      message: string;
+      statistics: Record<string, number>;
+      warnings: string[];
+    }>('/projects/import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
   },
 };
 

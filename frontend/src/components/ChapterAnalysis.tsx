@@ -1,0 +1,537 @@
+import { useState, useEffect } from 'react';
+import { Modal, Progress, Spin, Alert, Tabs, Card, Tag, List, Empty, Statistic, Row, Col, Button } from 'antd';
+import {
+  ThunderboltOutlined,
+  BulbOutlined,
+  FireOutlined,
+  HeartOutlined,
+  TeamOutlined,
+  TrophyOutlined,
+  CheckCircleOutlined,
+  ClockCircleOutlined,
+  CloseCircleOutlined,
+  ReloadOutlined
+} from '@ant-design/icons';
+import type { AnalysisTask, ChapterAnalysisResponse } from '../types';
+
+interface ChapterAnalysisProps {
+  chapterId: string;
+  visible: boolean;
+  onClose: () => void;
+}
+
+export default function ChapterAnalysis({ chapterId, visible, onClose }: ChapterAnalysisProps) {
+  const [task, setTask] = useState<AnalysisTask | null>(null);
+  const [analysis, setAnalysis] = useState<ChapterAnalysisResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (visible && chapterId) {
+      fetchAnalysisStatus();
+    }
+    
+    // 清理函数：组件卸载或关闭时清除轮询
+    return () => {
+      // 清除可能存在的轮询
+    };
+  }, [visible, chapterId]);
+
+  const fetchAnalysisStatus = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await fetch(`/api/chapters/${chapterId}/analysis/status`);
+      
+      if (response.status === 404) {
+        setTask(null);
+        setError('该章节还未进行分析');
+        return;
+      }
+      
+      if (!response.ok) {
+        throw new Error('获取分析状态失败');
+      }
+      
+      const taskData: AnalysisTask = await response.json();
+      setTask(taskData);
+      
+      if (taskData.status === 'completed') {
+        await fetchAnalysisResult();
+      } else if (taskData.status === 'running' || taskData.status === 'pending') {
+        // 开始轮询
+        startPolling();
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchAnalysisResult = async () => {
+    try {
+      const response = await fetch(`/api/chapters/${chapterId}/analysis`);
+      if (!response.ok) {
+        throw new Error('获取分析结果失败');
+      }
+      const data: ChapterAnalysisResponse = await response.json();
+      setAnalysis(data);
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  };
+
+  const startPolling = () => {
+    const pollInterval = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/chapters/${chapterId}/analysis/status`);
+        if (!response.ok) return;
+        
+        const taskData: AnalysisTask = await response.json();
+        setTask(taskData);
+        
+        if (taskData.status === 'completed') {
+          clearInterval(pollInterval);
+          await fetchAnalysisResult();
+        } else if (taskData.status === 'failed') {
+          clearInterval(pollInterval);
+          setError(taskData.error_message || '分析失败');
+        }
+      } catch (err) {
+        console.error('轮询错误:', err);
+      }
+    }, 2000);
+
+    // 5分钟超时
+    setTimeout(() => clearInterval(pollInterval), 300000);
+  };
+
+  const triggerAnalysis = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      const response = await fetch(`/api/chapters/${chapterId}/analyze`, {
+        method: 'POST'
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.detail || '触发分析失败');
+      }
+      
+      // 触发成功后立即关闭Modal，让父组件的状态管理接管
+      onClose();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+
+  const renderStatusIcon = () => {
+    if (!task) return null;
+    
+    switch (task.status) {
+      case 'pending':
+        return <ClockCircleOutlined style={{ color: '#faad14' }} />;
+      case 'running':
+        return <Spin />;
+      case 'completed':
+        return <CheckCircleOutlined style={{ color: '#52c41a' }} />;
+      case 'failed':
+        return <CloseCircleOutlined style={{ color: '#ff4d4f' }} />;
+      default:
+        return null;
+    }
+  };
+
+  const renderProgress = () => {
+    if (!task || task.status === 'completed') return null;
+    
+    return (
+      <div style={{ padding: '24px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', marginBottom: 16 }}>
+          {renderStatusIcon()}
+          <span style={{ marginLeft: 8, fontSize: 16 }}>
+            {task.status === 'pending' && '等待分析...'}
+            {task.status === 'running' && 'AI正在分析中...'}
+            {task.status === 'failed' && '分析失败'}
+          </span>
+        </div>
+        <Progress 
+          percent={task.progress} 
+          status={task.status === 'failed' ? 'exception' : 'active'}
+        />
+        {task.status === 'failed' && task.error_message && (
+          <Alert 
+            message="分析失败" 
+            description={task.error_message} 
+            type="error" 
+            showIcon 
+            style={{ marginTop: 16 }}
+          />
+        )}
+      </div>
+    );
+  };
+
+  const renderAnalysisResult = () => {
+    if (!analysis) return null;
+    
+    const { analysis: analysis_data, memories } = analysis;
+    
+    return (
+      <Tabs
+        defaultActiveKey="overview"
+        style={{ height: '100%' }}
+        items={[
+          {
+            key: 'overview',
+            label: '概览',
+            icon: <TrophyOutlined />,
+            children: (
+              <div style={{ height: 'calc(90vh - 220px)', overflowY: 'auto', paddingRight: '8px' }}>
+                <Card title="整体评分" style={{ marginBottom: 16 }}>
+                  <Row gutter={16}>
+                    <Col span={6}>
+                      <Statistic
+                        title="整体质量"
+                        value={analysis_data.overall_quality_score || 0}
+                        suffix="/ 10"
+                        valueStyle={{ color: '#3f8600' }}
+                      />
+                    </Col>
+                    <Col span={6}>
+                      <Statistic
+                        title="节奏把控"
+                        value={analysis_data.pacing_score || 0}
+                        suffix="/ 10"
+                      />
+                    </Col>
+                    <Col span={6}>
+                      <Statistic
+                        title="吸引力"
+                        value={analysis_data.engagement_score || 0}
+                        suffix="/ 10"
+                      />
+                    </Col>
+                    <Col span={6}>
+                      <Statistic
+                        title="连贯性"
+                        value={analysis_data.coherence_score || 0}
+                        suffix="/ 10"
+                      />
+                    </Col>
+                  </Row>
+                </Card>
+                
+                {analysis_data.analysis_report && (
+                  <Card title="分析摘要" style={{ marginBottom: 16 }}>
+                    <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit' }}>
+                      {analysis_data.analysis_report}
+                    </pre>
+                  </Card>
+                )}
+                
+                {analysis_data.suggestions && analysis_data.suggestions.length > 0 && (
+                  <Card title={<><BulbOutlined /> 改进建议</>}>
+                    <List
+                      dataSource={analysis_data.suggestions}
+                      renderItem={(item, index) => (
+                        <List.Item>
+                          <span>{index + 1}. {item}</span>
+                        </List.Item>
+                      )}
+                    />
+                  </Card>
+                )}
+              </div>
+            )
+          },
+          {
+            key: 'hooks',
+            label: `钩子 (${analysis_data.hooks?.length || 0})`,
+            icon: <ThunderboltOutlined />,
+            children: (
+              <div style={{ height: 'calc(90vh - 220px)', overflowY: 'auto', paddingRight: '8px' }}>
+                <Card>
+                {analysis_data.hooks && analysis_data.hooks.length > 0 ? (
+                  <List
+                    dataSource={analysis_data.hooks}
+                    renderItem={(hook) => (
+                      <List.Item>
+                        <List.Item.Meta
+                          title={
+                            <div>
+                              <Tag color="blue">{hook.type}</Tag>
+                              <Tag color="orange">{hook.position}</Tag>
+                              <Tag color="red">强度: {hook.strength}/10</Tag>
+                            </div>
+                          }
+                          description={hook.content}
+                        />
+                      </List.Item>
+                    )}
+                  />
+                ) : (
+                  <Empty description="暂无钩子" />
+                )}
+                </Card>
+              </div>
+            )
+          },
+          {
+            key: 'foreshadows',
+            label: `伏笔 (${analysis_data.foreshadows?.length || 0})`,
+            icon: <FireOutlined />,
+            children: (
+              <div style={{ height: 'calc(90vh - 220px)', overflowY: 'auto', paddingRight: '8px' }}>
+                <Card>
+                {analysis_data.foreshadows && analysis_data.foreshadows.length > 0 ? (
+                  <List
+                    dataSource={analysis_data.foreshadows}
+                    renderItem={(foreshadow) => (
+                      <List.Item>
+                        <List.Item.Meta
+                          title={
+                            <div>
+                              <Tag color={foreshadow.type === 'planted' ? 'green' : 'purple'}>
+                                {foreshadow.type === 'planted' ? '已埋下' : '已回收'}
+                              </Tag>
+                              <Tag>强度: {foreshadow.strength}/10</Tag>
+                              <Tag>隐藏度: {foreshadow.subtlety}/10</Tag>
+                              {foreshadow.reference_chapter && (
+                                <Tag color="cyan">呼应第{foreshadow.reference_chapter}章</Tag>
+                              )}
+                            </div>
+                          }
+                          description={foreshadow.content}
+                        />
+                      </List.Item>
+                    )}
+                  />
+                ) : (
+                  <Empty description="暂无伏笔" />
+                )}
+                </Card>
+              </div>
+            )
+          },
+          {
+            key: 'emotion',
+            label: '情感曲线',
+            icon: <HeartOutlined />,
+            children: (
+              <div style={{ height: 'calc(90vh - 220px)', overflowY: 'auto', paddingRight: '8px' }}>
+                <Card>
+                {analysis_data.emotional_tone ? (
+                  <div>
+                    <Row gutter={16} style={{ marginBottom: 24 }}>
+                      <Col span={12}>
+                        <Statistic
+                          title="主导情绪"
+                          value={analysis_data.emotional_tone}
+                        />
+                      </Col>
+                      <Col span={12}>
+                        <Statistic
+                          title="情感强度"
+                          value={(analysis_data.emotional_intensity * 10).toFixed(1)}
+                          suffix="/ 10"
+                        />
+                      </Col>
+                    </Row>
+                    <Card type="inner" title="剧情阶段" size="small">
+                      <p><strong>阶段：</strong>{analysis_data.plot_stage}</p>
+                      <p><strong>冲突等级：</strong>{analysis_data.conflict_level} / 10</p>
+                      {analysis_data.conflict_types && analysis_data.conflict_types.length > 0 && (
+                        <div style={{ marginTop: 8 }}>
+                          <strong>冲突类型：</strong>
+                          {analysis_data.conflict_types.map((type, idx) => (
+                            <Tag key={idx} color="red" style={{ margin: 4 }}>
+                              {type}
+                            </Tag>
+                          ))}
+                        </div>
+                      )}
+                    </Card>
+                  </div>
+                ) : (
+                  <Empty description="暂无情感分析" />
+                )}
+                </Card>
+              </div>
+            )
+          },
+          {
+            key: 'characters',
+            label: `角色 (${analysis_data.character_states?.length || 0})`,
+            icon: <TeamOutlined />,
+            children: (
+              <div style={{ height: 'calc(90vh - 220px)', overflowY: 'auto', paddingRight: '8px' }}>
+                <Card>
+                {analysis_data.character_states && analysis_data.character_states.length > 0 ? (
+                  <List
+                    dataSource={analysis_data.character_states}
+                    renderItem={(char) => (
+                      <List.Item>
+                        <Card 
+                          type="inner" 
+                          title={char.character_name}
+                          size="small"
+                          style={{ width: '100%' }}
+                        >
+                          <p><strong>状态变化：</strong>{char.state_before} → {char.state_after}</p>
+                          <p><strong>心理变化：</strong>{char.psychological_change}</p>
+                          <p><strong>关键事件：</strong>{char.key_event}</p>
+                          {char.relationship_changes && Object.keys(char.relationship_changes).length > 0 && (
+                            <div>
+                              <strong>关系变化：</strong>
+                              {Object.entries(char.relationship_changes).map(([name, change]) => (
+                                <Tag key={name} color="blue" style={{ margin: 4 }}>
+                                  与{name}: {change}
+                                </Tag>
+                              ))}
+                            </div>
+                          )}
+                        </Card>
+                      </List.Item>
+                    )}
+                  />
+                ) : (
+                  <Empty description="暂无角色分析" />
+                )}
+                </Card>
+              </div>
+            )
+          },
+          {
+            key: 'memories',
+            label: `记忆 (${memories?.length || 0})`,
+            icon: <FireOutlined />,
+            children: (
+              <div style={{ height: 'calc(90vh - 220px)', overflowY: 'auto', paddingRight: '8px' }}>
+                <Card>
+                {memories && memories.length > 0 ? (
+                  <List
+                    dataSource={memories}
+                    renderItem={(memory) => (
+                      <List.Item>
+                        <List.Item.Meta
+                          title={
+                            <div>
+                              <Tag color="blue">{memory.type}</Tag>
+                              <Tag color="orange">重要性: {memory.importance.toFixed(1)}</Tag>
+                              {memory.is_foreshadow === 1 && <Tag color="green">已埋下伏笔</Tag>}
+                              {memory.is_foreshadow === 2 && <Tag color="purple">已回收伏笔</Tag>}
+                              <span style={{ marginLeft: 8 }}>{memory.title}</span>
+                            </div>
+                          }
+                          description={
+                            <div>
+                              <p>{memory.content}</p>
+                              <div>
+                                {memory.tags.map((tag, idx) => (
+                                  <Tag key={idx} style={{ margin: 2 }}>{tag}</Tag>
+                                ))}
+                              </div>
+                            </div>
+                          }
+                        />
+                      </List.Item>
+                    )}
+                  />
+                ) : (
+                  <Empty description="暂无记忆片段" />
+                )}
+                </Card>
+              </div>
+            )
+          }
+        ]}
+      />
+    );
+  };
+
+  return (
+    <Modal
+      title="章节分析"
+      open={visible}
+      onCancel={onClose}
+      width="90%"
+      centered
+      style={{
+        maxWidth: '1400px',
+        paddingBottom: 0
+      }}
+      styles={{
+        body: {
+          padding: '24px',
+          paddingBottom: 0
+        }
+      }}
+      footer={[
+        <Button key="close" onClick={onClose}>
+          关闭
+        </Button>,
+        !task && !loading && (
+          <Button
+            key="analyze"
+            type="primary"
+            icon={<ReloadOutlined />}
+            onClick={triggerAnalysis}
+            loading={loading}
+          >
+            开始分析
+          </Button>
+        ),
+        task && (task.status === 'failed') && (
+          <Button
+            key="reanalyze"
+            type="primary"
+            icon={<ReloadOutlined />}
+            onClick={triggerAnalysis}
+            loading={loading}
+            danger
+          >
+            重新分析
+          </Button>
+        ),
+        task && task.status === 'completed' && (
+          <Button
+            key="reanalyze"
+            type="default"
+            icon={<ReloadOutlined />}
+            onClick={triggerAnalysis}
+            loading={loading}
+          >
+            重新分析
+          </Button>
+        )
+      ].filter(Boolean)}
+    >
+      {loading && !task && (
+        <div style={{ textAlign: 'center', padding: '48px' }}>
+          <Spin size="large" />
+          <p style={{ marginTop: 16 }}>加载中...</p>
+        </div>
+      )}
+      
+      {error && (
+        <Alert
+          message="错误"
+          description={error}
+          type="error"
+          showIcon
+        />
+      )}
+      
+      {task && task.status !== 'completed' && renderProgress()}
+      {task && task.status === 'completed' && analysis && renderAnalysisResult()}
+    </Modal>
+  );
+}

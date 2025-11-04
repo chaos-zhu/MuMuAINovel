@@ -10,6 +10,8 @@ import Characters from './pages/Characters';
 import Relationships from './pages/Relationships';
 import Organizations from './pages/Organizations';
 import Chapters from './pages/Chapters';
+import ChapterReader from './pages/ChapterReader';
+import ChapterAnalysis from './pages/ChapterAnalysis';
 import WritingStyles from './pages/WritingStyles';
 import Settings from './pages/Settings';
 // import Polish from './pages/Polish';
@@ -34,6 +36,7 @@ function App() {
           <Route path="/" element={<ProtectedRoute><ProjectList /></ProtectedRoute>} />
           <Route path="/wizard" element={<ProtectedRoute><ProjectWizardNew /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+          <Route path="/chapters/:chapterId/reader" element={<ProtectedRoute><ChapterReader /></ProtectedRoute>} />
           <Route path="/project/:projectId" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>}>
             <Route index element={<Navigate to="world-setting" replace />} />
             <Route path="world-setting" element={<WorldSetting />} />
@@ -42,6 +45,7 @@ function App() {
             <Route path="relationships" element={<Relationships />} />
             <Route path="organizations" element={<Organizations />} />
             <Route path="chapters" element={<Chapters />} />
+            <Route path="chapter-analysis" element={<ChapterAnalysis />} />
             <Route path="writing-styles" element={<WritingStyles />} />
             {/* <Route path="polish" element={<Polish />} /> */}
           </Route>

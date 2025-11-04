@@ -18,7 +18,7 @@ export interface Settings {
   api_provider: string;
   api_key: string;
   api_base_url: string;
-  model_name: string;
+  llm_model: string;
   temperature: number;
   max_tokens: number;
   preferences?: string;
@@ -30,7 +30,7 @@ export interface SettingsUpdate {
   api_provider?: string;
   api_key?: string;
   api_base_url?: string;
-  model_name?: string;
+  llm_model?: string;
   temperature?: number;
   max_tokens?: number;
   preferences?: string;
@@ -376,4 +376,140 @@ export interface ApiError {
     };
   };
   message?: string;
+}
+
+// 章节分析任务相关类型
+export interface AnalysisTask {
+  task_id: string;
+  chapter_id: string;
+  status: 'pending' | 'running' | 'completed' | 'failed';
+  progress: number;
+  error_message?: string;
+  created_at?: string;
+  started_at?: string;
+  completed_at?: string;
+}
+
+// 分析结果 - 钩子
+export interface AnalysisHook {
+  type: string;
+  content: string;
+  strength: number;
+  position: string;
+}
+
+// 分析结果 - 伏笔
+export interface AnalysisForeshadow {
+  content: string;
+  type: 'planted' | 'resolved';
+  strength: number;
+  subtlety: number;
+  reference_chapter?: number;
+}
+
+// 分析结果 - 冲突
+export interface AnalysisConflict {
+  types: string[];
+  parties: string[];
+  level: number;
+  description: string;
+  resolution_progress: number;
+}
+
+// 分析结果 - 情感曲线
+export interface AnalysisEmotionalArc {
+  primary_emotion: string;
+  intensity: number;
+  curve: string;
+  secondary_emotions: string[];
+}
+
+// 分析结果 - 角色状态
+export interface AnalysisCharacterState {
+  character_name: string;
+  state_before: string;
+  state_after: string;
+  psychological_change: string;
+  key_event: string;
+  relationship_changes: Record<string, string>;
+}
+
+// 分析结果 - 情节点
+export interface AnalysisPlotPoint {
+  content: string;
+  type: 'revelation' | 'conflict' | 'resolution' | 'transition';
+  importance: number;
+  impact: string;
+}
+
+// 分析结果 - 场景
+export interface AnalysisScene {
+  location: string;
+  atmosphere: string;
+  duration: string;
+}
+
+// 分析结果 - 评分
+export interface AnalysisScores {
+  pacing: number;
+  engagement: number;
+  coherence: number;
+  overall: number;
+}
+
+// 完整分析数据 - 匹配后端PlotAnalysis模型
+export interface AnalysisData {
+  id: string;
+  chapter_id: string;
+  plot_stage: string;
+  conflict_level: number;
+  conflict_types: string[];
+  emotional_tone: string;
+  emotional_intensity: number;
+  hooks: AnalysisHook[];
+  hooks_count: number;
+  foreshadows: AnalysisForeshadow[];
+  foreshadows_planted: number;
+  foreshadows_resolved: number;
+  plot_points: AnalysisPlotPoint[];
+  plot_points_count: number;
+  character_states: AnalysisCharacterState[];
+  scenes?: AnalysisScene[];
+  pacing: string;
+  overall_quality_score: number;
+  pacing_score: number;
+  engagement_score: number;
+  coherence_score: number;
+  analysis_report: string;
+  suggestions: string[];
+  dialogue_ratio: number;
+  description_ratio: number;
+  created_at: string;
+}
+
+// 记忆片段
+export interface StoryMemory {
+  id: string;
+  type: 'hook' | 'foreshadow' | 'plot_point' | 'character_event';
+  title: string;
+  content: string;
+  importance: number;
+  tags: string[];
+  is_foreshadow: 0 | 1 | 2; // 0=普通, 1=已埋下, 2=已回收
+}
+
+// 章节分析结果响应 - 匹配后端API返回
+export interface ChapterAnalysisResponse {
+  chapter_id: string;
+  analysis: AnalysisData;  // 注意：后端返回的是analysis而不是analysis_data
+  memories: StoryMemory[];
+  created_at: string;
+}
+
+// 手动触发分析响应
+export interface TriggerAnalysisResponse {
+  task_id: string;
+  chapter_id: string;
+  status: string;
+  message: string;
 }

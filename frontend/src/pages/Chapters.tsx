@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { List, Button, Modal, Form, Input, Select, message, Empty, Space, Badge, Tag, Card, Tooltip, InputNumber } from 'antd';
-import { EditOutlined, FileTextOutlined, ThunderboltOutlined, LockOutlined, DownloadOutlined, SettingOutlined } from '@ant-design/icons';
+import { EditOutlined, FileTextOutlined, ThunderboltOutlined, LockOutlined, DownloadOutlined, SettingOutlined, FundOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import { useChapterSync } from '../store/hooks';
 import { projectApi, writingStyleApi } from '../services/api';
-import type { Chapter, ChapterUpdate, ApiError, WritingStyle } from '../types';
+import type { Chapter, ChapterUpdate, ApiError, WritingStyle, AnalysisTask } from '../types';
 import { cardStyles } from '../components/CardStyles';
+import ChapterAnalysis from '../components/ChapterAnalysis';
 
 const { TextArea } = Input;
 
@@ -23,6 +24,11 @@ export default function Chapters() {
   const [writingStyles, setWritingStyles] = useState<WritingStyle[]>([]);
   const [selectedStyleId, setSelectedStyleId] = useState<number | undefined>();
   const [targetWordCount, setTargetWordCount] = useState<number>(3000);
+  const [analysisVisible, setAnalysisVisible] = useState(false);
+  const [analysisChapterId, setAnalysisChapterId] = useState<string | null>(null);
+  // 分析任务状态管理
+  const [analysisTasksMap, setAnalysisTasksMap] = useState<Record<string, AnalysisTask>>({});
+  const pollingIntervalsRef = useRef<Record<string, number>>({});
 
   useEffect(() => {
     const handleResize = () => {
@@ -43,9 +49,95 @@ export default function Chapters() {
     if (currentProject?.id) {
       refreshChapters();
       loadWritingStyles();
+      loadAnalysisTasks();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProject?.id]);
+
+  // 清理轮询定时器
+  useEffect(() => {
+    return () => {
+      Object.values(pollingIntervalsRef.current).forEach(interval => {
+        clearInterval(interval);
+      });
+    };
+  }, []);
+
+  // 加载所有章节的分析任务状态
+  const loadAnalysisTasks = async () => {
+    if (!chapters || chapters.length === 0) return;
+    
+    const tasksMap: Record<string, AnalysisTask> = {};
+    
+    for (const chapter of chapters) {
+      // 只查询有内容的章节
+      if (chapter.content && chapter.content.trim() !== '') {
+        try {
+          const response = await fetch(`/api/chapters/${chapter.id}/analysis/status`);
+          if (response.ok) {
+            const task: AnalysisTask = await response.json();
+            tasksMap[chapter.id] = task;
+            
+            // 如果任务正在运行，启动轮询
+            if (task.status === 'pending' || task.status === 'running') {
+              startPollingTask(chapter.id);
+            }
+          }
+        } catch (error) {
+          // 404或其他错误表示没有分析任务，忽略
+          console.debug(`章节 ${chapter.id} 暂无分析任务`);
+        }
+      }
+    }
+    
+    setAnalysisTasksMap(tasksMap);
+  };
+
+  // 启动单个章节的任务轮询
+  const startPollingTask = (chapterId: string) => {
+    // 如果已经在轮询，先清除
+    if (pollingIntervalsRef.current[chapterId]) {
+      clearInterval(pollingIntervalsRef.current[chapterId]);
+    }
+    
+    const interval = window.setInterval(async () => {
+      try {
+        const response = await fetch(`/api/chapters/${chapterId}/analysis/status`);
+        if (!response.ok) return;
+        
+        const task: AnalysisTask = await response.json();
+        
+        setAnalysisTasksMap(prev => ({
+          ...prev,
+          [chapterId]: task
+        }));
+        
+        // 任务完成或失败，停止轮询
+        if (task.status === 'completed' || task.status === 'failed') {
+          clearInterval(pollingIntervalsRef.current[chapterId]);
+          delete pollingIntervalsRef.current[chapterId];
+          
+          if (task.status === 'completed') {
+            message.success(`章节分析完成`);
+          } else if (task.status === 'failed') {
+            message.error(`章节分析失败: ${task.error_message || '未知错误'}`);
+          }
+        }
+      } catch (error) {
+        console.error('轮询分析任务失败:', error);
+      }
+    }, 2000);
+    
+    pollingIntervalsRef.current[chapterId] = interval;
+    
+    // 5分钟超时
+    setTimeout(() => {
+      if (pollingIntervalsRef.current[chapterId]) {
+        clearInterval(pollingIntervalsRef.current[chapterId]);
+        delete pollingIntervalsRef.current[chapterId];
+      }
+    }, 300000);
+  };
 
   const loadWritingStyles = async () => {
     if (!currentProject?.id) return;
@@ -159,7 +251,7 @@ export default function Chapters() {
       setIsContinuing(true);
       setIsGenerating(true);
       
-      await generateChapterContentStream(editingId, (content) => {
+      const result = await generateChapterContentStream(editingId, (content) => {
         editorForm.setFieldsValue({ content });
         
         if (contentTextAreaRef.current) {
@@ -170,7 +262,24 @@ export default function Chapters() {
         }
       }, selectedStyleId, targetWordCount);
       
-      message.success('AI创作成功');
+      message.success('AI创作成功，正在分析章节内容...');
+      
+      // 如果返回了分析任务ID，启动轮询
+      if (result?.analysis_task_id) {
+        const taskId = result.analysis_task_id;
+        setAnalysisTasksMap(prev => ({
+          ...prev,
+          [editingId]: {
+            task_id: taskId,
+            chapter_id: editingId,
+            status: 'pending',
+            progress: 0
+          }
+        }));
+        
+        // 启动轮询
+        startPollingTask(editingId);
+      }
     } catch (error) {
       const apiError = error as ApiError;
       message.error('AI创作失败：' + (apiError.response?.data?.detail || apiError.message || '未知错误'));
@@ -322,6 +431,51 @@ export default function Chapters() {
     });
   };
 
+  const handleShowAnalysis = (chapterId: string) => {
+    setAnalysisChapterId(chapterId);
+    setAnalysisVisible(true);
+  };
+
+  // 渲染分析状态标签
+  const renderAnalysisStatus = (chapterId: string) => {
+    const task = analysisTasksMap[chapterId];
+    
+    if (!task) {
+      return null;
+    }
+    
+    switch (task.status) {
+      case 'pending':
+        return (
+          <Tag icon={<SyncOutlined spin />} color="processing">
+            等待分析
+          </Tag>
+        );
+      case 'running':
+        return (
+          <Tag icon={<SyncOutlined spin />} color="processing">
+            分析中 {task.progress}%
+          </Tag>
+        );
+      case 'completed':
+        return (
+          <Tag icon={<CheckCircleOutlined />} color="success">
+            已分析
+          </Tag>
+        );
+      case 'failed':
+        return (
+          <Tooltip title={task.error_message}>
+            <Tag icon={<CloseCircleOutlined />} color="error">
+              分析失败
+            </Tag>
+          </Tooltip>
+        );
+      default:
+        return null;
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{
@@ -372,15 +526,38 @@ export default function Chapters() {
                 }}
                 actions={isMobile ? undefined : [
                   <Button
-                    type="primary"
                     icon={<EditOutlined />}
                     onClick={() => handleOpenEditor(item.id)}
                   >
                     编辑内容
                   </Button>,
+                  (() => {
+                    const task = analysisTasksMap[item.id];
+                    const isAnalyzing = task && (task.status === 'pending' || task.status === 'running');
+                    const hasContent = item.content && item.content.trim() !== '';
+                    
+                    return (
+                      <Tooltip
+                        title={
+                          !hasContent ? '请先生成章节内容' :
+                          isAnalyzing ? '分析进行中，请稍候...' :
+                          ''
+                        }
+                      >
+                        <Button
+                          icon={isAnalyzing ? <SyncOutlined spin /> : <FundOutlined />}
+                          onClick={() => handleShowAnalysis(item.id)}
+                          disabled={!hasContent || isAnalyzing}
+                          loading={isAnalyzing}
+                        >
+                          {isAnalyzing ? '分析中' : '查看分析'}
+                        </Button>
+                      </Tooltip>
+                    );
+                  })(),
                   <Button
                     type="text"
-                    icon={<EditOutlined />}
+                    icon={<SettingOutlined />}
                     onClick={() => handleOpenModal(item.id)}
                   >
                     修改信息
@@ -395,6 +572,7 @@ export default function Chapters() {
                         <span>第{item.chapter_number}章：{item.title}</span>
                         <Tag color={getStatusColor(item.status)}>{getStatusText(item.status)}</Tag>
                         <Badge count={`${item.word_count || 0}字`} style={{ backgroundColor: '#52c41a' }} />
+                        {renderAnalysisStatus(item.id)}
                         {!canGenerateChapter(item) && (
                           <Tooltip title={getGenerateDisabledReason(item)}>
                             <Tag icon={<LockOutlined />} color="warning">
@@ -425,6 +603,30 @@ export default function Chapters() {
                         size="small"
                         title="编辑内容"
                       />
+                      {(() => {
+                        const task = analysisTasksMap[item.id];
+                        const isAnalyzing = task && (task.status === 'pending' || task.status === 'running');
+                        const hasContent = item.content && item.content.trim() !== '';
+                        
+                        return (
+                          <Tooltip
+                            title={
+                              !hasContent ? '请先生成章节内容' :
+                              isAnalyzing ? '分析中' :
+                              '查看分析'
+                            }
+                          >
+                            <Button
+                              type="text"
+                              icon={isAnalyzing ? <SyncOutlined spin /> : <FundOutlined />}
+                              onClick={() => handleShowAnalysis(item.id)}
+                              size="small"
+                              disabled={!hasContent || isAnalyzing}
+                              loading={isAnalyzing}
+                            />
+                          </Tooltip>
+                        );
+                      })()}
                       <Button
                         type="text"
                         icon={<SettingOutlined />}
@@ -654,6 +856,64 @@ export default function Chapters() {
           </Form.Item>
         </Form>
       </Modal>
+
+      {analysisChapterId && (
+        <ChapterAnalysis
+          chapterId={analysisChapterId}
+          visible={analysisVisible}
+          onClose={() => {
+            setAnalysisVisible(false);
+            
+            // 延迟500ms后刷新该章节的分析状态，给后端足够时间完成数据库写入
+            if (analysisChapterId) {
+              const chapterIdToRefresh = analysisChapterId;
+              
+              setTimeout(() => {
+                fetch(`/api/chapters/${chapterIdToRefresh}/analysis/status`)
+                  .then(response => {
+                    if (response.ok) {
+                      return response.json();
+                    }
+                    throw new Error('获取状态失败');
+                  })
+                  .then((task: AnalysisTask) => {
+                    setAnalysisTasksMap(prev => ({
+                      ...prev,
+                      [chapterIdToRefresh]: task
+                    }));
+                    
+                    // 如果任务正在运行，启动轮询
+                    if (task.status === 'pending' || task.status === 'running') {
+                      startPollingTask(chapterIdToRefresh);
+                    }
+                  })
+                  .catch(error => {
+                    console.error('刷新分析状态失败:', error);
+                    // 如果查询失败，再延迟尝试一次
+                    setTimeout(() => {
+                      fetch(`/api/chapters/${chapterIdToRefresh}/analysis/status`)
+                        .then(response => response.ok ? response.json() : null)
+                        .then((task: AnalysisTask | null) => {
+                          if (task) {
+                            setAnalysisTasksMap(prev => ({
+                              ...prev,
+                              [chapterIdToRefresh]: task
+                            }));
+                            if (task.status === 'pending' || task.status === 'running') {
+                              startPollingTask(chapterIdToRefresh);
+                            }
+                          }
+                        })
+                        .catch(err => console.error('第二次刷新失败:', err));
+                    }, 1000);
+                  });
+              }, 500);
+            }
+            
+            setAnalysisChapterId(null);
+          }}
+        />
+      )}
     </div>
   );
 }

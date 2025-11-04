@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Empty, Modal, message, Spin, Row, Col, Statistic, Space, Tag, Progress, Typography, Tooltip, Badge, Alert } from 'antd';
-import { EditOutlined, DeleteOutlined, BookOutlined, RocketOutlined, CalendarOutlined, FileTextOutlined, TrophyOutlined, FireOutlined, SettingOutlined, InfoCircleOutlined, CloseOutlined } from '@ant-design/icons';
+import { Card, Button, Empty, Modal, message, Spin, Row, Col, Statistic, Space, Tag, Progress, Typography, Tooltip, Badge, Alert, Upload, Checkbox, Divider, Switch } from 'antd';
+import { EditOutlined, DeleteOutlined, BookOutlined, RocketOutlined, CalendarOutlined, FileTextOutlined, TrophyOutlined, FireOutlined, SettingOutlined, InfoCircleOutlined, CloseOutlined, UploadOutlined, DownloadOutlined } from '@ant-design/icons';
+import { projectApi } from '../services/api';
 import { useStore } from '../store';
 import { useProjectSync } from '../store/hooks';
 import type { ReactNode } from 'react';
@@ -14,6 +15,18 @@ export default function ProjectList() {
   const navigate = useNavigate();
   const { projects, loading } = useStore();
   const [showApiTip, setShowApiTip] = useState(true);
+  const [importModalVisible, setImportModalVisible] = useState(false);
+  const [exportModalVisible, setExportModalVisible] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [validationResult, setValidationResult] = useState<any>(null);
+  const [importing, setImporting] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
+  const [exportOptions, setExportOptions] = useState({
+    includeWritingStyles: true,
+    includeGenerationHistory: true,
+  });
 
   const { refreshProjects, deleteProject } = useProjectSync();
 
@@ -122,6 +135,160 @@ export default function ProjectList() {
   const totalWords = projects.reduce((sum, p) => sum + (p.current_words || 0), 0);
   const activeProjects = projects.filter(p => p.status === 'writing').length;
 
+  // 处理文件选择
+  const handleFileSelect = async (file: File) => {
+    setSelectedFile(file);
+    setValidationResult(null);
+    
+    // 验证文件
+    try {
+      setValidating(true);
+      const result = await projectApi.validateImportFile(file);
+      setValidationResult(result);
+      
+      if (!result.valid) {
+        message.error('文件验证失败');
+      }
+    } catch (error) {
+      console.error('验证失败:', error);
+      message.error('文件验证失败');
+    } finally {
+      setValidating(false);
+    }
+    
+    return false; // 阻止自动上传
+  };
+
+  // 处理导入
+  const handleImport = async () => {
+    if (!selectedFile || !validationResult?.valid) {
+      message.warning('请选择有效的导入文件');
+      return;
+    }
+
+    try {
+      setImporting(true);
+      const result = await projectApi.importProject(selectedFile);
+      
+      if (result.success) {
+        message.success(`项目导入成功！${result.message}`);
+        setImportModalVisible(false);
+        setSelectedFile(null);
+        setValidationResult(null);
+        
+        // 刷新项目列表
+        await refreshProjects();
+        
+        // 跳转到新项目
+        if (result.project_id) {
+          navigate(`/project/${result.project_id}`);
+        }
+      } else {
+        message.error(result.message || '导入失败');
+      }
+    } catch (error) {
+      console.error('导入失败:', error);
+      message.error('导入失败，请重试');
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // 关闭导入对话框
+  const handleCloseImportModal = () => {
+    setImportModalVisible(false);
+    setSelectedFile(null);
+    setValidationResult(null);
+  };
+
+  // 打开导出对话框
+  const handleOpenExportModal = () => {
+    setExportModalVisible(true);
+    setSelectedProjectIds([]);
+  };
+
+  // 获取可导出的项目（过滤掉向导未完成的项目）
+  const exportableProjects = projects.filter(p => p.wizard_status === 'completed');
+
+  // 关闭导出对话框
+  const handleCloseExportModal = () => {
+    setExportModalVisible(false);
+    setSelectedProjectIds([]);
+  };
+
+  // 切换项目选择
+  const handleToggleProject = (projectId: string) => {
+    setSelectedProjectIds(prev =>
+      prev.includes(projectId)
+        ? prev.filter(id => id !== projectId)
+        : [...prev, projectId]
+    );
+  };
+
+  // 全选/取消全选
+  const handleToggleAll = () => {
+    if (selectedProjectIds.length === exportableProjects.length) {
+      setSelectedProjectIds([]);
+    } else {
+      setSelectedProjectIds(exportableProjects.map(p => p.id));
+    }
+  };
+
+  // 执行导出
+  const handleExport = async () => {
+    if (selectedProjectIds.length === 0) {
+      message.warning('请至少选择一个项目');
+      return;
+    }
+
+    try {
+      setExporting(true);
+      
+      if (selectedProjectIds.length === 1) {
+        // 单个项目导出
+        const projectId = selectedProjectIds[0];
+        const project = projects.find(p => p.id === projectId);
+        await projectApi.exportProjectData(projectId, {
+          include_generation_history: exportOptions.includeGenerationHistory,
+          include_writing_styles: exportOptions.includeWritingStyles
+        });
+        message.success(`项目 "${project?.title}" 导出成功`);
+      } else {
+        // 批量导出
+        let successCount = 0;
+        let failCount = 0;
+        
+        for (const projectId of selectedProjectIds) {
+          try {
+            await projectApi.exportProjectData(projectId, {
+              include_generation_history: exportOptions.includeGenerationHistory,
+              include_writing_styles: exportOptions.includeWritingStyles
+            });
+            successCount++;
+            // 添加延迟避免浏览器阻止多个下载
+            await new Promise(resolve => setTimeout(resolve, 500));
+          } catch (error) {
+            console.error(`导出项目 ${projectId} 失败:`, error);
+            failCount++;
+          }
+        }
+        
+        if (failCount === 0) {
+          message.success(`成功导出 ${successCount} 个项目`);
+        } else {
+          message.warning(`导出完成：成功 ${successCount} 个，失败 ${failCount} 个`);
+        }
+      }
+      
+      handleCloseExportModal();
+    } catch (error) {
+      console.error('导出失败:', error);
+      message.error('导出失败，请重试');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   return (
     <div style={{
       minHeight: '100vh',
@@ -153,46 +320,165 @@ export default function ProjectList() {
                 </Text>
               </Space>
             </Col>
-            <Col xs={24} sm={12} md={14} style={{ display: 'flex', justifyContent: window.innerWidth <= 768 ? 'space-between' : 'flex-end', alignItems: 'center', gap: 16 }}>
-              <Button
-                type="primary"
-                size={window.innerWidth <= 768 ? 'middle' : 'large'}
-                icon={<RocketOutlined />}
-                onClick={() => navigate('/wizard')}
-                style={{
-                  borderRadius: 8,
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                  border: 'none',
-                  boxShadow: '0 2px 8px rgba(102, 126, 234, 0.4)'
-                }}
-              >
-                向导创建
-              </Button>
-              <Button
-                type="default"
-                size={window.innerWidth <= 768 ? 'middle' : 'large'}
-                icon={<SettingOutlined />}
-                onClick={() => navigate('/settings')}
-                style={{
-                  borderRadius: 8,
-                  borderColor: '#d9d9d9',
-                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
-                  transition: 'all 0.3s ease'
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = '#667eea';
-                  e.currentTarget.style.color = '#667eea';
-                  e.currentTarget.style.boxShadow = '0 2px 12px rgba(102, 126, 234, 0.3)';
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = '#d9d9d9';
-                  e.currentTarget.style.color = 'rgba(0, 0, 0, 0.88)';
-                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
-                }}
-              >
-                API设置
-              </Button>
-              <UserMenu />
+            <Col xs={24} sm={12} md={14}>
+              {window.innerWidth <= 768 ? (
+                // 移动端：按钮分两行显示
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  <Space size={8} style={{ width: '100%' }}>
+                    <Button
+                      type="primary"
+                      size="middle"
+                      icon={<RocketOutlined />}
+                      onClick={() => navigate('/wizard')}
+                      style={{
+                        flex: 1,
+                        borderRadius: 8,
+                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                        border: 'none',
+                        boxShadow: '0 2px 8px rgba(102, 126, 234, 0.4)'
+                      }}
+                    >
+                      向导创建
+                    </Button>
+                    <Button
+                      type="default"
+                      size="middle"
+                      icon={<SettingOutlined />}
+                      onClick={() => navigate('/settings')}
+                      style={{
+                        flex: 1,
+                        borderRadius: 8,
+                        borderColor: '#d9d9d9',
+                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)'
+                      }}
+                    >
+                      API设置
+                    </Button>
+                    <UserMenu />
+                  </Space>
+                  <Space size={8} style={{ width: '100%' }}>
+                    <Button
+                      type="default"
+                      size="middle"
+                      icon={<DownloadOutlined />}
+                      onClick={handleOpenExportModal}
+                      disabled={exportableProjects.length === 0}
+                      style={{
+                        flex: 1,
+                        borderRadius: 8,
+                        borderColor: '#1890ff',
+                        color: '#1890ff',
+                        boxShadow: '0 2px 8px rgba(24, 144, 255, 0.2)'
+                      }}
+                    >
+                      导出
+                    </Button>
+                    <Button
+                      type="default"
+                      size="middle"
+                      icon={<UploadOutlined />}
+                      onClick={() => setImportModalVisible(true)}
+                      style={{
+                        flex: 1,
+                        borderRadius: 8,
+                        borderColor: '#52c41a',
+                        color: '#52c41a',
+                        boxShadow: '0 2px 8px rgba(82, 196, 26, 0.2)'
+                      }}
+                    >
+                      导入
+                    </Button>
+                  </Space>
+                </Space>
+              ) : (
+                // PC端：原有布局
+                <Space size={12} style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <Button
+                    type="primary"
+                    size="large"
+                    icon={<RocketOutlined />}
+                    onClick={() => navigate('/wizard')}
+                    style={{
+                      borderRadius: 8,
+                      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                      border: 'none',
+                      boxShadow: '0 2px 8px rgba(102, 126, 234, 0.4)'
+                    }}
+                  >
+                    向导创建
+                  </Button>
+                  <Button
+                    type="default"
+                    size="large"
+                    icon={<DownloadOutlined />}
+                    onClick={handleOpenExportModal}
+                    disabled={exportableProjects.length === 0}
+                    style={{
+                      borderRadius: 8,
+                      borderColor: '#1890ff',
+                      color: '#1890ff',
+                      boxShadow: '0 2px 8px rgba(24, 144, 255, 0.2)'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = '#1890ff';
+                      e.currentTarget.style.background = '#e6f7ff';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = '#1890ff';
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                  >
+                    导出项目
+                  </Button>
+                  <Button
+                    type="default"
+                    size="large"
+                    icon={<UploadOutlined />}
+                    onClick={() => setImportModalVisible(true)}
+                    style={{
+                      borderRadius: 8,
+                      borderColor: '#52c41a',
+                      color: '#52c41a',
+                      boxShadow: '0 2px 8px rgba(82, 196, 26, 0.2)'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = '#52c41a';
+                      e.currentTarget.style.background = '#f6ffed';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = '#52c41a';
+                      e.currentTarget.style.background = 'transparent';
+                    }}
+                  >
+                    导入项目
+                  </Button>
+                  <Button
+                    type="default"
+                    size="large"
+                    icon={<SettingOutlined />}
+                    onClick={() => navigate('/settings')}
+                    style={{
+                      borderRadius: 8,
+                      borderColor: '#d9d9d9',
+                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                      transition: 'all 0.3s ease'
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.borderColor = '#667eea';
+                      e.currentTarget.style.color = '#667eea';
+                      e.currentTarget.style.boxShadow = '0 2px 12px rgba(102, 126, 234, 0.3)';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.borderColor = '#d9d9d9';
+                      e.currentTarget.style.color = 'rgba(0, 0, 0, 0.88)';
+                      e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.08)';
+                    }}
+                  >
+                    API设置
+                  </Button>
+                  <UserMenu />
+                </Space>
+              )}
             </Col>
           </Row>
 
@@ -472,6 +758,285 @@ export default function ProjectList() {
           )}
         </Spin>
       </div>
+
+      {/* 导入项目对话框 */}
+      <Modal
+        title="导入项目"
+        open={importModalVisible}
+        onOk={handleImport}
+        onCancel={handleCloseImportModal}
+        confirmLoading={importing}
+        okText="导入"
+        cancelText="取消"
+        width={window.innerWidth <= 768 ? '90%' : 500}
+        centered
+        okButtonProps={{ disabled: !validationResult?.valid }}
+        styles={{
+          body: {
+            maxHeight: window.innerWidth <= 768 ? '60vh' : 'auto',
+            overflowY: 'auto',
+            padding: window.innerWidth <= 768 ? '16px' : '24px'
+          }
+        }}
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          <div>
+            <p style={{ marginBottom: '12px', color: '#666', fontSize: window.innerWidth <= 768 ? 13 : 14 }}>
+              选择之前导出的 JSON 格式项目文件
+            </p>
+            <Upload
+              accept=".json"
+              beforeUpload={handleFileSelect}
+              maxCount={1}
+              onRemove={() => {
+                setSelectedFile(null);
+                setValidationResult(null);
+              }}
+              fileList={selectedFile ? [{ uid: '-1', name: selectedFile.name, status: 'done' }] as any : []}
+            >
+              <Button icon={<UploadOutlined />} block>选择文件</Button>
+            </Upload>
+          </div>
+
+          {validating && (
+            <div style={{ textAlign: 'center', padding: '20px' }}>
+              <Spin tip="验证文件中..." />
+            </div>
+          )}
+
+          {validationResult && (
+            <Card size="small" style={{ background: validationResult.valid ? '#f6ffed' : '#fff2f0' }}>
+              <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                <div>
+                  <Text strong style={{
+                    color: validationResult.valid ? '#52c41a' : '#ff4d4f',
+                    fontSize: window.innerWidth <= 768 ? 13 : 14
+                  }}>
+                    {validationResult.valid ? '✓ 文件验证通过' : '✗ 文件验证失败'}
+                  </Text>
+                </div>
+
+                {validationResult.project_name && (
+                  <div>
+                    <Text type="secondary" style={{ fontSize: window.innerWidth <= 768 ? 12 : 14 }}>项目名称：</Text>
+                    <Text strong style={{ fontSize: window.innerWidth <= 768 ? 12 : 14 }}>{validationResult.project_name}</Text>
+                  </div>
+                )}
+
+                {validationResult.statistics && Object.keys(validationResult.statistics).length > 0 && (
+                  <div>
+                    <Text type="secondary" style={{ fontSize: window.innerWidth <= 768 ? 12 : 14 }}>数据统计：</Text>
+                    <div style={{ marginTop: 8 }}>
+                      <Row gutter={[8, 8]}>
+                        {validationResult.statistics.chapters > 0 && (
+                          <Col span={12}>
+                            <Tag color="blue">章节: {validationResult.statistics.chapters}</Tag>
+                          </Col>
+                        )}
+                        {validationResult.statistics.characters > 0 && (
+                          <Col span={12}>
+                            <Tag color="green">角色: {validationResult.statistics.characters}</Tag>
+                          </Col>
+                        )}
+                        {validationResult.statistics.outlines > 0 && (
+                          <Col span={12}>
+                            <Tag color="purple">大纲: {validationResult.statistics.outlines}</Tag>
+                          </Col>
+                        )}
+                        {validationResult.statistics.relationships > 0 && (
+                          <Col span={12}>
+                            <Tag color="orange">关系: {validationResult.statistics.relationships}</Tag>
+                          </Col>
+                        )}
+                      </Row>
+                    </div>
+                  </div>
+                )}
+
+                {validationResult.errors && validationResult.errors.length > 0 && (
+                  <div>
+                    <Text type="danger" strong style={{ fontSize: window.innerWidth <= 768 ? 12 : 14 }}>错误：</Text>
+                    <ul style={{
+                      margin: '4px 0 0 0',
+                      paddingLeft: '20px',
+                      color: '#ff4d4f',
+                      fontSize: window.innerWidth <= 768 ? 12 : 13
+                    }}>
+                      {validationResult.errors.map((error: string, index: number) => (
+                        <li key={index}>{error}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {validationResult.warnings && validationResult.warnings.length > 0 && (
+                  <div>
+                    <Text type="warning" strong style={{ fontSize: window.innerWidth <= 768 ? 12 : 14 }}>警告：</Text>
+                    <ul style={{
+                      margin: '4px 0 0 0',
+                      paddingLeft: '20px',
+                      color: '#faad14',
+                      fontSize: window.innerWidth <= 768 ? 12 : 13
+                    }}>
+                      {validationResult.warnings.map((warning: string, index: number) => (
+                        <li key={index}>{warning}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </Space>
+            </Card>
+          )}
+        </Space>
+      </Modal>
+
+      {/* 导出项目对话框 */}
+      <Modal
+        title="导出项目"
+        open={exportModalVisible}
+        onOk={handleExport}
+        onCancel={handleCloseExportModal}
+        confirmLoading={exporting}
+        okText={selectedProjectIds.length > 0 ? `导出 (${selectedProjectIds.length})` : '导出'}
+        cancelText="取消"
+        width={window.innerWidth <= 768 ? '90%' : 700}
+        centered
+        okButtonProps={{ disabled: selectedProjectIds.length === 0 }}
+        styles={{
+          body: {
+            maxHeight: window.innerWidth <= 768 ? '70vh' : 'auto',
+            overflowY: 'auto',
+            padding: window.innerWidth <= 768 ? '16px' : '24px'
+          }
+        }}
+      >
+        <Space direction="vertical" size={16} style={{ width: '100%' }}>
+          {/* 导出选项 */}
+          <Card
+            size="small"
+            style={{ background: '#f5f5f5' }}
+            styles={{ body: { padding: window.innerWidth <= 768 ? 12 : 16 } }}
+          >
+            <Space direction="vertical" size={12} style={{ width: '100%' }}>
+              <Text strong style={{ fontSize: window.innerWidth <= 768 ? 13 : 14 }}>导出选项</Text>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Switch
+                  size={window.innerWidth <= 768 ? 'small' : 'default'}
+                  checked={exportOptions.includeWritingStyles}
+                  onChange={(checked) => setExportOptions(prev => ({ ...prev, includeWritingStyles: checked }))}
+                  style={{
+                    flexShrink: 0,
+                    height: window.innerWidth <= 768 ? 16 : 22,
+                    minHeight: window.innerWidth <= 768 ? 16 : 22,
+                    lineHeight: window.innerWidth <= 768 ? '16px' : '22px'
+                  }}
+                />
+                <Text style={{ fontSize: window.innerWidth <= 768 ? 13 : 14 }}>包含写作风格</Text>
+                <Tooltip title="导出项目关联的写作风格数据">
+                  <InfoCircleOutlined style={{ color: '#999', fontSize: window.innerWidth <= 768 ? 12 : 14 }} />
+                </Tooltip>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <Switch
+                  size={window.innerWidth <= 768 ? 'small' : 'default'}
+                  checked={exportOptions.includeGenerationHistory}
+                  onChange={(checked) => setExportOptions(prev => ({ ...prev, includeGenerationHistory: checked }))}
+                  style={{
+                    flexShrink: 0,
+                    height: window.innerWidth <= 768 ? 16 : 22,
+                    minHeight: window.innerWidth <= 768 ? 16 : 22,
+                    lineHeight: window.innerWidth <= 768 ? '16px' : '22px'
+                  }}
+                />
+                <Text style={{ fontSize: window.innerWidth <= 768 ? 13 : 14 }}>包含生成历史</Text>
+                <Tooltip title="导出AI生成的历史记录（最多100条）">
+                  <InfoCircleOutlined style={{ color: '#999', fontSize: window.innerWidth <= 768 ? 12 : 14 }} />
+                </Tooltip>
+              </div>
+            </Space>
+          </Card>
+
+          <Divider style={{ margin: '8px 0' }} />
+
+          {/* 项目列表 */}
+          <div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, flexWrap: window.innerWidth <= 768 ? 'wrap' : 'nowrap', gap: 8 }}>
+              <Text strong style={{ fontSize: window.innerWidth <= 768 ? 13 : 14 }}>
+                选择要导出的项目 {exportableProjects.length > 0 && <Text type="secondary" style={{ fontSize: window.innerWidth <= 768 ? 12 : 14 }}>({exportableProjects.length}个可导出)</Text>}
+              </Text>
+              <Checkbox
+                checked={selectedProjectIds.length === exportableProjects.length && exportableProjects.length > 0}
+                indeterminate={selectedProjectIds.length > 0 && selectedProjectIds.length < exportableProjects.length}
+                onChange={handleToggleAll}
+                style={{ fontSize: window.innerWidth <= 768 ? 13 : 14 }}
+              >
+                全选
+              </Checkbox>
+            </div>
+
+            <div style={{ maxHeight: window.innerWidth <= 768 ? 300 : 400, overflowY: 'auto' }}>
+              {exportableProjects.length === 0 ? (
+                <Empty
+                  description="暂无可导出的项目"
+                  style={{ padding: '40px 0' }}
+                />
+              ) : (
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  {exportableProjects.map((project) => (
+                  <Card
+                    key={project.id}
+                    size="small"
+                    hoverable
+                    style={{
+                      cursor: 'pointer',
+                      border: selectedProjectIds.includes(project.id) ? '2px solid #1890ff' : '1px solid #d9d9d9',
+                      background: selectedProjectIds.includes(project.id) ? '#e6f7ff' : '#fff'
+                    }}
+                    onClick={() => handleToggleProject(project.id)}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <Checkbox
+                        checked={selectedProjectIds.includes(project.id)}
+                        onChange={() => handleToggleProject(project.id)}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                      <BookOutlined style={{ fontSize: 20, color: '#1890ff' }} />
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' }}>
+                          <Text strong style={{ fontSize: window.innerWidth <= 768 ? 13 : 14 }}>{project.title}</Text>
+                          {project.genre && (
+                            <Tag color="blue" style={{ margin: 0, fontSize: window.innerWidth <= 768 ? 11 : 12 }}>{project.genre}</Tag>
+                          )}
+                          {getStatusTag(project.status)}
+                        </div>
+                        <Text type="secondary" style={{ fontSize: window.innerWidth <= 768 ? 11 : 12 }}>
+                          {project.current_words || 0} 字
+                          {project.description && ` · ${project.description.substring(0, window.innerWidth <= 768 ? 30 : 50)}${project.description.length > (window.innerWidth <= 768 ? 30 : 50) ? '...' : ''}`}
+                        </Text>
+                      </div>
+                      {window.innerWidth > 768 && (
+                        <Text type="secondary" style={{ fontSize: 12 }}>
+                          {formatDate(project.updated_at)}
+                        </Text>
+                      )}
+                    </div>
+                    </Card>
+                  ))}
+                </Space>
+              )}
+            </div>
+          </div>
+
+          {selectedProjectIds.length > 0 && (
+            <Alert
+              message={`已选择 ${selectedProjectIds.length} 个项目`}
+              type="info"
+              showIcon
+              style={{ marginTop: 8 }}
+            />
+          )}
+        </Space>
+      </Modal>
     </div>
   );
 }

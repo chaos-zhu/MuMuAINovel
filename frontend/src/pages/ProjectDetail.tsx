@@ -13,6 +13,7 @@ import {
   ApartmentOutlined,
   BankOutlined,
   EditOutlined,
+  FundOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../store';
 import { useCharacterSync, useOutlineSync, useChapterSync } from '../store/hooks';
@@ -123,6 +124,11 @@ export default function ProjectDetail() {
       label: <Link to={`/project/${projectId}/chapters`}>章节管理</Link>,
     },
     {
+      key: 'chapter-analysis',
+      icon: <FundOutlined />,
+      label: <Link to={`/project/${projectId}/chapter-analysis`}>剧情分析</Link>,
+    },
+    {
       key: 'writing-styles',
       icon: <EditOutlined />,
       label: <Link to={`/project/${projectId}/writing-styles`}>写作风格</Link>,
@@ -142,6 +148,7 @@ export default function ProjectDetail() {
     if (path.includes('/organizations')) return 'organizations';
     if (path.includes('/outline')) return 'outline';
     if (path.includes('/characters')) return 'characters';
+    if (path.includes('/chapter-analysis')) return 'chapter-analysis';
     if (path.includes('/chapters')) return 'chapters';
     if (path.includes('/writing-styles')) return 'writing-styles';
     // if (path.includes('/polish')) return 'polish';
@@ -259,7 +266,8 @@ export default function ProjectDetail() {
         )}
         
         {!mobile && (
-          <Row gutter={12} style={{ width: '450px', justifyContent: 'flex-end', zIndex: 1 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', zIndex: 1 }}>
+            <Row gutter={12} style={{ width: '450px', justifyContent: 'flex-end' }}>
             <Col>
               <Card
                 size="small"
@@ -344,7 +352,8 @@ export default function ProjectDetail() {
                 />
               </Card>
             </Col>
-          </Row>
+            </Row>
+          </div>
         )}
       </Header>
 
