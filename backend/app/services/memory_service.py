@@ -659,6 +659,44 @@ class MemoryService:
             logger.error(f"❌ 删除章节记忆失败: {str(e)}")
             return False
     
+    async def delete_project_memories(
+        self,
+        user_id: str,
+        project_id: str
+    ) -> bool:
+        """
+        删除指定项目的所有记忆(包括向量数据库)
+        
+        Args:
+            user_id: 用户ID
+            project_id: 项目ID
+        
+        Returns:
+            是否删除成功
+        """
+        try:
+            # 生成collection名称
+            user_hash = hashlib.sha256(user_id.encode()).hexdigest()[:8]
+            project_hash = hashlib.sha256(project_id.encode()).hexdigest()[:8]
+            collection_name = f"u_{user_hash}_p_{project_hash}"
+            
+            # 删除整个collection(这会清理所有向量数据)
+            try:
+                self.client.delete_collection(name=collection_name)
+                logger.info(f"🗑️ 已删除项目{project_id[:8]}的向量数据库collection: {collection_name}")
+                return True
+            except Exception as e:
+                # 如果collection不存在,也算成功
+                if "does not exist" in str(e).lower():
+                    logger.info(f"ℹ️ 项目{project_id[:8]}的collection不存在,无需删除")
+                    return True
+                else:
+                    raise
+                
+        except Exception as e:
+            logger.error(f"❌ 删除项目记忆失败: {str(e)}")
+            return False
+    
     async def update_memory(
         self,
         user_id: str,
