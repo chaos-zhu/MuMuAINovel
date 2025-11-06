@@ -15,6 +15,7 @@ from app.models.relationship import (
 )
 from app.models.memory import StoryMemory, PlotAnalysis
 from app.models.analysis_task import AnalysisTask
+from app.models.batch_generation_task import BatchGenerationTask
 
 __all__ = [
     "Project",
@@ -32,4 +33,5 @@ __all__ = [
     "StoryMemory",
     "PlotAnalysis",
     "AnalysisTask",
+    "BatchGenerationTask",
 ]

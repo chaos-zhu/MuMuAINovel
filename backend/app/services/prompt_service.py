@@ -478,7 +478,7 @@ class PromptService:
 3. 符合角色性格设定
 4. 体现世界观特色
 5. 使用{narrative_perspective}视角
-6. 字数要求：不得低于{target_word_count}字
+6. **字数要求：目标{target_word_count}字，不得低于{target_word_count}字，建议控制在{target_word_count}至{max_word_count}字之间**
 7. 语言自然流畅，避免AI痕迹
 
 请直接输出章节正文内容，不要包含章节标题和其他说明文字。"""
@@ -536,7 +536,7 @@ class PromptService:
 
 4. **写作风格**：
 - 使用{narrative_perspective}视角
-- 字数要求：不得低于{target_word_count}字
+- **字数要求：目标{target_word_count}字，不得低于{target_word_count}字，建议控制在{target_word_count}至{max_word_count}字之间**
 - 语言自然流畅，避免AI痕迹
 - 体现世界观特色
 
@@ -871,6 +871,9 @@ class PromptService:
             target_word_count: 目标字数，默认3000字
             memory_context: 记忆上下文（可选）
         """
+        # 计算最大字数（目标字数+1000）
+        max_word_count = target_word_count + 1000
+        
         # 格式化记忆上下文
         memory_text = ""
         if memory_context:
@@ -896,7 +899,8 @@ class PromptService:
             chapter_number=chapter_number,
             chapter_title=chapter_title,
             chapter_outline=chapter_outline,
-            target_word_count=target_word_count
+            target_word_count=target_word_count,
+            max_word_count=max_word_count
         )
         
         # 插入记忆上下文
@@ -930,6 +934,9 @@ class PromptService:
             target_word_count: 目标字数，默认3000字
             memory_context: 记忆上下文（可选）
         """
+        # 计算最大字数（目标字数+1000）
+        max_word_count = target_word_count + 1000
+        
         # 格式化记忆上下文
         memory_text = ""
         if memory_context:
@@ -958,6 +965,7 @@ class PromptService:
             chapter_title=chapter_title,
             chapter_outline=chapter_outline,
             target_word_count=target_word_count,
+            max_word_count=max_word_count,
             memory_context=memory_text
         )
         
