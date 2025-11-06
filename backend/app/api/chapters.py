@@ -282,6 +282,198 @@ async def check_prerequisites(db: AsyncSession, chapter: Chapter) -> tuple[bool,
     return True, "", previous_chapters
 
 
+async def build_smart_chapter_context(
+    db: AsyncSession,
+    project_id: str,
+    current_chapter_number: int,
+    user_id: str
+) -> dict:
+    """
+    智能构建章节生成上下文（支持海量章节场景）
+    
+    策略：
+    1. 故事骨架：每50章采样1章（标题+摘要）
+    2. 相关历史：通过chapter_summary记忆语义检索15个最相关章节
+    3. 近期概要：最近30章的简要摘要（200字/章）
+    4. 最近完整：最近3章的完整内容
+    
+    Args:
+        db: 数据库会话
+        project_id: 项目ID
+        current_chapter_number: 当前章节序号
+        user_id: 用户ID
+        
+    Returns:
+        包含各部分上下文的字典
+    """
+    context_parts = {
+        'story_skeleton': '',      # 故事骨架
+        'relevant_history': '',    # 相关历史章节
+        'recent_summary': '',      # 近期概要
+        'recent_full': '',         # 最近完整内容
+        'stats': {}                # 统计信息
+    }
+    
+    try:
+        # 1. 获取所有已完成的前置章节（只取ID和序号）
+        all_chapters_result = await db.execute(
+            select(Chapter.id, Chapter.chapter_number, Chapter.title)
+            .where(Chapter.project_id == project_id)
+            .where(Chapter.chapter_number < current_chapter_number)
+            .where(Chapter.content != None)
+            .where(Chapter.content != "")
+            .order_by(Chapter.chapter_number)
+        )
+        all_chapters_info = all_chapters_result.all()
+        total_previous = len(all_chapters_info)
+        
+        if total_previous == 0:
+            logger.info("📚 这是第一章，无需构建前置上下文")
+            return context_parts
+        
+        logger.info(f"📚 开始构建智能上下文：共{total_previous}章前置内容")
+        
+        # 2. 构建故事骨架（每50章采样）
+        skeleton_chapters = []
+        if total_previous > 50:
+            sample_interval = 50
+            skeleton_indices = list(range(0, total_previous, sample_interval))
+            
+            for idx in skeleton_indices:
+                chapter_info = all_chapters_info[idx]
+                # 获取章节摘要（优先从chapter_summary记忆获取）
+                summary_result = await db.execute(
+                    select(StoryMemory.content)
+                    .where(StoryMemory.project_id == project_id)
+                    .where(StoryMemory.chapter_id == chapter_info.id)
+                    .where(StoryMemory.memory_type == 'chapter_summary')
+                    .limit(1)
+                )
+                summary_row = summary_result.scalar_one_or_none()
+                summary = summary_row if summary_row else "（无摘要）"
+                
+                skeleton_chapters.append({
+                    'number': chapter_info.chapter_number,
+                    'title': chapter_info.title,
+                    'summary': summary
+                })
+            
+            context_parts['story_skeleton'] = "【故事骨架】\n" + "\n".join([
+                f"第{ch['number']}章《{ch['title']}》：{ch['summary']}"
+                for ch in skeleton_chapters
+            ])
+            logger.info(f"  ✅ 故事骨架：采样{len(skeleton_chapters)}章（每50章1个）")
+        
+        # 3. 语义检索相关历史章节（使用chapter_summary记忆）
+        # 获取当前章节的大纲作为查询
+        current_outline_result = await db.execute(
+            select(Outline.content)
+            .where(Outline.project_id == project_id)
+            .where(Outline.order_index == current_chapter_number)
+        )
+        current_outline = current_outline_result.scalar_one_or_none()
+        
+        if current_outline and total_previous > 3:
+            # 使用记忆服务进行语义检索
+            relevant_memories = await memory_service.search_memories(
+                user_id=user_id,
+                project_id=project_id,
+                query=current_outline,
+                memory_types=['chapter_summary'],
+                limit=15,  # 检索15个最相关的章节
+                min_importance=0.0  # 不过滤重要性，依赖语义相关度
+            )
+            
+            if relevant_memories:
+                relevant_chapters_text = []
+                for mem in relevant_memories:
+                    # 获取章节信息
+                    chapter_result = await db.execute(
+                        select(Chapter.chapter_number, Chapter.title)
+                        .where(Chapter.id == mem['metadata'].get('chapter_id'))
+                    )
+                    chapter_info = chapter_result.first()
+                    if chapter_info:
+                        relevant_chapters_text.append(
+                            f"第{chapter_info.chapter_number}章《{chapter_info.title}》：{mem['content']} "
+                            f"(相关度:{mem['similarity']:.2f})"
+                        )
+                
+                context_parts['relevant_history'] = "【相关历史章节】\n" + "\n".join(relevant_chapters_text)
+                logger.info(f"  ✅ 相关历史：语义检索到{len(relevant_chapters_text)}章")
+        
+        # 4. 近期概要（最近30章，每章200字摘要）
+        recent_summary_count = min(30, total_previous)
+        recent_for_summary = all_chapters_info[-recent_summary_count:] if total_previous > 3 else []
+        
+        if recent_for_summary and len(recent_for_summary) > 3:  # 至少要有3章才做摘要
+            recent_summaries = []
+            for chapter_info in recent_for_summary[:-3]:  # 排除最后3章（它们会完整展示）
+                # 优先获取chapter_summary记忆
+                summary_result = await db.execute(
+                    select(StoryMemory.content)
+                    .where(StoryMemory.project_id == project_id)
+                    .where(StoryMemory.chapter_id == chapter_info.id)
+                    .where(StoryMemory.memory_type == 'chapter_summary')
+                    .limit(1)
+                )
+                summary = summary_result.scalar_one_or_none()
+                
+                if summary:
+                    recent_summaries.append(
+                        f"第{chapter_info.chapter_number}章《{chapter_info.title}》：{summary}"
+                    )
+            
+            if recent_summaries:
+                context_parts['recent_summary'] = "【近期章节概要】\n" + "\n".join(recent_summaries)
+                logger.info(f"  ✅ 近期概要：{len(recent_summaries)}章摘要")
+        
+        # 5. 最近完整内容（最近3章）
+        recent_full_count = min(3, total_previous)
+        recent_full_chapters = all_chapters_info[-recent_full_count:]
+        
+        # 获取完整内容
+        recent_full_texts = []
+        for chapter_info in recent_full_chapters:
+            chapter_result = await db.execute(
+                select(Chapter.content)
+                .where(Chapter.id == chapter_info.id)
+            )
+            content = chapter_result.scalar_one_or_none()
+            if content:
+                recent_full_texts.append(
+                    f"=== 第{chapter_info.chapter_number}章：{chapter_info.title} ===\n{content}"
+                )
+        
+        context_parts['recent_full'] = "【最近章节完整内容】\n" + "\n\n".join(recent_full_texts)
+        logger.info(f"  ✅ 最近完整：{len(recent_full_texts)}章全文")
+        
+        # 6. 统计信息
+        context_parts['stats'] = {
+            'total_previous': total_previous,
+            'skeleton_samples': len(skeleton_chapters),
+            'relevant_history': len(relevant_memories) if current_outline and total_previous > 3 else 0,
+            'recent_summaries': len(recent_summaries) if recent_for_summary and len(recent_for_summary) > 3 else 0,
+            'recent_full': len(recent_full_texts)
+        }
+        
+        # 计算总长度
+        total_length = sum([
+            len(context_parts['story_skeleton']),
+            len(context_parts['relevant_history']),
+            len(context_parts['recent_summary']),
+            len(context_parts['recent_full'])
+        ])
+        context_parts['stats']['total_length'] = total_length
+        
+        logger.info(f"📊 智能上下文构建完成：总长度 {total_length} 字符")
+        
+    except Exception as e:
+        logger.error(f"❌ 构建智能上下文失败: {str(e)}", exc_info=True)
+    
+    return context_parts
+
+
 @router.get("/{chapter_id}/can-generate", summary="检查章节是否可以生成")
 async def check_can_generate(
     chapter_id: str,
@@ -489,7 +681,8 @@ async def analyze_chapter_background(
             analysis=analysis_result,
             chapter_id=chapter_id,
             chapter_number=chapter.chapter_number,
-            chapter_content=chapter.content or ""
+            chapter_content=chapter.content or "",
+            chapter_title=chapter.title or ""
         )
         
         # 先删除该章节的旧记忆（写操作，需要锁）
@@ -742,27 +935,34 @@ async def generate_chapter_content_stream(
                 else:
                     logger.info("未指定写作风格，使用原始提示词")
                 
-                # 构建前置章节内容上下文（使用之前保存的数据）
+                # 🚀 使用智能上下文构建（支持海量章节）
+                smart_context = await build_smart_chapter_context(
+                    db=db_session,
+                    project_id=project.id,
+                    current_chapter_number=current_chapter.chapter_number,
+                    user_id=current_user_id
+                )
+                
+                # 组装上下文
                 previous_content = ""
-                if previous_chapters_data:
-                    recent_chapters = previous_chapters_data[-3:] if len(previous_chapters_data) > 3 else previous_chapters_data
-                    early_chapters = previous_chapters_data[:-3] if len(previous_chapters_data) > 3 else []
-                    
-                    if early_chapters:
-                        early_summary = "【前期剧情概要】\n" + "\n".join([
-                            f"第{ch['chapter_number']}章《{ch['title']}》：{ch['content'][:200] if ch['content'] else ''}..."
-                            for ch in early_chapters
-                        ])
-                        previous_content += early_summary + "\n\n"
-                    
-                    if recent_chapters:
-                        recent_content = "【最近章节完整内容】\n" + "\n\n".join([
-                            f"=== 第{ch['chapter_number']}章：{ch['title']} ===\n{ch['content']}"
-                            for ch in recent_chapters
-                        ])
-                        previous_content += recent_content
-                    
-                    logger.info(f"构建前置上下文：{len(early_chapters)}章摘要 + {len(recent_chapters)}章完整内容")
+                if smart_context['story_skeleton']:
+                    previous_content += smart_context['story_skeleton'] + "\n\n"
+                if smart_context['relevant_history']:
+                    previous_content += smart_context['relevant_history'] + "\n\n"
+                if smart_context['recent_summary']:
+                    previous_content += smart_context['recent_summary'] + "\n\n"
+                if smart_context['recent_full']:
+                    previous_content += smart_context['recent_full']
+                
+                # 日志输出统计信息
+                stats = smart_context['stats']
+                logger.info(f"📊 智能上下文统计:")
+                logger.info(f"  - 前置章节总数: {stats.get('total_previous', 0)}")
+                logger.info(f"  - 故事骨架采样: {stats.get('skeleton_samples', 0)}章")
+                logger.info(f"  - 相关历史检索: {stats.get('relevant_history', 0)}章")
+                logger.info(f"  - 近期章节概要: {stats.get('recent_summaries', 0)}章")
+                logger.info(f"  - 最近完整内容: {stats.get('recent_full', 0)}章")
+                logger.info(f"  - 上下文总长度: {stats.get('total_length', 0)}字符")
                 
                 # 🧠 构建记忆增强上下文
                 logger.info(f"🧠 开始构建记忆增强上下文...")

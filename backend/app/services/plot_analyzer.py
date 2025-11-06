@@ -298,7 +298,8 @@ class PlotAnalyzer:
         analysis: Dict[str, Any],
         chapter_id: str,
         chapter_number: int,
-        chapter_content: str = ""
+        chapter_content: str = "",
+        chapter_title: str = ""
     ) -> List[Dict[str, Any]]:
         """
         从分析结果中提取记忆片段
@@ -308,6 +309,7 @@ class PlotAnalyzer:
             chapter_id: 章节ID
             chapter_number: 章节号
             chapter_content: 章节完整内容(用于计算位置)
+            chapter_title: 章节标题
         
         Returns:
             记忆片段列表
@@ -315,6 +317,38 @@ class PlotAnalyzer:
         memories = []
         
         try:
+            # 【新增】0. 提取章节摘要作为记忆（用于语义检索相关章节）
+            chapter_summary = ""
+            
+            # 尝试从分析结果获取摘要
+            if analysis.get('summary'):
+                chapter_summary = analysis.get('summary')
+            # 或者从情节点组合生成摘要
+            elif analysis.get('plot_points'):
+                plot_summaries = [p.get('content', '') for p in analysis.get('plot_points', [])[:3]]
+                chapter_summary = "；".join(plot_summaries)
+            # 或者使用内容前300字
+            elif chapter_content:
+                chapter_summary = chapter_content[:300] + ("..." if len(chapter_content) > 300 else "")
+            
+            # 如果有摘要，添加到记忆中
+            if chapter_summary:
+                memories.append({
+                    'type': 'chapter_summary',
+                    'content': chapter_summary,
+                    'title': f"第{chapter_number}章《{chapter_title}》摘要",
+                    'metadata': {
+                        'chapter_id': chapter_id,
+                        'chapter_number': chapter_number,
+                        'importance_score': 0.6,  # 中等重要性
+                        'tags': ['摘要', '章节概览', chapter_title],
+                        'is_foreshadow': 0,
+                        'text_position': 0,
+                        'text_length': len(chapter_summary)
+                    }
+                })
+                logger.info(f"  ✅ 添加章节摘要记忆: {len(chapter_summary)}字")
+            
             # 1. 提取钩子作为记忆
             for i, hook in enumerate(analysis.get('hooks', [])):
                 if hook.get('strength', 0) >= 6:  # 只保存强度>=6的钩子

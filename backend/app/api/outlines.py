@@ -477,6 +477,92 @@ async def _generate_new_outline(
     return OutlineListResponse(total=len(outlines), items=outlines)
 
 
+async def _build_smart_outline_context(
+    latest_outlines: List[Outline],
+    user_id: str,
+    project_id: str
+) -> dict:
+    """
+    智能构建大纲续写上下文（支持海量大纲场景）
+    
+    策略：
+    1. 故事骨架：每50章采样1章（仅标题）
+    2. 近期概要：最近20章（标题+简要）
+    3. 最近详细：最近2章（完整内容）
+    
+    Args:
+        latest_outlines: 所有已有大纲列表
+        user_id: 用户ID
+        project_id: 项目ID
+        
+    Returns:
+        包含压缩后上下文的字典
+    """
+    total_count = len(latest_outlines)
+    
+    context = {
+        'story_skeleton': '',      # 故事骨架（标题列表）
+        'recent_summary': '',      # 近期概要（标题+内容前50字）
+        'recent_detail': '',       # 最近详细（完整内容）
+        'stats': {
+            'total': total_count,
+            'skeleton_samples': 0,
+            'recent_summaries': 0,
+            'recent_details': 0
+        }
+    }
+    
+    try:
+        # 1. 故事骨架（每50章采样，仅标题）
+        if total_count > 50:
+            sample_interval = 50
+            skeleton_indices = list(range(0, total_count, sample_interval))
+            skeleton_titles = [
+                f"第{latest_outlines[idx].order_index}章: {latest_outlines[idx].title}"
+                for idx in skeleton_indices
+            ]
+            context['story_skeleton'] = "【故事骨架】\n" + "\n".join(skeleton_titles)
+            context['stats']['skeleton_samples'] = len(skeleton_titles)
+            logger.info(f"  ✅ 故事骨架：采样{len(skeleton_titles)}章标题")
+        
+        # 2. 近期概要（最近20章，标题+内容前50字）
+        recent_summary_count = min(20, total_count)
+        if recent_summary_count > 2:  # 排除最后2章（它们会完整展示）
+            recent_for_summary = latest_outlines[-recent_summary_count:-2]
+            recent_summaries = [
+                f"第{o.order_index}章《{o.title}》: {o.content[:50]}..."
+                for o in recent_for_summary
+            ]
+            context['recent_summary'] = "【近期大纲概要】\n" + "\n".join(recent_summaries)
+            context['stats']['recent_summaries'] = len(recent_summaries)
+            logger.info(f"  ✅ 近期概要：{len(recent_summaries)}章")
+        
+        # 3. 最近详细（最近2章，完整内容）
+        recent_detail_count = min(2, total_count)
+        recent_details = latest_outlines[-recent_detail_count:]
+        detail_texts = [
+            f"第{o.order_index}章《{o.title}》: {o.content}"
+            for o in recent_details
+        ]
+        context['recent_detail'] = "【最近大纲详情】\n" + "\n".join(detail_texts)
+        context['stats']['recent_details'] = len(detail_texts)
+        logger.info(f"  ✅ 最近详细：{len(detail_texts)}章")
+        
+        # 计算总长度
+        total_length = sum([
+            len(context['story_skeleton']),
+            len(context['recent_summary']),
+            len(context['recent_detail'])
+        ])
+        context['stats']['total_length'] = total_length
+        logger.info(f"📊 大纲上下文总长度: {total_length} 字符")
+        
+    except Exception as e:
+        logger.error(f"❌ 构建智能大纲上下文失败: {str(e)}", exc_info=True)
+    
+    return context
+
+
 async def _continue_outline(
     request: OutlineGenerateRequest,
     project: Project,
@@ -537,25 +623,35 @@ async def _continue_outline(
         )
         latest_outlines = latest_result.scalars().all()
         
-        # 获取最近2章的剧情
-        recent_outlines = latest_outlines[-2:] if len(latest_outlines) >= 2 else latest_outlines
-        recent_plot = "\n".join([
-            f"第{o.order_index}章《{o.title}》: {o.content}"
-            for o in recent_outlines
-        ])
+        # 🚀 使用智能上下文构建（支持海量大纲）
+        smart_context = await _build_smart_outline_context(
+            latest_outlines=latest_outlines,
+            user_id=user_id,
+            project_id=project.id
+        )
         
-        # 全部章节概览
-        all_chapters_brief = "\n".join([
-            f"第{o.order_index}章: {o.title}"
-            for o in latest_outlines
-        ])
+        # 组装上下文字符串
+        all_chapters_brief = ""
+        if smart_context['story_skeleton']:
+            all_chapters_brief += smart_context['story_skeleton'] + "\n\n"
+        if smart_context['recent_summary']:
+            all_chapters_brief += smart_context['recent_summary'] + "\n\n"
+        
+        # 最近详细内容作为 recent_plot
+        recent_plot = smart_context['recent_detail']
+        
+        # 日志统计
+        stats = smart_context['stats']
+        logger.info(f"📊 大纲上下文统计: 总数{stats['total']}, 骨架{stats['skeleton_samples']}, "
+                   f"概要{stats['recent_summaries']}, 详细{stats['recent_details']}, "
+                   f"长度{stats['total_length']}字符")
         
         # 🧠 构建记忆增强上下文（仅续写模式需要）
         memory_context = None
         try:
             logger.info(f"🧠 为第{batch_num + 1}批构建记忆上下文...")
             # 使用最近一章的大纲作为查询
-            query_outline = recent_outlines[-1].content if recent_outlines else ""
+            query_outline = latest_outlines[-1].content if latest_outlines else ""
             memory_context = await memory_service.build_context_for_generation(
                 user_id=user_id,
                 project_id=project.id,
@@ -952,18 +1048,28 @@ async def continue_outline_generator(
             )
             latest_outlines = latest_result.scalars().all()
             
-            # 获取最近2章的剧情
-            recent_outlines = latest_outlines[-2:] if len(latest_outlines) >= 2 else latest_outlines
-            recent_plot = "\n".join([
-                f"第{o.order_index}章《{o.title}》: {o.content}"
-                for o in recent_outlines
-            ])
+            # 🚀 使用智能上下文构建（支持海量大纲）
+            smart_context = await _build_smart_outline_context(
+                latest_outlines=latest_outlines,
+                user_id=user_id,
+                project_id=project_id
+            )
             
-            # 全部章节概览
-            all_chapters_brief = "\n".join([
-                f"第{o.order_index}章: {o.title}"
-                for o in latest_outlines
-            ])
+            # 组装上下文字符串
+            all_chapters_brief = ""
+            if smart_context['story_skeleton']:
+                all_chapters_brief += smart_context['story_skeleton'] + "\n\n"
+            if smart_context['recent_summary']:
+                all_chapters_brief += smart_context['recent_summary'] + "\n\n"
+            
+            # 最近详细内容作为 recent_plot
+            recent_plot = smart_context['recent_detail']
+            
+            # 日志统计
+            stats = smart_context['stats']
+            logger.info(f"📊 批次{batch_num + 1}大纲上下文: 总数{stats['total']}, "
+                       f"骨架{stats['skeleton_samples']}, 概要{stats['recent_summaries']}, "
+                       f"详细{stats['recent_details']}, 长度{stats['total_length']}字符")
             
             # 🧠 构建记忆增强上下文
             memory_context = None
@@ -972,7 +1078,7 @@ async def continue_outline_generator(
                     f"🧠 构建记忆上下文...",
                     batch_progress + 3
                 )
-                query_outline = recent_outlines[-1].content if recent_outlines else ""
+                query_outline = latest_outlines[-1].content if latest_outlines else ""
                 memory_context = await memory_service.build_context_for_generation(
                     user_id=user_id,
                     project_id=project_id,
