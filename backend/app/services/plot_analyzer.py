@@ -225,8 +225,22 @@ class PlotAnalyzer:
                 temperature=0.3  # 降低温度以获得更稳定的JSON输出
             )
             
+            # 🔍 添加调试日志：查看AI返回的原始内容
+            logger.info(f"🔍 AI返回类型: {type(response)}")
+            logger.info(f"🔍 AI返回内容(前500字符): {str(response)}")
+            
+            # 从返回的字典中提取content字段
+            if isinstance(response, dict):
+                response_text = response.get('content', '')
+                if not response_text:
+                    logger.error("❌ AI返回的字典中没有content字段或content为空")
+                    return None
+            else:
+                # 兼容旧的字符串返回格式
+                response_text = response
+            
             # 解析JSON结果
-            analysis_result = self._parse_analysis_response(response)
+            analysis_result = self._parse_analysis_response(response_text)
             
             if analysis_result:
                 logger.info(f"✅ 第{chapter_number}章分析完成")

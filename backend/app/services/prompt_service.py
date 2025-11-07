@@ -282,6 +282,8 @@ class PromptService:
 角色信息：
 {characters_info}
 
+{mcp_references}
+
 其他要求：{requirements}
 
 整体要求：
@@ -355,6 +357,8 @@ class PromptService:
 以下是从故事记忆库中检索到的相关信息，请在续写大纲时参考：
 
 {memory_context}
+
+{mcp_references}
 
 【续写指导】
 - 当前情节阶段：{plot_stage_instruction}
@@ -836,8 +840,17 @@ class PromptService:
                                    chapter_count: int, narrative_perspective: str,
                                    target_words: int, time_period: str, location: str,
                                    atmosphere: str, rules: str, characters_info: str,
-                                   requirements: str = "") -> str:
-        """获取向导大纲生成提示词"""
+                                   requirements: str = "",
+                                   mcp_references: str = "") -> str:
+        """获取向导大纲生成提示词（支持MCP增强）"""
+        # 格式化MCP参考资料
+        mcp_text = ""
+        if mcp_references:
+            mcp_text = "【📚 MCP工具搜索 - 情节设计参考】\n"
+            mcp_text += "以下是通过MCP工具搜索到的情节设计参考资料，可用于设计大纲结构和情节发展：\n\n"
+            mcp_text += mcp_references
+            mcp_text += "\n"
+        
         return cls.format_prompt(
             cls.COMPLETE_OUTLINE_GENERATION,
             title=title,
@@ -851,6 +864,7 @@ class PromptService:
             atmosphere=atmosphere,
             rules=rules,
             characters_info=characters_info,
+            mcp_references=mcp_text,
             requirements=requirements or "无特殊要求"
         )
     
@@ -862,7 +876,8 @@ class PromptService:
                                       chapter_number: int, chapter_title: str,
                                       chapter_outline: str, style_content: str = "",
                                       target_word_count: int = 3000,
-                                      memory_context: dict = None) -> str:
+                                      memory_context: dict = None,
+                                      mcp_references: str = "") -> str:
         """
         获取章节完整创作提示词
         
@@ -870,6 +885,7 @@ class PromptService:
             style_content: 写作风格要求内容，如果提供则会追加到提示词中
             target_word_count: 目标字数，默认3000字
             memory_context: 记忆上下文（可选）
+            mcp_references: MCP工具搜索的参考资料（可选）
         """
         # 计算最大字数（目标字数+1000）
         max_word_count = target_word_count + 1000
@@ -883,6 +899,14 @@ class PromptService:
             memory_text += "\n" + memory_context.get('foreshadows', '')
             memory_text += "\n" + memory_context.get('character_states', '')
             memory_text += "\n" + memory_context.get('plot_points', '')
+        
+        # 格式化MCP参考资料
+        mcp_text = ""
+        if mcp_references:
+            mcp_text = "\n【📚 MCP工具搜索 - 参考资料】\n"
+            mcp_text += "以下是通过MCP工具搜索到的相关参考资料，可用于丰富情节和细节：\n\n"
+            mcp_text += mcp_references
+            mcp_text += "\n"
         
         base_prompt = cls.format_prompt(
             cls.CHAPTER_GENERATION,
@@ -903,11 +927,17 @@ class PromptService:
             max_word_count=max_word_count
         )
         
-        # 插入记忆上下文
+        # 插入记忆上下文和MCP参考资料
+        insert_text = ""
         if memory_text:
+            insert_text += memory_text
+        if mcp_text:
+            insert_text += mcp_text
+        
+        if insert_text:
             base_prompt = base_prompt.replace(
                 "本章信息：",
-                memory_text + "\n\n本章信息："
+                insert_text + "\n\n本章信息："
             )
         
         # 如果有风格要求，应用到提示词中
@@ -925,7 +955,8 @@ class PromptService:
                                                    chapter_title: str, chapter_outline: str,
                                                    style_content: str = "",
                                                    target_word_count: int = 3000,
-                                                   memory_context: dict = None) -> str:
+                                                   memory_context: dict = None,
+                                                   mcp_references: str = "") -> str:
         """
         获取章节完整创作提示词（带前置章节上下文和记忆增强）
         
@@ -933,6 +964,7 @@ class PromptService:
             style_content: 写作风格要求内容，如果提供则会追加到提示词中
             target_word_count: 目标字数，默认3000字
             memory_context: 记忆上下文（可选）
+            mcp_references: MCP工具搜索的参考资料（可选）
         """
         # 计算最大字数（目标字数+1000）
         max_word_count = target_word_count + 1000
@@ -947,6 +979,12 @@ class PromptService:
             memory_text += "\n" + memory_context.get('plot_points', '')
         else:
             memory_text = "暂无相关记忆"
+        
+        # 格式化MCP参考资料
+        if mcp_references:
+            memory_text += "\n\n【📚 MCP工具搜索 - 参考资料】\n"
+            memory_text += "以下是通过MCP工具搜索到的相关参考资料，可用于丰富情节和细节：\n\n"
+            memory_text += mcp_references
         
         base_prompt = cls.format_prompt(
             cls.CHAPTER_GENERATION_WITH_CONTEXT,
@@ -996,8 +1034,9 @@ class PromptService:
                                     recent_plot: str, plot_stage_instruction: str,
                                     start_chapter: int, story_direction: str,
                                     requirements: str = "",
-                                    memory_context: dict = None) -> str:
-        """获取大纲续写提示词（支持记忆增强）"""
+                                    memory_context: dict = None,
+                                    mcp_references: str = "") -> str:
+        """获取大纲续写提示词（支持记忆+MCP增强）"""
         end_chapter = start_chapter + chapter_count - 1
         
         # 格式化记忆上下文
@@ -1010,6 +1049,14 @@ class PromptService:
             memory_text += "\n" + memory_context.get('plot_points', '')
         else:
             memory_text = "暂无相关记忆（可能是首次续写或记忆库为空）"
+        
+        # 格式化MCP参考资料
+        mcp_text = ""
+        if mcp_references:
+            mcp_text = "\n\n【📚 MCP工具搜索 - 续写参考资料】\n"
+            mcp_text += "以下是通过MCP工具搜索到的续写参考资料，可用于丰富情节发展和冲突设计：\n\n"
+            mcp_text += mcp_references
+            mcp_text += "\n"
         
         return cls.format_prompt(
             cls.OUTLINE_CONTINUE_GENERATION,
@@ -1031,7 +1078,8 @@ class PromptService:
             end_chapter=end_chapter,
             story_direction=story_direction,
             requirements=requirements or "无特殊要求",
-            memory_context=memory_text
+            memory_context=memory_text,
+            mcp_references=mcp_text
         )
     
     @classmethod

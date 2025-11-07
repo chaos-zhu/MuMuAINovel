@@ -38,6 +38,7 @@ class OrganizationGenerateRequest(BaseModel):
     organization_type: Optional[str] = Field(None, description="组织类型")
     background: Optional[str] = Field(None, description="组织背景")
     requirements: Optional[str] = Field(None, description="特殊要求")
+    enable_mcp: bool = Field(True, description="是否启用MCP工具增强（搜索组织架构参考）")
 
 
 @router.get("/project/{project_id}", response_model=List[OrganizationDetailResponse], summary="获取项目的所有组织")

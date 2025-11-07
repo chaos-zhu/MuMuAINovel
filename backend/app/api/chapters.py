@@ -823,12 +823,14 @@ async def generate_chapter_content_stream(
     请求体参数：
     - style_id: 可选，指定使用的写作风格ID。不提供则不使用任何风格
     - target_word_count: 可选，目标字数，默认3000字，范围500-10000字
+    - enable_mcp: 可选，是否启用MCP工具增强，默认True
     
     注意：此函数不使用依赖注入的db，而是在生成器内部创建独立的数据库会话
     以避免流式响应期间的连接泄漏问题
     """
     style_id = generate_request.style_id
     target_word_count = generate_request.target_word_count or 3000
+    enable_mcp = generate_request.enable_mcp if hasattr(generate_request, 'enable_mcp') else True
     # 预先验证章节存在性（使用临时会话）
     async for temp_db in get_db(request):
         try:
@@ -1002,7 +1004,60 @@ async def generate_chapter_content_stream(
                 # 发送开始事件
                 yield f"data: {json.dumps({'type': 'start', 'message': '开始AI创作...'}, ensure_ascii=False)}\n\n"
                 
-                # 根据是否有前置内容选择不同的提示词，并应用写作风格和记忆增强
+                # 🔧 MCP工具增强：收集章节参考资料
+                mcp_reference_materials = ""
+                if enable_mcp and current_user_id:
+                    try:
+                        yield f"data: {json.dumps({'type': 'progress', 'message': '🔍 尝试使用MCP工具收集参考资料...', 'progress': 28}, ensure_ascii=False)}\n\n"
+                        
+                        # 构建资料收集提示词
+                        planning_prompt = f"""你正在为小说《{project.title}》创作第{current_chapter.chapter_number}章《{current_chapter.title}》。
+
+【章节大纲】
+{outline.content if outline else current_chapter.summary or '暂无大纲'}
+
+【小说信息】
+- 题材：{project.genre or '未设定'}
+- 主题：{project.theme or '未设定'}
+- 时代背景：{project.world_time_period or '未设定'}
+- 地理位置：{project.world_location or '未设定'}
+
+【任务】
+请使用可用工具搜索相关背景资料，帮助创作更真实、更有深度的章节内容。
+你可以查询：
+1. 该章节涉及的历史事件或时代背景
+2. 地理环境和场景描写参考
+3. 相关领域的专业知识（如武术、科技、魔法等）
+4. 文化习俗和生活细节
+
+请根据章节内容，有针对性地查询1-2个最关键的问题。"""
+                        
+                        # 调用MCP增强的AI（非流式，最多2轮工具调用）
+                        planning_result = await user_ai_service.generate_text_with_mcp(
+                            prompt=planning_prompt,
+                            user_id=current_user_id,
+                            db_session=db_session,
+                            enable_mcp=True,
+                            max_tool_rounds=2,
+                            tool_choice="auto",
+                            provider=None,
+                            model=None
+                        )
+                        
+                        # 提取参考资料
+                        if planning_result.get("tool_calls_made", 0) > 0:
+                            tool_count = planning_result["tool_calls_made"]
+                            yield f"data: {json.dumps({'type': 'progress', 'message': f'✅ MCP工具调用成功（{tool_count}次）', 'progress': 32}, ensure_ascii=False)}\n\n"
+                            mcp_reference_materials = planning_result.get("content", "")
+                            logger.info(f"📚 MCP工具收集参考资料：{len(mcp_reference_materials)} 字符")
+                        else:
+                            yield f"data: {json.dumps({'type': 'progress', 'message': 'ℹ️ 未使用MCP工具（无可用工具或不需要）', 'progress': 32}, ensure_ascii=False)}\n\n"
+                            
+                    except Exception as e:
+                        logger.warning(f"MCP工具调用失败（降级处理）: {e}")
+                        yield f"data: {json.dumps({'type': 'progress', 'message': '⚠️ MCP工具暂时不可用，使用基础模式', 'progress': 32}, ensure_ascii=False)}\n\n"
+                
+                # 根据是否有前置内容选择不同的提示词，并应用写作风格、记忆增强和MCP参考资料
                 if previous_content:
                     prompt = prompt_service.get_chapter_generation_with_context_prompt(
                         title=project.title,
@@ -1021,7 +1076,8 @@ async def generate_chapter_content_stream(
                         chapter_outline=outline.content if outline else current_chapter.summary or '暂无大纲',
                         style_content=style_content,
                         target_word_count=target_word_count,
-                        memory_context=memory_context
+                        memory_context=memory_context,
+                        mcp_references=mcp_reference_materials
                     )
                 else:
                     prompt = prompt_service.get_chapter_generation_prompt(
@@ -1040,8 +1096,12 @@ async def generate_chapter_content_stream(
                         chapter_outline=outline.content if outline else current_chapter.summary or '暂无大纲',
                         style_content=style_content,
                         target_word_count=target_word_count,
-                        memory_context=memory_context
+                        memory_context=memory_context,
+                        mcp_references=mcp_reference_materials
                     )
+                
+                if mcp_reference_materials:
+                    logger.info(f"📖 已整合MCP参考资料（{len(mcp_reference_materials)}字符）到章节生成提示词")
                 
                 logger.info(f"开始AI流式创作章节 {chapter_id}")
                 
