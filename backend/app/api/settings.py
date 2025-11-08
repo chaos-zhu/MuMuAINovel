@@ -242,10 +242,8 @@ async def get_available_models(
                 if "data" in data and isinstance(data["data"], list):
                     for model in data["data"]:
                         model_id = model.get("id", "")
-                        # 过滤出常用的文本生成模型
-                        if any(keyword in model_id.lower() for keyword in [
-                            "gpt", "gemini", "claude", "llama", "mistral", "qwen", "deepseek"
-                        ]):
+                        # 返回所有模型，不进行过滤
+                        if model_id:
                             models.append({
                                 "value": model_id,
                                 "label": model_id,
