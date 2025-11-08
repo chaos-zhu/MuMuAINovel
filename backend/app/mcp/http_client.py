@@ -1,8 +1,13 @@
-"""HTTP MCP客户端 - 实现JSON-RPC 2.0协议"""
-import httpx
+"""HTTP MCP客户端 - 使用官方 MCP Python SDK 实现"""
+import asyncio
 from typing import Dict, Any, List, Optional
+from contextlib import asynccontextmanager
+
+from mcp import ClientSession, types
+from mcp.client.streamable_http import streamablehttp_client
+from pydantic import AnyUrl
+
 from app.logger import get_logger
-import time
 
 logger = get_logger(__name__)
 
@@ -13,15 +18,14 @@ class MCPError(Exception):
 
 
 class HTTPMCPClient:
-    """HTTP模式MCP客户端（类似Cursor/Claude Code实现）"""
+    """HTTP模式MCP客户端（基于官方 MCP Python SDK）"""
     
     def __init__(
         self,
         url: str,
         headers: Optional[Dict[str, str]] = None,
         env: Optional[Dict[str, str]] = None,
-        timeout: float = 60.0,
-        http_client: Optional[httpx.AsyncClient] = None
+        timeout: float = 60.0
     ):
         """
         初始化HTTP MCP客户端
@@ -31,162 +35,79 @@ class HTTPMCPClient:
             headers: HTTP请求头
             env: 环境变量（用于API Key等）
             timeout: 超时时间（秒）
-            http_client: 可选的共享HTTP客户端（用于连接池复用）
         """
         self.url = url.rstrip('/')
         self.headers = headers or {}
         self.env = env or {}
         self.timeout = timeout
         
-        # 设置MCP必需的Accept头
-        # MCP服务器要求客户端必须接受 application/json 和 text/event-stream
-        if 'Accept' not in self.headers:
-            self.headers['Accept'] = 'application/json, text/event-stream'
-        
-        # 设置Content-Type
-        if 'Content-Type' not in self.headers:
-            self.headers['Content-Type'] = 'application/json'
-        
         # 如果env中有API Key，添加到headers
         if 'API_KEY' in self.env:
             self.headers['Authorization'] = f'Bearer {self.env["API_KEY"]}'
         
-        # 使用共享客户端或创建新客户端
-        self._owns_client = http_client is None
-        if http_client:
-            self.client = http_client
-        else:
-            self.client = httpx.AsyncClient(
-                timeout=httpx.Timeout(timeout),
-                headers=self.headers
-            )
-        self._request_id = 0
+        self._session: Optional[ClientSession] = None
+        self._context_stack = []  # 保存上下文管理器栈
+        self._initialized = False
+        self._lock = asyncio.Lock()
     
-    def _next_request_id(self) -> int:
-        """获取下一个请求ID"""
-        self._request_id += 1
-        return self._request_id
-    
-    async def _call_jsonrpc(
-        self,
-        method: str,
-        params: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
-        """
-        调用JSON-RPC 2.0方法
-        
-        Args:
-            method: 方法名
-            params: 参数
-            
-        Returns:
-            响应结果
-            
-        Raises:
-            MCPError: 调用失败时抛出
-        """
-        request_id = self._next_request_id()
-        
-        payload = {
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "method": method,
-            "params": params or {}
-        }
-        
-        try:
-            logger.debug(f"MCP请求: {method} -> {self.url}")
-            
-            response = await self.client.post(
-                self.url,
-                json=payload,
-                headers=self.headers  # 显式传递headers（对于共享客户端很重要）
-            )
-            
-            response.raise_for_status()
-            
-            # 获取响应内容
-            response_text = response.text
-            content_type = response.headers.get('content-type', '')
-            
-            # 如果是空响应
-            if not response_text or response_text.strip() == '':
-                raise MCPError("服务器返回空响应")
-            
-            # 处理SSE格式响应
-            if 'text/event-stream' in content_type or response_text.startswith('event:'):
-                logger.debug("检测到SSE格式响应，开始解析")
-                data = self._parse_sse_response(response_text)
-            else:
-                # 标准JSON响应
+    async def _ensure_connected(self):
+        """确保连接已建立"""
+        async with self._lock:
+            if self._session is None:
                 try:
-                    data = response.json()
-                except ValueError as e:
-                    logger.error(f"JSON解析失败，响应内容: {response_text[:500]}")
-                    raise MCPError(f"无法解析JSON响应: {str(e)}")
-            
-            # 检查JSON-RPC错误
-            if "error" in data:
-                error = data["error"]
-                error_msg = error.get("message", "Unknown error")
-                error_code = error.get("code", -1)
-                logger.error(f"MCP错误 [{error_code}]: {error_msg}")
-                raise MCPError(f"[{error_code}] {error_msg}")
-            
-            if "result" not in data:
-                raise MCPError("响应中缺少result字段")
-            
-            return data["result"]
-            
-        except httpx.HTTPStatusError as e:
-            logger.error(f"HTTP错误 {e.response.status_code}: {e.response.text}")
-            raise MCPError(f"HTTP错误 {e.response.status_code}: {e.response.text}")
-        except httpx.RequestError as e:
-            logger.error(f"请求错误: {str(e)}")
-            raise MCPError(f"请求错误: {str(e)}")
-        except MCPError:
-            raise
-        except Exception as e:
-            logger.error(f"未知错误: {str(e)}")
-            raise MCPError(f"未知错误: {str(e)}")
+                    logger.info(f"🔗 连接到MCP服务器: {self.url}")
+                    
+                    # 使用官方 SDK 的 streamable_http_client
+                    # 保存上下文管理器以便后续正确清理
+                    stream_context = streamablehttp_client(self.url)
+                    read_stream, write_stream, _ = await stream_context.__aenter__()
+                    self._context_stack.append(('stream', stream_context))
+                    
+                    # 创建客户端会话
+                    self._session = ClientSession(read_stream, write_stream)
+                    session_context = self._session
+                    await session_context.__aenter__()
+                    self._context_stack.append(('session', session_context))
+                    
+                    # 初始化会话
+                    await self._session.initialize()
+                    self._initialized = True
+                    
+                    logger.info(f"✅ MCP会话初始化成功")
+                    
+                except Exception as e:
+                    logger.error(f"❌ MCP连接失败: {e}")
+                    await self._cleanup()
+                    raise MCPError(f"连接MCP服务器失败: {str(e)}")
     
-    def _parse_sse_response(self, sse_text: str) -> Dict[str, Any]:
+    async def _cleanup(self):
+        """清理连接资源（按照进入的相反顺序退出）"""
+        # 按照LIFO顺序清理上下文
+        while self._context_stack:
+            ctx_type, ctx = self._context_stack.pop()
+            try:
+                await ctx.__aexit__(None, None, None)
+            except RuntimeError as e:
+                # 忽略 anyio 的任务上下文错误（在关闭时可能发生）
+                if "cancel scope" in str(e).lower() or "different task" in str(e).lower():
+                    logger.debug(f"忽略{ctx_type}上下文清理的任务切换警告: {e}")
+                else:
+                    logger.error(f"清理{ctx_type}上下文失败: {e}")
+            except Exception as e:
+                logger.error(f"清理{ctx_type}上下文失败: {e}")
+        
+        self._session = None
+        self._initialized = False
+    
+    async def initialize(self) -> Dict[str, Any]:
         """
-        解析SSE格式的响应
+        初始化MCP会话
         
-        SSE格式示例:
-        event: message
-        data: {"result": {...}}
-        
-        Args:
-            sse_text: SSE格式的文本
-            
         Returns:
-            解析后的JSON数据
+            初始化响应
         """
-        import json
-        
-        lines = sse_text.strip().split('\n')
-        data_lines = []
-        
-        for line in lines:
-            line = line.strip()
-            if line.startswith('data:'):
-                # 提取data后面的内容
-                data_content = line[5:].strip()
-                data_lines.append(data_content)
-        
-        if not data_lines:
-            raise MCPError("SSE响应中没有找到data字段")
-        
-        # 合并所有data行（某些SSE可能分多行）
-        full_data = ''.join(data_lines)
-        
-        try:
-            return json.loads(full_data)
-        except json.JSONDecodeError as e:
-            logger.error(f"解析SSE data失败: {full_data[:200]}")
-            raise MCPError(f"SSE data不是有效的JSON: {str(e)}")
+        await self._ensure_connected()
+        return {"status": "initialized"}
     
     async def list_tools(self) -> List[Dict[str, Any]]:
         """
@@ -196,13 +117,26 @@ class HTTPMCPClient:
             工具列表
         """
         try:
-            result = await self._call_jsonrpc("tools/list")
-            tools = result.get("tools", [])
+            await self._ensure_connected()
+            
+            result = await self._session.list_tools()
+            
+            # 转换为字典格式
+            tools = []
+            for tool in result.tools:
+                tool_dict = {
+                    "name": tool.name,
+                    "description": tool.description or "",
+                    "inputSchema": tool.inputSchema
+                }
+                tools.append(tool_dict)
+            
             logger.info(f"获取到 {len(tools)} 个工具")
             return tools
+            
         except Exception as e:
             logger.error(f"获取工具列表失败: {e}")
-            raise
+            raise MCPError(f"获取工具列表失败: {str(e)}")
     
     async def call_tool(
         self,
@@ -220,33 +154,38 @@ class HTTPMCPClient:
             工具执行结果
         """
         try:
+            await self._ensure_connected()
+            
             logger.info(f"调用工具: {tool_name}")
             logger.debug(f"参数: {arguments}")
             
-            result = await self._call_jsonrpc(
-                "tools/call",
-                {
-                    "name": tool_name,
-                    "arguments": arguments
-                }
-            )
+            result = await self._session.call_tool(tool_name, arguments)
             
-            # MCP返回的result通常包含content数组
-            if isinstance(result, dict) and "content" in result:
-                content = result["content"]
-                if isinstance(content, list) and len(content) > 0:
-                    # 提取第一个content项的text
-                    first_content = content[0]
-                    if isinstance(first_content, dict) and "text" in first_content:
-                        return first_content["text"]
-                    return first_content
-                return content
+            # 处理返回结果
+            # MCP SDK 返回 CallToolResult 对象
+            if result.content:
+                # 提取第一个content的文本
+                for content in result.content:
+                    if isinstance(content, types.TextContent):
+                        return content.text
+                    elif isinstance(content, types.ImageContent):
+                        return {
+                            "type": "image",
+                            "data": content.data,
+                            "mimeType": content.mimeType
+                        }
+                # 如果没有文本内容，返回原始内容
+                return result.content[0] if result.content else None
             
-            return result
+            # 如果有结构化内容（2025-06-18规范）
+            if hasattr(result, 'structuredContent') and result.structuredContent:
+                return result.structuredContent
+            
+            return None
             
         except Exception as e:
             logger.error(f"调用工具失败: {tool_name}, 错误: {e}")
-            raise
+            raise MCPError(f"调用工具失败: {str(e)}")
     
     async def list_resources(self) -> List[Dict[str, Any]]:
         """
@@ -256,13 +195,27 @@ class HTTPMCPClient:
             资源列表
         """
         try:
-            result = await self._call_jsonrpc("resources/list")
-            resources = result.get("resources", [])
+            await self._ensure_connected()
+            
+            result = await self._session.list_resources()
+            
+            # 转换为字典格式
+            resources = []
+            for resource in result.resources:
+                resource_dict = {
+                    "uri": str(resource.uri),
+                    "name": resource.name,
+                    "description": resource.description or "",
+                    "mimeType": resource.mimeType or ""
+                }
+                resources.append(resource_dict)
+            
             logger.info(f"获取到 {len(resources)} 个资源")
             return resources
+            
         except Exception as e:
             logger.error(f"获取资源列表失败: {e}")
-            raise
+            raise MCPError(f"获取资源列表失败: {str(e)}")
     
     async def read_resource(self, uri: str) -> Any:
         """
@@ -275,14 +228,33 @@ class HTTPMCPClient:
             资源内容
         """
         try:
-            result = await self._call_jsonrpc(
-                "resources/read",
-                {"uri": uri}
-            )
-            return result
+            await self._ensure_connected()
+            
+            result = await self._session.read_resource(AnyUrl(uri))
+            
+            # 提取资源内容
+            if result.contents:
+                content = result.contents[0]
+                if isinstance(content, types.TextContent):
+                    return content.text
+                elif isinstance(content, types.ImageContent):
+                    return {
+                        "type": "image",
+                        "data": content.data,
+                        "mimeType": content.mimeType
+                    }
+                elif isinstance(content, types.BlobResourceContents):
+                    return {
+                        "type": "blob",
+                        "blob": content.blob,
+                        "mimeType": content.mimeType
+                    }
+            
+            return None
+            
         except Exception as e:
             logger.error(f"读取资源失败: {uri}, 错误: {e}")
-            raise
+            raise MCPError(f"读取资源失败: {str(e)}")
     
     async def test_connection(self) -> Dict[str, Any]:
         """
@@ -291,10 +263,12 @@ class HTTPMCPClient:
         Returns:
             测试结果
         """
+        import time
         start_time = time.time()
         
         try:
-            # 尝试列举工具来测试连接
+            # 尝试连接并列举工具
+            await self._ensure_connected()
             tools = await self.list_tools()
             
             end_time = time.time()
@@ -307,22 +281,7 @@ class HTTPMCPClient:
                 "tools_count": len(tools),
                 "tools": tools
             }
-        except MCPError as e:
-            end_time = time.time()
-            response_time = round((end_time - start_time) * 1000, 2)
             
-            return {
-                "success": False,
-                "message": "连接测试失败",
-                "response_time_ms": response_time,
-                "error": str(e),
-                "error_type": "MCPError",
-                "suggestions": [
-                    "请检查服务器URL是否正确",
-                    "请确认API Key是否有效",
-                    "请检查网络连接"
-                ]
-            }
         except Exception as e:
             end_time = time.time()
             response_time = round((end_time - start_time) * 1000, 2)
@@ -334,12 +293,41 @@ class HTTPMCPClient:
                 "error": str(e),
                 "error_type": type(e).__name__,
                 "suggestions": [
-                    "请检查服务器是否在线",
-                    "请确认配置是否正确"
+                    "请检查服务器URL是否正确",
+                    "请确认API Key是否有效",
+                    "请检查网络连接",
+                    "请确认MCP服务器是否在线"
                 ]
             }
     
     async def close(self):
-        """关闭客户端（仅在拥有客户端所有权时关闭）"""
-        if self._owns_client and self.client:
-            await self.client.aclose()
+        """关闭客户端连接"""
+        logger.info(f"关闭MCP客户端: {self.url}")
+        await self._cleanup()
+
+
+@asynccontextmanager
+async def create_mcp_client(
+    url: str,
+    headers: Optional[Dict[str, str]] = None,
+    env: Optional[Dict[str, str]] = None,
+    timeout: float = 60.0
+):
+    """
+    创建MCP客户端的上下文管理器
+    
+    Args:
+        url: MCP服务器URL
+        headers: HTTP请求头
+        env: 环境变量
+        timeout: 超时时间
+        
+    Yields:
+        HTTPMCPClient实例
+    """
+    client = HTTPMCPClient(url, headers, env, timeout)
+    try:
+        await client.initialize()
+        yield client
+    finally:
+        await client.close()

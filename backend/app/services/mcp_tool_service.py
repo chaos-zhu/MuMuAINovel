@@ -5,13 +5,59 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import asyncio
 import json
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
+from dataclasses import dataclass, field
+from collections import defaultdict
 
 from app.models.mcp_plugin import MCPPlugin
 from app.mcp.registry import mcp_registry
+from app.mcp.config import mcp_config
 from app.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class ToolMetrics:
+    """工具调用指标"""
+    total_calls: int = 0
+    success_calls: int = 0
+    failed_calls: int = 0
+    total_duration_ms: float = 0.0
+    avg_duration_ms: float = 0.0
+    last_call_time: Optional[datetime] = None
+    
+    def update_success(self, duration_ms: float):
+        """更新成功调用指标"""
+        self.total_calls += 1
+        self.success_calls += 1
+        self.total_duration_ms += duration_ms
+        self.avg_duration_ms = self.total_duration_ms / self.total_calls
+        self.last_call_time = datetime.now()
+    
+    def update_failure(self, duration_ms: float):
+        """更新失败调用指标"""
+        self.total_calls += 1
+        self.failed_calls += 1
+        self.total_duration_ms += duration_ms
+        self.avg_duration_ms = self.total_duration_ms / self.total_calls
+        self.last_call_time = datetime.now()
+    
+    @property
+    def success_rate(self) -> float:
+        """成功率"""
+        if self.total_calls == 0:
+            return 0.0
+        return self.success_calls / self.total_calls
+
+
+@dataclass
+class ToolCacheEntry:
+    """工具缓存条目"""
+    tools: List[Dict[str, Any]]
+    expire_time: datetime
+    hit_count: int = 0
 
 
 class MCPToolServiceError(Exception):
@@ -20,11 +66,39 @@ class MCPToolServiceError(Exception):
 
 
 class MCPToolService:
-    """MCP工具服务 - 统一管理MCP工具的注入和执行"""
+    """MCP工具服务 - 统一管理MCP工具的注入和执行（优化版）"""
     
-    def __init__(self):
-        self._tool_cache = {}  # 工具定义缓存
-        self._result_cache = {}  # 工具结果缓存（可选）
+    def __init__(
+        self,
+        cache_ttl_minutes: Optional[int] = None,
+        max_retries: Optional[int] = None
+    ):
+        """
+        初始化MCP工具服务
+        
+        Args:
+            cache_ttl_minutes: 工具缓存TTL（分钟，默认使用配置）
+            max_retries: 最大重试次数（默认使用配置）
+        """
+        # 工具定义缓存: {cache_key: ToolCacheEntry}
+        self._tool_cache: Dict[str, ToolCacheEntry] = {}
+        self._cache_ttl = timedelta(
+            minutes=cache_ttl_minutes or mcp_config.TOOL_CACHE_TTL_MINUTES
+        )
+        
+        # 调用指标: {tool_key: ToolMetrics}
+        self._metrics: Dict[str, ToolMetrics] = defaultdict(ToolMetrics)
+        
+        # 重试配置（使用配置常量）
+        self._max_retries = max_retries or mcp_config.MAX_RETRIES
+        self._base_retry_delay = mcp_config.BASE_RETRY_DELAY_SECONDS
+        self._max_retry_delay = mcp_config.MAX_RETRY_DELAY_SECONDS
+        
+        logger.info(
+            f"✅ MCPToolService初始化完成 "
+            f"(缓存TTL={self._cache_ttl.total_seconds()/60:.1f}分钟, "
+            f"最大重试={self._max_retries}次)"
+        )
     
     async def get_user_enabled_tools(
         self,
@@ -61,7 +135,7 @@ class MCPToolService:
                 logger.info(f"用户 {user_id} 没有启用的MCP插件")
                 return []
             
-            # 2. 获取所有工具定义
+            # 2. 获取所有工具定义（使用缓存）
             all_tools = []
             for plugin in plugins:
                 try:
@@ -73,8 +147,8 @@ class MCPToolService:
                             logger.warning(f"插件 {plugin.plugin_name} 加载失败，跳过")
                             continue
                     
-                    # 从registry获取该插件的工具列表
-                    plugin_tools = await mcp_registry.get_plugin_tools(
+                    # ✅ 使用缓存获取工具列表
+                    plugin_tools = await self._get_plugin_tools_cached(
                         user_id=user_id,
                         plugin_name=plugin.plugin_name
                     )
@@ -82,7 +156,7 @@ class MCPToolService:
                     # 格式化为Function Calling格式
                     formatted_tools = self._format_tools_for_ai(
                         plugin_tools,
-                        plugin.plugin_name  # ✅ 修复：使用正确的属性名plugin_name
+                        plugin.plugin_name
                     )
                     all_tools.extend(formatted_tools)
                     
@@ -139,12 +213,85 @@ class MCPToolService:
         
         return formatted_tools
     
+    async def _get_plugin_tools_cached(
+        self,
+        user_id: str,
+        plugin_name: str
+    ) -> List[Dict[str, Any]]:
+        """
+        带缓存的工具列表获取
+        
+        Args:
+            user_id: 用户ID
+            plugin_name: 插件名称
+            
+        Returns:
+            工具列表
+        """
+        cache_key = f"{user_id}:{plugin_name}"
+        now = datetime.now()
+        
+        # 检查缓存
+        if cache_key in self._tool_cache:
+            entry = self._tool_cache[cache_key]
+            if now < entry.expire_time:
+                entry.hit_count += 1
+                logger.debug(
+                    f"🎯 工具缓存命中: {cache_key} "
+                    f"(命中次数: {entry.hit_count})"
+                )
+                return entry.tools
+            else:
+                logger.debug(f"⏰ 工具缓存过期: {cache_key}")
+                del self._tool_cache[cache_key]
+        
+        # 缓存未命中，从MCP获取
+        logger.debug(f"🔍 工具缓存未命中，从MCP获取: {cache_key}")
+        tools = await mcp_registry.get_plugin_tools(user_id, plugin_name)
+        
+        # 更新缓存
+        self._tool_cache[cache_key] = ToolCacheEntry(
+            tools=tools,
+            expire_time=now + self._cache_ttl,
+            hit_count=0
+        )
+        
+        return tools
+    
+    def clear_cache(self, user_id: Optional[str] = None, plugin_name: Optional[str] = None):
+        """
+        清理缓存
+        
+        Args:
+            user_id: 用户ID（可选，清理特定用户的缓存）
+            plugin_name: 插件名称（可选，清理特定插件的缓存）
+        """
+        if user_id is None and plugin_name is None:
+            # 清理所有缓存
+            self._tool_cache.clear()
+            logger.info("🧹 已清理所有工具缓存")
+        elif user_id and plugin_name:
+            # 清理特定插件缓存
+            cache_key = f"{user_id}:{plugin_name}"
+            if cache_key in self._tool_cache:
+                del self._tool_cache[cache_key]
+                logger.info(f"🧹 已清理缓存: {cache_key}")
+        elif user_id:
+            # 清理用户所有缓存
+            keys_to_delete = [
+                key for key in self._tool_cache.keys()
+                if key.startswith(f"{user_id}:")
+            ]
+            for key in keys_to_delete:
+                del self._tool_cache[key]
+            logger.info(f"🧹 已清理用户缓存: {user_id} ({len(keys_to_delete)}个)")
+    
     async def execute_tool_calls(
         self,
         user_id: str,
         tool_calls: List[Dict[str, Any]],
         db_session: AsyncSession,
-        timeout: float = 60.0
+        timeout: Optional[float] = None
     ) -> List[Dict[str, Any]]:
         """
         批量执行AI请求的工具调用（并行执行）
@@ -153,7 +300,7 @@ class MCPToolService:
             user_id: 用户ID
             tool_calls: AI返回的工具调用列表
             db_session: 数据库会话
-            timeout: 单个工具调用的超时时间（秒，默认30秒）
+            timeout: 单个工具调用的超时时间（秒，默认使用配置）
         
         Returns:
             工具调用结果列表
@@ -161,7 +308,10 @@ class MCPToolService:
         if not tool_calls:
             return []
         
-        logger.info(f"开始执行 {len(tool_calls)} 个工具调用")
+        # 使用配置的默认超时
+        actual_timeout = timeout or mcp_config.TOOL_CALL_TIMEOUT_SECONDS
+        
+        logger.info(f"开始执行 {len(tool_calls)} 个工具调用 (超时={actual_timeout}s)")
         
         # 创建异步任务列表
         tasks = [
@@ -169,7 +319,7 @@ class MCPToolService:
                 user_id=user_id,
                 tool_call=tool_call,
                 db_session=db_session,
-                timeout=timeout
+                timeout=actual_timeout
             )
             for tool_call in tool_calls
         ]
@@ -238,16 +388,26 @@ class MCPToolService:
                 f"参数: {arguments}"
             )
             
-            # 设置超时
+            # ✅ 使用带重试的调用
+            tool_key = f"{plugin_name}.{tool_name}"
+            start_time = time.time()
+            
             try:
-                result = await asyncio.wait_for(
-                    mcp_registry.call_tool(
-                        user_id=user_id,
-                        plugin_name=plugin_name,
-                        tool_name=tool_name,
-                        arguments=arguments
-                    ),
+                result = await self._call_tool_with_retry(
+                    user_id=user_id,
+                    plugin_name=plugin_name,
+                    tool_name=tool_name,
+                    arguments=arguments,
                     timeout=timeout
+                )
+                
+                # 记录成功指标
+                duration_ms = (time.time() - start_time) * 1000
+                self._metrics[tool_key].update_success(duration_ms)
+                
+                logger.info(
+                    f"✅ 工具调用成功: {tool_key} "
+                    f"(耗时: {duration_ms:.2f}ms)"
                 )
                 
                 # 成功返回
@@ -261,13 +421,21 @@ class MCPToolService:
                 }
                 
             except asyncio.TimeoutError:
+                # 记录失败指标
+                duration_ms = (time.time() - start_time) * 1000
+                self._metrics[tool_key].update_failure(duration_ms)
                 raise MCPToolServiceError(
                     f"工具调用超时（>{timeout}秒）"
                 )
         
         except Exception as e:
+            # 记录失败指标
+            tool_key = f"{plugin_name}.{tool_name}" if 'plugin_name' in locals() else function_name
+            duration_ms = (time.time() - start_time) * 1000
+            self._metrics[tool_key].update_failure(duration_ms)
+            
             logger.error(
-                f"工具 {function_name} 调用失败: {e}",
+                f"❌ 工具 {function_name} 调用失败: {e}",
                 exc_info=True
             )
             return {
@@ -278,6 +446,146 @@ class MCPToolService:
                 "success": False,
                 "error": str(e)
             }
+    
+    async def _call_tool_with_retry(
+        self,
+        user_id: str,
+        plugin_name: str,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        timeout: float
+    ) -> Any:
+        """
+        带指数退避重试的工具调用
+        
+        Args:
+            user_id: 用户ID
+            plugin_name: 插件名称
+            tool_name: 工具名称
+            arguments: 工具参数
+            timeout: 超时时间
+            
+        Returns:
+            工具执行结果
+            
+        Raises:
+            MCPToolServiceError: 工具调用失败
+            asyncio.TimeoutError: 调用超时
+        """
+        last_exception = None
+        
+        for attempt in range(self._max_retries):
+            try:
+                # 尝试调用工具
+                result = await asyncio.wait_for(
+                    mcp_registry.call_tool(
+                        user_id=user_id,
+                        plugin_name=plugin_name,
+                        tool_name=tool_name,
+                        arguments=arguments
+                    ),
+                    timeout=timeout
+                )
+                
+                # 成功则返回
+                if attempt > 0:
+                    logger.info(
+                        f"✅ 重试成功: {plugin_name}.{tool_name} "
+                        f"(第{attempt + 1}次尝试)"
+                    )
+                return result
+                
+            except asyncio.TimeoutError:
+                # 超时不重试，直接抛出
+                raise
+                
+            except Exception as e:
+                last_exception = e
+                
+                # 最后一次尝试失败
+                if attempt == self._max_retries - 1:
+                    logger.error(
+                        f"❌ 重试失败: {plugin_name}.{tool_name} "
+                        f"(已尝试{self._max_retries}次): {e}"
+                    )
+                    raise MCPToolServiceError(
+                        f"工具调用失败（已重试{self._max_retries}次）: {str(e)}"
+                    )
+                
+                # 计算指数退避延迟
+                delay = min(
+                    self._base_retry_delay * (2 ** attempt),
+                    self._max_retry_delay
+                )
+                
+                logger.warning(
+                    f"⚠️ 工具调用失败，{delay:.1f}秒后重试 "
+                    f"(第{attempt + 1}/{self._max_retries}次): "
+                    f"{plugin_name}.{tool_name} - {e}"
+                )
+                
+                await asyncio.sleep(delay)
+        
+        # 理论上不会到这里，但为了类型安全
+        raise MCPToolServiceError(f"工具调用失败: {last_exception}")
+    
+    def get_metrics(self, tool_name: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
+        """
+        获取工具调用指标
+        
+        Args:
+            tool_name: 工具名称（可选，获取特定工具的指标）
+            
+        Returns:
+            指标字典
+        """
+        if tool_name:
+            if tool_name in self._metrics:
+                metric = self._metrics[tool_name]
+                return {
+                    tool_name: {
+                        "total_calls": metric.total_calls,
+                        "success_calls": metric.success_calls,
+                        "failed_calls": metric.failed_calls,
+                        "success_rate": metric.success_rate,
+                        "avg_duration_ms": round(metric.avg_duration_ms, 2),
+                        "last_call_time": metric.last_call_time.isoformat() if metric.last_call_time else None
+                    }
+                }
+            return {}
+        
+        # 返回所有工具的指标
+        result = {}
+        for tool_key, metric in self._metrics.items():
+            result[tool_key] = {
+                "total_calls": metric.total_calls,
+                "success_calls": metric.success_calls,
+                "failed_calls": metric.failed_calls,
+                "success_rate": round(metric.success_rate, 3),
+                "avg_duration_ms": round(metric.avg_duration_ms, 2),
+                "last_call_time": metric.last_call_time.isoformat() if metric.last_call_time else None
+            }
+        return result
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """获取缓存统计信息"""
+        total_entries = len(self._tool_cache)
+        total_hits = sum(entry.hit_count for entry in self._tool_cache.values())
+        
+        return {
+            "total_entries": total_entries,
+            "total_hits": total_hits,
+            "cache_ttl_minutes": self._cache_ttl.total_seconds() / 60,
+            "entries": [
+                {
+                    "key": key,
+                    "tools_count": len(entry.tools),
+                    "hit_count": entry.hit_count,
+                    "expire_time": entry.expire_time.isoformat()
+                }
+                for key, entry in self._tool_cache.items()
+            ]
+        }
     
     async def build_tool_context(
         self,

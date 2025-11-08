@@ -12,6 +12,7 @@ from app.database import close_db, _session_stats
 from app.logger import setup_logging, get_logger
 from app.middleware import RequestIDMiddleware
 from app.middleware.auth_middleware import AuthMiddleware
+from app.mcp.registry import mcp_registry
 
 setup_logging(
     level=config_settings.log_level,
@@ -27,9 +28,7 @@ logger = get_logger(__name__)
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
     logger.info("应用启动，等待用户登录...")
-    
-    # 导入MCP注册表
-    from app.mcp.registry import mcp_registry
+    logger.info("💡 MCP插件采用延迟加载策略，将在用户首次使用时自动加载")
     
     yield
     

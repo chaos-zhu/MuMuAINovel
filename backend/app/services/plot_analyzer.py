@@ -226,8 +226,8 @@ class PlotAnalyzer:
             )
             
             # 🔍 添加调试日志：查看AI返回的原始内容
-            logger.info(f"🔍 AI返回类型: {type(response)}")
-            logger.info(f"🔍 AI返回内容(前500字符): {str(response)}")
+            # logger.info(f"🔍 AI返回类型: {type(response)}")
+            # logger.info(f"🔍 AI返回内容(前500字符): {str(response)}")
             
             # 从返回的字典中提取content字段
             if isinstance(response, dict):
