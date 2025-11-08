@@ -445,7 +445,7 @@ async def generate_organization(
         
         try:
             ai_response = await user_ai_service.generate_text(prompt=prompt)
-            logger.info(f"✅ AI响应接收完成，长度：{len(ai_response) if ai_response else 0} 字符")
+            logger.info(f"✅ AI响应接收完成")
         except Exception as ai_error:
             logger.error(f"❌ AI服务调用异常：{str(ai_error)}")
             raise HTTPException(
@@ -453,17 +453,20 @@ async def generate_organization(
                 detail=f"AI服务调用失败：{str(ai_error)}"
             )
         
+        # generate_text返回的是字典，需要提取content字段
+        ai_content = ai_response.get("content", "") if isinstance(ai_response, dict) else str(ai_response)
+        
         # 检查AI响应
-        if not ai_response or not ai_response.strip():
+        if not ai_content or not ai_content.strip():
             logger.error("❌ AI返回了空响应")
             raise HTTPException(
                 status_code=500,
                 detail="AI服务返回空响应。请检查AI配置和网络连接。"
             )
         
-        logger.info(f"📝 开始清理AI响应")
+        logger.info(f"📝 开始清理AI响应，长度：{len(ai_content)} 字符")
         # 清理AI响应
-        cleaned_response = ai_response.strip()
+        cleaned_response = ai_content.strip()
         if cleaned_response.startswith("```json"):
             cleaned_response = cleaned_response[7:]
         if cleaned_response.startswith("```"):
@@ -531,7 +534,7 @@ async def generate_organization(
         history = GenerationHistory(
             project_id=request.project_id,
             prompt=prompt,
-            generated_content=ai_response,
+            generated_content=ai_content, 
             model=user_ai_service.default_model
         )
         db.add(history)
