@@ -67,6 +67,14 @@ export default function ChapterAnalysis({ chapterId, visible, onClose }: Chapter
       }
       
       const taskData: AnalysisTask = await response.json();
+      
+      // 如果状态为 none（无任务），设置 task 为 null，让前端显示"开始分析"按钮
+      if (taskData.status === 'none' || !taskData.has_task) {
+        setTask(null);
+        setError(null); // 清除错误，这不是错误状态
+        return;
+      }
+      
       setTask(taskData);
       
       if (taskData.status === 'completed') {

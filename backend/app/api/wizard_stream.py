@@ -183,7 +183,13 @@ async def world_building_generator(
         # 保存到数据库
         yield await SSEResponse.send_progress("保存到数据库...", 90)
         
+        # 确保user_id存在
+        if not user_id:
+            yield await SSEResponse.send_error("用户ID缺失，无法创建项目", 401)
+            return
+        
         project = Project(
+            user_id=user_id,  # 添加user_id字段
             title=title,
             description=description,
             theme=theme,

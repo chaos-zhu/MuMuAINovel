@@ -1,15 +1,67 @@
 services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: mumuainovel-postgres
+    environment:
+      POSTGRES_DB: mumuai_novel
+      POSTGRES_USER: mumuai
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mumuai_password_2024}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      TZ: Asia/Shanghai
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/scripts/init_postgres.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "5432:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mumuai -d mumuai_novel"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - ai-story-network
+    command:
+      - postgres
+      - -c
+      - max_connections=200
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=1GB
+      - -c
+      - maintenance_work_mem=64MB
+      - -c
+      - checkpoint_completion_target=0.9
+      - -c
+      - wal_buffers=16MB
+      - -c
+      - default_statistics_target=100
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      - -c
+      - work_mem=4MB
+      - -c
+      - min_wal_size=1GB
+      - -c
+      - max_wal_size=4GB
+
   mumuainovel:
     build:
       context: .
       dockerfile: Dockerfile
     image: mumujie/mumuainovel:latest
     container_name: mumuainovel
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - "8000:8000"
     volumes:
-      # 持久化数据库和日志
-      - ./data:/app/data
+      # 持久化日志
       - ./logs:/app/logs
       # 挂载环境变量文件（可选）
       - ./.env:/app/.env:ro
@@ -21,8 +73,20 @@ services:
       - APP_PORT=8000
       - DEBUG=false
       
-      # 重要：环境变量会从 .env 文件自动加载
-      # 也可以在这里显式设置，优先级：此处设置 > .env 文件
+      # 数据库配置（使用PostgreSQL）
+      - DATABASE_URL=postgresql+asyncpg://mumuai:${POSTGRES_PASSWORD:-mumuai_password_2024}@postgres:5432/mumuai_novel
+      
+      # PostgreSQL连接池配置
+      - DATABASE_POOL_SIZE=30
+      - DATABASE_MAX_OVERFLOW=20
+      - DATABASE_POOL_TIMEOUT=60
+      - DATABASE_POOL_RECYCLE=1800
+      - DATABASE_POOL_PRE_PING=True
+      - DATABASE_POOL_USE_LIFO=True
+      
+      - HTTP_PROXY=http://172.16.66.175:7890
+      - HTTPS_PROXY=http://172.16.66.175:7890
+      - NO_PROXY=localhost,127.0.0.1
       
       # AI服务配置（建议在 .env 文件中设置）
       # - OPENAI_API_KEY=${OPENAI_API_KEY}
@@ -41,10 +105,15 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
-      start_period: 10s
+      start_period: 30s
     networks:
       - ai-story-network
+
+volumes:
+  postgres_data:
+    driver: local
 
 networks:
   ai-story-network:
     driver: bridge
+

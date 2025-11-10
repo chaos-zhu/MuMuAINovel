@@ -24,12 +24,50 @@ router = APIRouter(prefix="/characters", tags=["角色管理"])
 logger = get_logger(__name__)
 
 
+async def verify_project_access(project_id: str, user_id: str, db: AsyncSession) -> Project:
+    """
+    验证用户是否有权访问指定项目
+    
+    Args:
+        project_id: 项目ID
+        user_id: 用户ID
+        db: 数据库会话
+        
+    Returns:
+        Project: 项目对象
+        
+    Raises:
+        HTTPException: 401 未登录，404 项目不存在或无权访问
+    """
+    if not user_id:
+        raise HTTPException(status_code=401, detail="未登录")
+    
+    result = await db.execute(
+        select(Project).where(
+            Project.id == project_id,
+            Project.user_id == user_id
+        )
+    )
+    project = result.scalar_one_or_none()
+    
+    if not project:
+        logger.warning(f"项目访问被拒绝: project_id={project_id}, user_id={user_id}")
+        raise HTTPException(status_code=404, detail="项目不存在或无权访问")
+    
+    return project
+
+
 @router.get("", response_model=CharacterListResponse, summary="获取角色列表")
 async def get_characters(
     project_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """获取指定项目的所有角色（query参数版本）"""
+    # 验证用户权限
+    user_id = getattr(request.state, 'user_id', None)
+    await verify_project_access(project_id, user_id, db)
+    
     # 获取总数
     count_result = await db.execute(
         select(func.count(Character.id)).where(Character.project_id == project_id)
@@ -93,9 +131,14 @@ async def get_characters(
 @router.get("/project/{project_id}", response_model=CharacterListResponse, summary="获取项目的所有角色")
 async def get_project_characters(
     project_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """获取指定项目的所有角色（路径参数版本）"""
+    # 验证用户权限
+    user_id = getattr(request.state, 'user_id', None)
+    await verify_project_access(project_id, user_id, db)
+    
     # 获取总数
     count_result = await db.execute(
         select(func.count(Character.id)).where(Character.project_id == project_id)
@@ -159,6 +202,7 @@ async def get_project_characters(
 @router.get("/{character_id}", response_model=CharacterResponse, summary="获取角色详情")
 async def get_character(
     character_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """根据ID获取角色详情"""
@@ -170,6 +214,10 @@ async def get_character(
     if not character:
         raise HTTPException(status_code=404, detail="角色不存在")
     
+    # 验证用户权限
+    user_id = getattr(request.state, 'user_id', None)
+    await verify_project_access(character.project_id, user_id, db)
+    
     return character
 
 
@@ -177,6 +225,7 @@ async def get_character(
 async def update_character(
     character_id: str,
     character_update: CharacterUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """更新角色信息"""
@@ -187,6 +236,10 @@ async def update_character(
     
     if not character:
         raise HTTPException(status_code=404, detail="角色不存在")
+    
+    # 验证用户权限
+    user_id = getattr(request.state, 'user_id', None)
+    await verify_project_access(character.project_id, user_id, db)
     
     # 更新字段
     update_data = character_update.model_dump(exclude_unset=True)
@@ -201,6 +254,7 @@ async def update_character(
 @router.delete("/{character_id}", summary="删除角色")
 async def delete_character(
     character_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """删除角色"""
@@ -211,6 +265,10 @@ async def delete_character(
     
     if not character:
         raise HTTPException(status_code=404, detail="角色不存在")
+    
+    # 验证用户权限
+    user_id = getattr(request.state, 'user_id', None)
+    await verify_project_access(character.project_id, user_id, db)
     
     await db.delete(character)
     await db.commit()
@@ -233,13 +291,9 @@ async def generate_character(
     
     生成内容包括：姓名、年龄、性别、性格、外貌、背景故事、人际关系等
     """
-    # 验证项目是否存在并获取项目信息
-    result = await db.execute(
-        select(Project).where(Project.id == request.project_id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
+    # 验证用户权限和项目是否存在
+    user_id = getattr(http_request.state, 'user_id', None)
+    project = await verify_project_access(request.project_id, user_id, db)
     
     try:
         # 获取已存在的角色列表，用于关系网络
@@ -294,9 +348,6 @@ async def generate_character(
             project_context=project_context,
             user_input=user_input
         )
-        
-        # 获取user_id用于MCP工具调用
-        user_id = http_request.state.user_id if hasattr(http_request.state, 'user_id') else 'default_user'
         
         # 调用AI生成角色（支持MCP工具）
         logger.info(f"🎯 开始为项目 {request.project_id} 生成角色（启用MCP）")

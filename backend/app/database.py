@@ -45,12 +45,59 @@ _session_stats = {
 async def get_engine(user_id: str):
     """获取或创建用户专属的数据库引擎（线程安全）
     
+    支持PostgreSQL和SQLite两种数据库：
+    - PostgreSQL: 所有用户共享一个数据库，通过user_id字段隔离数据
+    - SQLite: 每个用户一个独立的数据库文件
+    
     Args:
         user_id: 用户ID
         
     Returns:
         用户专属的异步引擎
     """
+    # PostgreSQL模式：所有用户共享同一个引擎
+    if "postgresql" in settings.database_url:
+        cache_key = "shared_postgres"
+        if cache_key in _engine_cache:
+            return _engine_cache[cache_key]
+        
+        async with _cache_lock:
+            if cache_key not in _engine_cache:
+                # 优化后的PostgreSQL连接配置
+                connect_args = {
+                    "server_settings": {
+                        "application_name": settings.app_name,
+                        "jit": "off",  # 关闭JIT以提高短查询性能
+                    },
+                    "command_timeout": 60,  # 命令超时60秒
+                    "statement_cache_size": 500,  # 启用语句缓存，提升重复查询性能
+                }
+                
+                engine = create_async_engine(
+                    settings.database_url,
+                    echo=False,  # 生产环境关闭SQL日志
+                    future=True,
+                    pool_size=settings.database_pool_size,  # 核心连接数：30
+                    max_overflow=settings.database_max_overflow,  # 溢出连接数：20
+                    pool_timeout=settings.database_pool_timeout,  # 连接超时：60秒
+                    pool_pre_ping=settings.database_pool_pre_ping,  # 连接前检测
+                    pool_recycle=settings.database_pool_recycle,  # 连接回收：1800秒
+                    pool_use_lifo=settings.database_pool_use_lifo,  # LIFO策略提高复用
+                    connect_args=connect_args
+                )
+                _engine_cache[cache_key] = engine
+                logger.info(
+                    f"✅ PostgreSQL引擎已创建（优化配置）\n"
+                    f"   ├─ 连接池: {settings.database_pool_size} 核心 + {settings.database_max_overflow} 溢出 = {settings.database_pool_size + settings.database_max_overflow} 总连接\n"
+                    f"   ├─ 超时: {settings.database_pool_timeout}秒\n"
+                    f"   ├─ 回收: {settings.database_pool_recycle}秒\n"
+                    f"   ├─ 策略: LIFO（提高复用率）\n"
+                    f"   └─ 预估并发: 80-150用户"
+                )
+            
+            return _engine_cache[cache_key]
+    
+    # SQLite模式：每个用户独立的数据库文件
     if user_id in _engine_cache:
         return _engine_cache[user_id]
     
@@ -76,18 +123,30 @@ async def get_engine(user_id: str):
             )
             
             try:
+                # 应用优化后的SQLite配置
+                cache_size = -1024 * settings.sqlite_cache_size_mb  # 负数表示KB单位
+                mmap_size = settings.sqlite_mmap_size_mb * 1024 * 1024  # 转换为字节
+                
                 async with engine.begin() as conn:
                     await conn.execute(text("PRAGMA journal_mode=WAL"))
                     await conn.execute(text("PRAGMA synchronous=NORMAL"))
-                    await conn.execute(text("PRAGMA cache_size=-64000"))
+                    await conn.execute(text(f"PRAGMA cache_size={cache_size}"))  # 128MB缓存
+                    await conn.execute(text(f"PRAGMA mmap_size={mmap_size}"))  # 256MB内存映射
                     await conn.execute(text("PRAGMA temp_store=MEMORY"))
                     await conn.execute(text("PRAGMA busy_timeout=5000"))
+                    await conn.execute(text(f"PRAGMA wal_autocheckpoint={settings.sqlite_wal_autocheckpoint}"))
                     
-                    logger.info(f"✅ 用户 {user_id} 的数据库已优化（WAL模式 + 64MB缓存）")
+                    logger.info(
+                        f"✅ 用户 {user_id} 的SQLite数据库已优化\n"
+                        f"   ├─ WAL模式\n"
+                        f"   ├─ 缓存: {settings.sqlite_cache_size_mb}MB\n"
+                        f"   ├─ 内存映射: {settings.sqlite_mmap_size_mb}MB\n"
+                        f"   └─ 预估并发: 15-20写入用户"
+                    )
             except Exception as e:
-                logger.warning(f"⚠️ 用户 {user_id} 数据库优化失败: {str(e)}")
+                logger.warning(f"⚠️ 用户 {user_id} SQLite数据库优化失败: {str(e)}")
             _engine_cache[user_id] = engine
-            logger.info(f"为用户 {user_id} 创建数据库引擎")
+            logger.info(f"为用户 {user_id} 创建SQLite数据库引擎")
         
         return _engine_cache[user_id]
 
@@ -157,8 +216,11 @@ async def get_db(request: Request):
             
             logger.debug(f"📊 会话关闭 [User:{user_id}][ID:{session_id}] - 活跃:{_session_stats['active']}, 总创建:{_session_stats['created']}, 总关闭:{_session_stats['closed']}, 错误:{_session_stats['errors']}")
             
-            if _session_stats["active"] > 100:
-                logger.warning(f"🚨 活跃会话数过多: {_session_stats['active']}，可能存在连接泄漏！")
+            # 使用优化后的会话监控阈值
+            if _session_stats["active"] > settings.database_session_leak_threshold:
+                logger.error(f"🚨 严重告警：活跃会话数 {_session_stats['active']} 超过泄漏阈值 {settings.database_session_leak_threshold}！")
+            elif _session_stats["active"] > settings.database_session_max_active:
+                logger.warning(f"⚠️ 警告：活跃会话数 {_session_stats['active']} 超过警告阈值 {settings.database_session_max_active}，可能存在连接泄漏！")
             elif _session_stats["active"] < 0:
                 logger.error(f"🚨 活跃会话数异常: {_session_stats['active']}，统计可能不准确！")
                 
@@ -325,3 +387,153 @@ async def close_db():
     except Exception as e:
         logger.error(f"关闭数据库连接失败: {str(e)}", exc_info=True)
         raise
+
+async def get_database_stats():
+    """获取数据库连接和会话统计信息
+    
+    Returns:
+        dict: 包含数据库统计信息的字典
+    """
+    from app.config import settings
+    
+    stats = {
+        "session_stats": {
+            "created": _session_stats["created"],
+            "closed": _session_stats["closed"],
+            "active": _session_stats["active"],
+            "errors": _session_stats["errors"],
+            "generator_exits": _session_stats["generator_exits"],
+            "last_check": _session_stats["last_check"],
+        },
+        "engine_cache": {
+            "total_engines": len(_engine_cache),
+            "engine_keys": list(_engine_cache.keys()),
+        },
+        "config": {
+            "database_type": "PostgreSQL" if "postgresql" in settings.database_url else "SQLite",
+            "pool_size": settings.database_pool_size,
+            "max_overflow": settings.database_max_overflow,
+            "total_connections": settings.database_pool_size + settings.database_max_overflow,
+            "pool_timeout": settings.database_pool_timeout,
+            "session_max_active_threshold": settings.database_session_max_active,
+            "session_leak_threshold": settings.database_session_leak_threshold,
+        },
+        "health": {
+            "status": "healthy",
+            "warnings": [],
+            "errors": [],
+        }
+    }
+    
+    # 健康检查
+    if _session_stats["active"] > settings.database_session_leak_threshold:
+        stats["health"]["status"] = "critical"
+        stats["health"]["errors"].append(
+            f"活跃会话数 {_session_stats['active']} 超过泄漏阈值 {settings.database_session_leak_threshold}"
+        )
+    elif _session_stats["active"] > settings.database_session_max_active:
+        stats["health"]["status"] = "warning"
+        stats["health"]["warnings"].append(
+            f"活跃会话数 {_session_stats['active']} 超过警告阈值 {settings.database_session_max_active}"
+        )
+    
+    if _session_stats["active"] < 0:
+        stats["health"]["status"] = "error"
+        stats["health"]["errors"].append(f"活跃会话数异常: {_session_stats['active']}")
+    
+    error_rate = (_session_stats["errors"] / max(_session_stats["created"], 1)) * 100
+    if error_rate > 5:
+        stats["health"]["status"] = "warning"
+        stats["health"]["warnings"].append(f"会话错误率过高: {error_rate:.2f}%")
+    
+    stats["health"]["error_rate"] = f"{error_rate:.2f}%"
+    
+    return stats
+
+
+async def check_database_health(user_id: str = None) -> dict:
+    """检查数据库连接健康状态
+    
+    Args:
+        user_id: 可选的用户ID，如果提供则检查特定用户的数据库
+        
+    Returns:
+        dict: 健康检查结果
+    """
+    result = {
+        "healthy": True,
+        "checks": {},
+        "timestamp": datetime.now().isoformat()
+    }
+    
+    try:
+        # 检查引擎是否存在
+        if user_id:
+            engine = await get_engine(user_id)
+            cache_key = user_id
+        else:
+            if "postgresql" in settings.database_url:
+                cache_key = "shared_postgres"
+                if cache_key not in _engine_cache:
+                    result["checks"]["engine"] = {"status": "not_initialized", "healthy": True}
+                    return result
+                engine = _engine_cache[cache_key]
+            else:
+                result["checks"]["engine"] = {"status": "skipped", "message": "需要提供user_id检查SQLite"}
+                return result
+        
+        # 测试数据库连接
+        AsyncSessionLocal = async_sessionmaker(
+            engine,
+            class_=AsyncSession,
+            expire_on_commit=False
+        )
+        
+        async with AsyncSessionLocal() as session:
+            # 执行简单查询测试连接
+            await session.execute(text("SELECT 1"))
+            result["checks"]["connection"] = {"status": "ok", "healthy": True}
+            
+        # 检查连接池状态（仅PostgreSQL）
+        if hasattr(engine.pool, 'size'):
+            pool_status = {
+                "size": engine.pool.size(),
+                "checked_in": engine.pool.checkedin(),
+                "checked_out": engine.pool.checkedout(),
+                "overflow": engine.pool.overflow(),
+                "healthy": True
+            }
+            
+            # 连接池健康检查
+            if engine.pool.overflow() >= settings.database_max_overflow:
+                pool_status["healthy"] = False
+                pool_status["warning"] = "连接池溢出已满"
+                result["healthy"] = False
+            
+            result["checks"]["pool"] = pool_status
+        
+    except Exception as e:
+        result["healthy"] = False
+        result["checks"]["error"] = {
+            "status": "error",
+            "message": str(e),
+            "healthy": False
+        }
+        logger.error(f"数据库健康检查失败: {str(e)}", exc_info=True)
+    
+    return result
+
+
+async def reset_session_stats():
+    """重置会话统计信息（用于测试或维护）"""
+    global _session_stats
+    _session_stats = {
+        "created": 0,
+        "closed": 0,
+        "active": 0,
+        "errors": 0,
+        "generator_exits": 0,
+        "last_check": datetime.now().isoformat()
+    }
+    logger.info("✅ 会话统计信息已重置")
+    return _session_stats

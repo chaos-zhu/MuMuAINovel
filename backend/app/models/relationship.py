@@ -75,7 +75,7 @@ class Organization(Base):
     
     # 组织特色
     motto = Column(String(200), comment="宗旨/口号")
-    color = Column(String(20), comment="代表颜色")
+    color = Column(String(100), comment="代表颜色")
     
     created_at = Column(DateTime, server_default=func.now(), comment="创建时间")
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), comment="更新时间")

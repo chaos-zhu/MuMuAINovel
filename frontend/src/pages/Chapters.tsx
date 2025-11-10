@@ -321,6 +321,7 @@ export default function Chapters() {
         setAnalysisTasksMap(prev => ({
           ...prev,
           [editingId]: {
+            has_task: true,
             task_id: taskId,
             chapter_id: editingId,
             status: 'pending',

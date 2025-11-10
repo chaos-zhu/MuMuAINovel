@@ -26,7 +26,7 @@
 - 🌐 **世界观设定** - 构建完整的故事世界观和背景设定
 - 🔐 **多种登录方式** - 支持 LinuxDO OAuth 登录和本地账户登录
 - 🐳 **Docker 部署** - 一键部署，开箱即用
-- 💾 **数据持久化** - 基于 SQLite 的本地数据存储，支持多用户隔离
+- 💾 **数据持久化** - 支持 PostgreSQL 和 SQLite 双数据库，多用户数据隔离
 - 🎨 **现代化 UI** - 基于 Ant Design 的美观界面，响应式设计
 
 
@@ -36,11 +36,13 @@
 
 - [ ] **灵感模式** - 提供创作灵感和点子生成功能
 - [✔] **自定义写作风格** - 支持自定义AI写作风格和语言风格
-- [ ] **支持数据导入导出** - 支持项目数据的导入和导出功能
+- [✔] **支持数据导入导出** - 支持项目数据的导入和导出功能
 - [ ] **添加prompt调整界面** - 提供可视化的prompt模板编辑和调整界面
 - [✔] **开放章节内容字数限制** - 支持用户在生成章节内容时设置字数 @wyf007
 - [ ] **设定追溯与矛盾检测** - 对大纲、世界观、角色档案中的设定支持悬停查看注释，显示相关章节来源和佐证原文；自动检测新章节与已有设定的矛盾（吃书），标记为"矛盾"设定并提供解决建议，当新设定解决矛盾后自动更新注释说明 @lulujiang
 - [ ] **思维链与章节关系图谱** - 为每章建立思维链，总结与上文的逻辑关系、明暗线发展；可选的章节关系满图功能，自动识别和标注伏笔埋设与揭晓、角色出场与呼应等内在联系，帮助提升小说结构的紧密性和连贯性 @lulujiang
+- [ ] **根据分析建议一键重写** - 根据分析的的建议，实现一键重新生成章节内容
+- [ ] **Linux DO登录自动创建账号** - 使用Linux DO登录后，自动生成系统账号
 
 > 💡 如果你有其他功能建议，欢迎提交 Issue 或 Pull Request！
 
@@ -116,9 +118,77 @@ npm run build
 
 ## 🐳 部署方式
 
-### Docker Compose 部署
+### Docker Compose 部署（PostgreSQL）
 
-#### 使用 Docker Hub 镜像（推荐）
+**推荐生产环境使用**，提供更好的性能和并发支持。
+
+#### 快速启动
+
+```bash
+# 1. 克隆项目
+git clone https://github.com/xiamuceer-j/MuMuAINovel.git
+cd MuMuAINovel
+
+# 2. 配置环境变量
+cp backend/.env.example .env
+# 编辑 .env 文件，设置必要的配置：
+# - POSTGRES_PASSWORD（数据库密码）
+# - OPENAI_API_KEY（AI服务密钥）
+# - 其他可选配置
+
+# 3. 启动服务（包含PostgreSQL）
+docker-compose up -d
+
+# 4. 查看服务状态
+docker-compose ps
+
+# 5. 查看日志
+docker-compose logs -f
+
+# 6. 访问应用
+# 打开浏览器访问 http://localhost:8000
+```
+
+#### 环境变量配置
+
+创建 `.env` 文件并配置：
+
+```bash
+# PostgreSQL数据库密码（必须设置）
+POSTGRES_PASSWORD=your_secure_password_here
+
+# AI服务配置（必须设置）
+OPENAI_API_KEY=your_openai_api_key
+DEFAULT_AI_PROVIDER=openai
+DEFAULT_MODEL=gpt-4
+
+# 本地账户登录（可选）
+LOCAL_AUTH_ENABLED=true
+LOCAL_AUTH_USERNAME=admin
+LOCAL_AUTH_PASSWORD=admin123
+
+# 其他配置见 backend/.env.example
+```
+
+#### 服务说明
+
+- **postgres**: PostgreSQL 18 数据库
+  - 端口：5432
+  - 数据持久化：`./postgres_data`
+  - 已优化配置，支持80-150并发用户
+
+- **mumuainovel**: 主应用服务
+  - 端口：8000
+  - 自动等待数据库就绪
+  - 日志持久化：`./logs`
+
+详细部署指南请参考：[Docker + PostgreSQL 部署文档](docs/docker-postgres-deployment.md)
+
+### Docker Compose 部署（SQLite）
+
+适合个人使用或小团队，配置更简单。
+
+#### 使用 Docker Hub 镜像
 
 项目已发布到 Docker Hub，可直接拉取使用：
 
@@ -197,7 +267,11 @@ networks:
 
 #### 2. 数据持久化
 
-数据目录已通过 volume 挂载，数据不会丢失：
+**PostgreSQL部署**：
+- `./postgres_data`：PostgreSQL 数据库文件
+- `./logs`：应用日志文件
+
+**SQLite部署**：
 - `./data`：SQLite 数据库文件
 - `./logs`：应用日志文件
 
@@ -238,11 +312,33 @@ services:
 
 ## ⚙️ 配置说明
 
+### 数据库选择
+
+项目支持两种数据库：
+
+```bash
+# .env 配置
+DATABASE_URL=postgresql+asyncpg://mumuai:password@postgres:5432/mumuai_novel
+```
+
+```bash
+# .env 配置
+DATABASE_URL=sqlite+aiosqlite:///data/ai_story.db
+```
+
 ### 环境变量
 
 创建 `.env` 文件并配置以下变量：
 
 ```bash
+# ===== 数据库配置 =====
+# PostgreSQL（生产环境推荐）
+DATABASE_URL=postgresql+asyncpg://mumuai:password@postgres:5432/mumuai_novel
+POSTGRES_PASSWORD=your_secure_password_here
+
+# 或使用 SQLite（开发环境）
+# DATABASE_URL=sqlite+aiosqlite:///data/ai_story.db
+
 # ===== AI 服务配置（必填）=====
 # OpenAI 配置（支持官方API和中转API）
 OPENAI_API_KEY=your_openai_key_here
@@ -323,24 +419,6 @@ OPENAI_BASE_URL=https://your-proxy-service.com/v1
 ```bash
 OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxx
 OPENAI_BASE_URL=https://api.new-api.com/v1
-```
-
-**API2D**
-```bash
-OPENAI_API_KEY=fk-xxxxxxxxxxxxxxxx
-OPENAI_BASE_URL=https://api.api2d.com/v1
-```
-
-**OpenAI-SB**
-```bash
-OPENAI_API_KEY=sb-xxxxxxxxxxxxxxxx
-OPENAI_BASE_URL=https://api.openai-sb.com/v1
-```
-
-**自建 One API / New API**
-```bash
-OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxx
-OPENAI_BASE_URL=https://your-domain.com/v1
 ```
 
 ##### 注意事项
@@ -436,7 +514,7 @@ MuMuAINovel/
 ### 后端
 
 - **框架**：FastAPI 0.109.0
-- **数据库**：SQLite + SQLAlchemy（异步）
+- **数据库**：PostgreSQL / SQLite + SQLAlchemy（异步）
 - **AI 集成**：OpenAI、Anthropic、Google Gemini SDK
 - **认证**：LinuxDO OAuth2、本地账户
 - **日志**：Python logging + 文件轮转

@@ -30,19 +30,49 @@ router = APIRouter(prefix="/outlines", tags=["大纲管理"])
 logger = get_logger(__name__)
 
 
+async def verify_project_access(project_id: str, user_id: str, db: AsyncSession) -> Project:
+    """
+    验证用户是否有权访问指定项目
+    
+    Args:
+        project_id: 项目ID
+        user_id: 用户ID
+        db: 数据库会话
+        
+    Returns:
+        Project: 项目对象
+        
+    Raises:
+        HTTPException: 401 未登录，404 项目不存在或无权访问
+    """
+    if not user_id:
+        raise HTTPException(status_code=401, detail="未登录")
+    
+    result = await db.execute(
+        select(Project).where(
+            Project.id == project_id,
+            Project.user_id == user_id
+        )
+    )
+    project = result.scalar_one_or_none()
+    
+    if not project:
+        logger.warning(f"项目访问被拒绝: project_id={project_id}, user_id={user_id}")
+        raise HTTPException(status_code=404, detail="项目不存在或无权访问")
+    
+    return project
+
+
 @router.post("", response_model=OutlineResponse, summary="创建大纲")
 async def create_outline(
     outline: OutlineCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """创建新的章节大纲，同时创建对应的章节记录"""
-    # 验证项目是否存在
-    result = await db.execute(
-        select(Project).where(Project.id == outline.project_id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
+    # 验证用户权限
+    user_id = getattr(request.state, 'user_id', None)
+    await verify_project_access(outline.project_id, user_id, db)
     
     # 创建大纲
     db_outline = Outline(**outline.model_dump())
@@ -66,9 +96,14 @@ async def create_outline(
 @router.get("", response_model=OutlineListResponse, summary="获取大纲列表")
 async def get_outlines(
     project_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """获取指定项目的所有大纲"""
+    # 验证用户权限
+    user_id = getattr(request.state, 'user_id', None)
+    await verify_project_access(project_id, user_id, db)
+    
     # 获取总数
     count_result = await db.execute(
         select(func.count(Outline.id)).where(Outline.project_id == project_id)
@@ -89,9 +124,14 @@ async def get_outlines(
 @router.get("/project/{project_id}", response_model=OutlineListResponse, summary="获取项目的所有大纲")
 async def get_project_outlines(
     project_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """获取指定项目的所有大纲（路径参数版本）"""
+    # 验证用户权限
+    user_id = getattr(request.state, 'user_id', None)
+    await verify_project_access(project_id, user_id, db)
+    
     # 获取总数
     count_result = await db.execute(
         select(func.count(Outline.id)).where(Outline.project_id == project_id)
@@ -112,6 +152,7 @@ async def get_project_outlines(
 @router.get("/{outline_id}", response_model=OutlineResponse, summary="获取大纲详情")
 async def get_outline(
     outline_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """根据ID获取大纲详情"""
@@ -123,6 +164,10 @@ async def get_outline(
     if not outline:
         raise HTTPException(status_code=404, detail="大纲不存在")
     
+    # 验证用户权限
+    user_id = getattr(request.state, 'user_id', None)
+    await verify_project_access(outline.project_id, user_id, db)
+    
     return outline
 
 
@@ -130,6 +175,7 @@ async def get_outline(
 async def update_outline(
     outline_id: str,
     outline_update: OutlineUpdate,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """更新大纲信息，同步更新对应章节和structure字段"""
@@ -140,6 +186,10 @@ async def update_outline(
     
     if not outline:
         raise HTTPException(status_code=404, detail="大纲不存在")
+    
+    # 验证用户权限
+    user_id = getattr(request.state, 'user_id', None)
+    await verify_project_access(outline.project_id, user_id, db)
     
     # 更新字段
     update_data = outline_update.model_dump(exclude_unset=True)
@@ -196,6 +246,7 @@ async def update_outline(
 @router.delete("/{outline_id}", summary="删除大纲")
 async def delete_outline(
     outline_id: str,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """删除大纲，同步删除章节，并重新排序后续项"""
@@ -206,6 +257,10 @@ async def delete_outline(
     
     if not outline:
         raise HTTPException(status_code=404, detail="大纲不存在")
+    
+    # 验证用户权限
+    user_id = getattr(request.state, 'user_id', None)
+    await verify_project_access(outline.project_id, user_id, db)
     
     project_id = outline.project_id
     deleted_order = outline.order_index
@@ -252,7 +307,8 @@ async def delete_outline(
 
 @router.post("/reorder", summary="批量重排序大纲")
 async def reorder_outlines(
-    request: OutlineReorderRequest,
+    reorder_request: OutlineReorderRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -261,10 +317,20 @@ async def reorder_outlines(
     策略：先收集所有变更，最后一次性提交，避免临时冲突
     """
     try:
+        # 验证用户权限（通过第一个大纲的project_id）
+        user_id = getattr(http_request.state, 'user_id', None)
+        if reorder_request.orders and len(reorder_request.orders) > 0:
+            first_outline_result = await db.execute(
+                select(Outline).where(Outline.id == reorder_request.orders[0].id)
+            )
+            first_outline = first_outline_result.scalar_one_or_none()
+            if first_outline:
+                await verify_project_access(first_outline.project_id, user_id, db)
+        
         # 第一步：收集所有大纲和对应的章节
         outline_chapter_map = {}  # {outline_id: (outline, chapter, old_order, new_order)}
         
-        for item in request.orders:
+        for item in reorder_request.orders:
             outline_id = item.id
             new_order = item.order_index
             
@@ -341,13 +407,9 @@ async def generate_outline(
     - new: 强制全新生成
     - continue: 强制续写模式
     """
-    # 验证项目是否存在
-    result = await db.execute(
-        select(Project).where(Project.id == request.project_id)
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
+    # 验证用户权限
+    user_id = getattr(http_request.state, 'user_id', None)
+    project = await verify_project_access(request.project_id, user_id, db)
     
     try:
         # 获取现有大纲（强制从数据库获取最新数据，包括用户手动修改的内容）
@@ -1472,13 +1534,9 @@ async def generate_outline_stream(
         "model": "gpt-4"  // 可选
     }
     """
-    # 验证项目是否存在
-    result = await db.execute(
-        select(Project).where(Project.id == data.get("project_id"))
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(status_code=404, detail="项目不存在")
+    # 验证用户权限
+    user_id = getattr(request.state, 'user_id', None)
+    project = await verify_project_access(data.get("project_id"), user_id, db)
     
     # 判断模式
     mode = data.get("mode", "auto")

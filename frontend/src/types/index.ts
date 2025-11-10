@@ -390,14 +390,16 @@ export interface ApiError {
 
 // 章节分析任务相关类型
 export interface AnalysisTask {
-  task_id: string;
+  has_task: boolean;
+  task_id: string | null;
   chapter_id: string;
-  status: 'pending' | 'running' | 'completed' | 'failed';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'none';
   progress: number;
-  error_message?: string;
-  created_at?: string;
-  started_at?: string;
-  completed_at?: string;
+  error_message?: string | null;
+  auto_recovered?: boolean;
+  created_at?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
 }
 
 // 分析结果 - 钩子
