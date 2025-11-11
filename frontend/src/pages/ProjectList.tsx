@@ -73,23 +73,8 @@ export default function ProjectList() {
   };
 
   const handleEnterProject = (id: string) => {
-    const project = projects.find(p => p.id === id);
-    if (project) {
-      console.log('项目信息:', {
-        id: project.id,
-        title: project.title,
-        wizard_status: project.wizard_status,
-        wizard_step: project.wizard_step
-      });
-      
-      if (project.wizard_status === 'incomplete' || !project.wizard_status) {
-        console.log('向导未完成，跳转到向导页面');
-        navigate(`/wizard?projectId=${id}&step=${project.wizard_step || 0}`);
-      } else {
-        console.log('向导已完成，进入项目管理界面');
-        navigate(`/project/${id}`);
-      }
-    }
+    // 简化后直接进入项目，不再检查向导状态
+    navigate(`/project/${id}`);
   };
 
   const getStatusTag = (status: string) => {
@@ -207,8 +192,8 @@ export default function ProjectList() {
     setSelectedProjectIds([]);
   };
 
-  // 获取可导出的项目（过滤掉向导未完成的项目）
-  const exportableProjects = projects.filter(p => p.wizard_status === 'completed');
+  // 获取所有可导出的项目
+  const exportableProjects = projects;
 
   // 关闭导出对话框
   const handleCloseExportModal = () => {
@@ -631,12 +616,11 @@ export default function ProjectList() {
             <Row gutter={[16, 16]}>
               {projects.map((project) => {
                 const progress = getProgress(project.current_words, project.target_words || 0);
-                const isWizardComplete = project.wizard_status === 'completed';
                 
                 return (
                   <Col {...gridConfig} key={project.id}>
                     <Badge.Ribbon
-                      text={isWizardComplete ? getStatusTag(project.status) : <Tag color="orange" icon={<RocketOutlined />}>创建中</Tag>}
+                      text={getStatusTag(project.status)}
                       color="transparent"
                       style={{ top: 12, right: 12 }}
                     >
@@ -680,68 +664,49 @@ export default function ProjectList() {
                             {project.description || '暂无描述'}
                           </Paragraph>
 
-                          {isWizardComplete ? (
-                            <>
-                              {project.target_words && project.target_words > 0 && (
-                                <div style={{ marginBottom: 16 }}>
-                                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                                    <Text type="secondary" style={{ fontSize: 12 }}>完成进度</Text>
-                                    <Text strong style={{ fontSize: 12 }}>{progress}%</Text>
-                                  </div>
-                                  <Progress
-                                    percent={progress}
-                                    strokeColor={getProgressColor(progress)}
-                                    showInfo={false}
-                                    size={{ height: 8 }}
-                                  />
-                                </div>
-                              )}
-
-                              <Row gutter={12}>
-                                <Col span={12}>
-                                  <div style={{
-                                    textAlign: 'center',
-                                    padding: '12px 0',
-                                    background: '#f5f5f5',
-                                    borderRadius: 8
-                                  }}>
-                                    <div style={{ fontSize: 20, fontWeight: 'bold', color: '#1890ff' }}>
-                                      {(project.current_words / 1000).toFixed(1)}K
-                                    </div>
-                                    <Text type="secondary" style={{ fontSize: 12 }}>已写字数</Text>
-                                  </div>
-                                </Col>
-                                <Col span={12}>
-                                  <div style={{
-                                    textAlign: 'center',
-                                    padding: '12px 0',
-                                    background: '#f5f5f5',
-                                    borderRadius: 8
-                                  }}>
-                                    <div style={{ fontSize: 20, fontWeight: 'bold', color: '#52c41a' }}>
-                                      {project.target_words ? (project.target_words / 1000).toFixed(0) + 'K' : '--'}
-                                    </div>
-                                    <Text type="secondary" style={{ fontSize: 12 }}>目标字数</Text>
-                                  </div>
-                                </Col>
-                              </Row>
-                            </>
-                          ) : (
-                            <div style={{
-                              textAlign: 'center',
-                              padding: '24px 0',
-                              background: '#f5f5f5',
-                              borderRadius: 8
-                            }}>
-                              <RocketOutlined style={{ fontSize: 32, color: '#faad14', marginBottom: 12 }} />
-                              <div style={{ color: '#faad14', fontWeight: 'bold', marginBottom: 4 }}>
-                                项目创建中
+                          {project.target_words && project.target_words > 0 && (
+                            <div style={{ marginBottom: 16 }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                                <Text type="secondary" style={{ fontSize: 12 }}>完成进度</Text>
+                                <Text strong style={{ fontSize: 12 }}>{progress}%</Text>
                               </div>
-                              <Text type="secondary" style={{ fontSize: 12 }}>
-                                点击继续创建向导
-                              </Text>
+                              <Progress
+                                percent={progress}
+                                strokeColor={getProgressColor(progress)}
+                                showInfo={false}
+                                size={{ height: 8 }}
+                              />
                             </div>
                           )}
+
+                          <Row gutter={12}>
+                            <Col span={12}>
+                              <div style={{
+                                textAlign: 'center',
+                                padding: '12px 0',
+                                background: '#f5f5f5',
+                                borderRadius: 8
+                              }}>
+                                <div style={{ fontSize: 20, fontWeight: 'bold', color: '#1890ff' }}>
+                                  {(project.current_words / 1000).toFixed(1)}K
+                                </div>
+                                <Text type="secondary" style={{ fontSize: 12 }}>已写字数</Text>
+                              </div>
+                            </Col>
+                            <Col span={12}>
+                              <div style={{
+                                textAlign: 'center',
+                                padding: '12px 0',
+                                background: '#f5f5f5',
+                                borderRadius: 8
+                              }}>
+                                <div style={{ fontSize: 20, fontWeight: 'bold', color: '#52c41a' }}>
+                                  {project.target_words ? (project.target_words / 1000).toFixed(0) + 'K' : '--'}
+                                </div>
+                                <Text type="secondary" style={{ fontSize: 12 }}>目标字数</Text>
+                              </div>
+                            </Col>
+                          </Row>
 
                           <div style={{ 
                             marginTop: 16, 

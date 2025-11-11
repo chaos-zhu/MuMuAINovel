@@ -1,11 +1,10 @@
-"""数据库连接和会话管理 - 支持多用户数据隔离"""
+"""数据库连接和会话管理 - PostgreSQL 多用户数据隔离"""
 import asyncio
 from typing import Dict, Any
 from datetime import datetime
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.orm import declarative_base
-from sqlalchemy.pool import StaticPool
 from fastapi import Request, HTTPException
 from app.config import settings
 from app.logger import get_logger
@@ -21,7 +20,8 @@ from app.models import (
     Project, Outline, Character, Chapter, GenerationHistory,
     Settings, WritingStyle, ProjectDefaultStyle,
     RelationshipType, CharacterRelationship, Organization, OrganizationMember,
-    StoryMemory, PlotAnalysis, AnalysisTask, BatchGenerationTask
+    StoryMemory, PlotAnalysis, AnalysisTask, BatchGenerationTask,
+    RegenerationTask
 )
 
 # 引擎缓存：每个用户一个引擎
@@ -45,9 +45,7 @@ _session_stats = {
 async def get_engine(user_id: str):
     """获取或创建用户专属的数据库引擎（线程安全）
     
-    支持PostgreSQL和SQLite两种数据库：
-    - PostgreSQL: 所有用户共享一个数据库，通过user_id字段隔离数据
-    - SQLite: 每个用户一个独立的数据库文件
+    PostgreSQL: 所有用户共享一个数据库，通过user_id字段隔离数据
     
     Args:
         user_id: 用户ID
@@ -56,99 +54,45 @@ async def get_engine(user_id: str):
         用户专属的异步引擎
     """
     # PostgreSQL模式：所有用户共享同一个引擎
-    if "postgresql" in settings.database_url:
-        cache_key = "shared_postgres"
-        if cache_key in _engine_cache:
-            return _engine_cache[cache_key]
-        
-        async with _cache_lock:
-            if cache_key not in _engine_cache:
-                # 优化后的PostgreSQL连接配置
-                connect_args = {
-                    "server_settings": {
-                        "application_name": settings.app_name,
-                        "jit": "off",  # 关闭JIT以提高短查询性能
-                    },
-                    "command_timeout": 60,  # 命令超时60秒
-                    "statement_cache_size": 500,  # 启用语句缓存，提升重复查询性能
-                }
-                
-                engine = create_async_engine(
-                    settings.database_url,
-                    echo=False,  # 生产环境关闭SQL日志
-                    future=True,
-                    pool_size=settings.database_pool_size,  # 核心连接数：30
-                    max_overflow=settings.database_max_overflow,  # 溢出连接数：20
-                    pool_timeout=settings.database_pool_timeout,  # 连接超时：60秒
-                    pool_pre_ping=settings.database_pool_pre_ping,  # 连接前检测
-                    pool_recycle=settings.database_pool_recycle,  # 连接回收：1800秒
-                    pool_use_lifo=settings.database_pool_use_lifo,  # LIFO策略提高复用
-                    connect_args=connect_args
-                )
-                _engine_cache[cache_key] = engine
-                logger.info(
-                    f"✅ PostgreSQL引擎已创建（优化配置）\n"
-                    f"   ├─ 连接池: {settings.database_pool_size} 核心 + {settings.database_max_overflow} 溢出 = {settings.database_pool_size + settings.database_max_overflow} 总连接\n"
-                    f"   ├─ 超时: {settings.database_pool_timeout}秒\n"
-                    f"   ├─ 回收: {settings.database_pool_recycle}秒\n"
-                    f"   ├─ 策略: LIFO（提高复用率）\n"
-                    f"   └─ 预估并发: 80-150用户"
-                )
-            
-            return _engine_cache[cache_key]
-    
-    # SQLite模式：每个用户独立的数据库文件
-    if user_id in _engine_cache:
-        return _engine_cache[user_id]
+    cache_key = "shared_postgres"
+    if cache_key in _engine_cache:
+        return _engine_cache[cache_key]
     
     async with _cache_lock:
-        if user_id not in _engine_locks:
-            _engine_locks[user_id] = asyncio.Lock()
-        user_lock = _engine_locks[user_id]
-    
-    async with user_lock:
-        if user_id not in _engine_cache:
-            db_url = f"sqlite+aiosqlite:///data/ai_story_user_{user_id}.db"
-            engine = create_async_engine(
-                db_url,
-                echo=False,
-                future=True,
-                poolclass=StaticPool,
-                pool_pre_ping=True,
-                pool_recycle=3600,
-                connect_args={
-                    "timeout": 30,
-                    "check_same_thread": False
-                }
-            )
+        if cache_key not in _engine_cache:
+            # 优化后的PostgreSQL连接配置
+            connect_args = {
+                "server_settings": {
+                    "application_name": settings.app_name,
+                    "jit": "off",  # 关闭JIT以提高短查询性能
+                },
+                "command_timeout": 60,  # 命令超时60秒
+                "statement_cache_size": 500,  # 启用语句缓存，提升重复查询性能
+            }
             
-            try:
-                # 应用优化后的SQLite配置
-                cache_size = -1024 * settings.sqlite_cache_size_mb  # 负数表示KB单位
-                mmap_size = settings.sqlite_mmap_size_mb * 1024 * 1024  # 转换为字节
-                
-                async with engine.begin() as conn:
-                    await conn.execute(text("PRAGMA journal_mode=WAL"))
-                    await conn.execute(text("PRAGMA synchronous=NORMAL"))
-                    await conn.execute(text(f"PRAGMA cache_size={cache_size}"))  # 128MB缓存
-                    await conn.execute(text(f"PRAGMA mmap_size={mmap_size}"))  # 256MB内存映射
-                    await conn.execute(text("PRAGMA temp_store=MEMORY"))
-                    await conn.execute(text("PRAGMA busy_timeout=5000"))
-                    await conn.execute(text(f"PRAGMA wal_autocheckpoint={settings.sqlite_wal_autocheckpoint}"))
-                    
-                    logger.info(
-                        f"✅ 用户 {user_id} 的SQLite数据库已优化\n"
-                        f"   ├─ WAL模式\n"
-                        f"   ├─ 缓存: {settings.sqlite_cache_size_mb}MB\n"
-                        f"   ├─ 内存映射: {settings.sqlite_mmap_size_mb}MB\n"
-                        f"   └─ 预估并发: 15-20写入用户"
-                    )
-            except Exception as e:
-                logger.warning(f"⚠️ 用户 {user_id} SQLite数据库优化失败: {str(e)}")
-            _engine_cache[user_id] = engine
-            logger.info(f"为用户 {user_id} 创建SQLite数据库引擎")
+            engine = create_async_engine(
+                settings.database_url,
+                echo=False,  # 生产环境关闭SQL日志
+                future=True,
+                pool_size=settings.database_pool_size,  # 核心连接数：30
+                max_overflow=settings.database_max_overflow,  # 溢出连接数：20
+                pool_timeout=settings.database_pool_timeout,  # 连接超时：60秒
+                pool_pre_ping=settings.database_pool_pre_ping,  # 连接前检测
+                pool_recycle=settings.database_pool_recycle,  # 连接回收：1800秒
+                pool_use_lifo=settings.database_pool_use_lifo,  # LIFO策略提高复用
+                connect_args=connect_args
+            )
+            _engine_cache[cache_key] = engine
+            logger.info(
+                f"✅ PostgreSQL引擎已创建（优化配置）\n"
+                f"   ├─ 连接池: {settings.database_pool_size} 核心 + {settings.database_max_overflow} 溢出 = {settings.database_pool_size + settings.database_max_overflow} 总连接\n"
+                f"   ├─ 超时: {settings.database_pool_timeout}秒\n"
+                f"   ├─ 回收: {settings.database_pool_recycle}秒\n"
+                f"   ├─ 策略: LIFO（提高复用率）\n"
+                f"   └─ 预估并发: 80-150用户"
+            )
         
-        return _engine_cache[user_id]
+        return _engine_cache[cache_key]
 
 
 async def get_db(request: Request):
@@ -410,7 +354,7 @@ async def get_database_stats():
             "engine_keys": list(_engine_cache.keys()),
         },
         "config": {
-            "database_type": "PostgreSQL" if "postgresql" in settings.database_url else "SQLite",
+            "database_type": "PostgreSQL",
             "pool_size": settings.database_pool_size,
             "max_overflow": settings.database_max_overflow,
             "total_connections": settings.database_pool_size + settings.database_max_overflow,
@@ -468,19 +412,14 @@ async def check_database_health(user_id: str = None) -> dict:
     
     try:
         # 检查引擎是否存在
+        cache_key = "shared_postgres"
         if user_id:
             engine = await get_engine(user_id)
-            cache_key = user_id
         else:
-            if "postgresql" in settings.database_url:
-                cache_key = "shared_postgres"
-                if cache_key not in _engine_cache:
-                    result["checks"]["engine"] = {"status": "not_initialized", "healthy": True}
-                    return result
-                engine = _engine_cache[cache_key]
-            else:
-                result["checks"]["engine"] = {"status": "skipped", "message": "需要提供user_id检查SQLite"}
+            if cache_key not in _engine_cache:
+                result["checks"]["engine"] = {"status": "not_initialized", "healthy": True}
                 return result
+            engine = _engine_cache[cache_key]
         
         # 测试数据库连接
         AsyncSessionLocal = async_sessionmaker(

@@ -13,15 +13,11 @@ DATA_DIR.mkdir(exist_ok=True)
 # 配置模块使用标准logging（在logger.py初始化之前）
 config_logger = logging.getLogger(__name__)
 
-# 数据库配置：支持PostgreSQL和SQLite
-# 优先使用环境变量DATABASE_URL，否则使用SQLite
-DB_FILE = DATA_DIR / "ai_story.db"
-DEFAULT_SQLITE_URL = f"sqlite+aiosqlite:///{str(DB_FILE.absolute()).replace(chr(92), '/')}"
+# 数据库配置：PostgreSQL
+# 从环境变量获取数据库URL
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://mumuai:password@localhost:5432/mumuai_novel")
 
-# 从环境变量获取数据库URL，如果未设置则使用SQLite
-DATABASE_URL = os.getenv("DATABASE_URL", DEFAULT_SQLITE_URL)
-
-config_logger.debug(f"数据库类型: {'PostgreSQL' if 'postgresql' in DATABASE_URL else 'SQLite'}")
+config_logger.debug(f"数据库类型: PostgreSQL")
 config_logger.debug(f"数据库URL: {DATABASE_URL}")
 
 class Settings(BaseSettings):
@@ -44,7 +40,7 @@ class Settings(BaseSettings):
     # CORS配置
     cors_origins: list[str] = ["http://localhost:8000", "http://127.0.0.1:8000"]
     
-    # 数据库配置 - 支持PostgreSQL和SQLite
+    # 数据库配置 - PostgreSQL
     database_url: str = DATABASE_URL
     
     # PostgreSQL连接池配置（优化后支持80-150并发用户）
@@ -58,11 +54,6 @@ class Settings(BaseSettings):
     # 会话监控配置
     database_session_max_active: int = 50  # 活跃会话警告阈值（从100降低到50）
     database_session_leak_threshold: int = 100  # 会话泄漏严重告警阈值
-    
-    # SQLite优化配置
-    sqlite_cache_size_mb: int = 128  # SQLite缓存大小MB（从64提升到128）
-    sqlite_mmap_size_mb: int = 256  # 内存映射I/O大小MB
-    sqlite_wal_autocheckpoint: int = 1000  # WAL自动检查点间隔
     
     # 数据库监控配置
     database_enable_slow_query_log: bool = True  # 启用慢查询日志
@@ -110,6 +101,7 @@ class Settings(BaseSettings):
     class Config:
         env_file = ".env"
         case_sensitive = False
+        extra = "ignore"  # 忽略未定义的环境变量，避免验证错误
 
 
 # 创建全局配置实例

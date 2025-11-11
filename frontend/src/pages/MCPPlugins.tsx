@@ -600,6 +600,7 @@ export default function MCPPluginsPage() {
       <Modal
         title={editingPlugin ? '编辑插件' : '添加插件'}
         open={modalVisible}
+        centered
         onCancel={() => {
           setModalVisible(false);
           form.resetFields();

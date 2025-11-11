@@ -123,9 +123,22 @@ export const authApi = {
   localLogin: (username: string, password: string) =>
     api.post<unknown, { success: boolean; message: string; user: User }>('/auth/local/login', { username, password }),
   
+  bindAccountLogin: (username: string, password: string) =>
+    api.post<unknown, { success: boolean; message: string; user: User }>('/auth/bind/login', { username, password }),
+  
   getLinuxDOAuthUrl: () => api.get<unknown, AuthUrlResponse>('/auth/linuxdo/url'),
   
   getCurrentUser: () => api.get<unknown, User>('/auth/user'),
+  
+  getPasswordStatus: () => api.get<unknown, {
+    has_password: boolean;
+    has_custom_password: boolean;
+    username: string | null;
+    default_password: string | null;
+  }>('/auth/password/status'),
+  
+  setPassword: (password: string) =>
+    api.post<unknown, { success: boolean; message: string }>('/auth/password/set', { password }),
   
   refreshSession: () => api.post<unknown, { message: string; expire_at: number; remaining_minutes: number }>('/auth/refresh'),
   
@@ -306,6 +319,23 @@ export const chapterApi = {
   
   checkCanGenerate: (chapterId: string) =>
     api.get<unknown, import('../types').ChapterCanGenerateResponse>(`/chapters/${chapterId}/can-generate`),
+  
+  // 章节重新生成相关
+  getRegenerationTasks: (chapterId: string, limit?: number) =>
+    api.get<unknown, {
+      chapter_id: string;
+      total: number;
+      tasks: Array<{
+        task_id: string;
+        status: string;
+        version_number: number | null;
+        version_note: string | null;
+        original_word_count: number | null;
+        regenerated_word_count: number | null;
+        created_at: string | null;
+        completed_at: string | null;
+      }>;
+    }>(`/chapters/${chapterId}/regeneration/tasks`, { params: { limit } }),
 };
 
 export const writingStyleApi = {

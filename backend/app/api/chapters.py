@@ -1,6 +1,5 @@
 """章节管理API"""
 from fastapi import APIRouter, Depends, HTTPException, Request, Query, BackgroundTasks
-from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 import json
@@ -19,6 +18,7 @@ from app.models.writing_style import WritingStyle
 from app.models.analysis_task import AnalysisTask
 from app.models.memory import PlotAnalysis, StoryMemory
 from app.models.batch_generation_task import BatchGenerationTask
+from app.models.regeneration_task import RegenerationTask
 from app.schemas.chapter import (
     ChapterCreate,
     ChapterUpdate,
@@ -29,12 +29,19 @@ from app.schemas.chapter import (
     BatchGenerateResponse,
     BatchGenerateStatusResponse
 )
+from app.schemas.regeneration import (
+    ChapterRegenerateRequest,
+    RegenerationTaskResponse,
+    RegenerationTaskStatus
+)
 from app.services.ai_service import AIService
 from app.services.prompt_service import prompt_service
 from app.services.plot_analyzer import PlotAnalyzer
 from app.services.memory_service import memory_service
+from app.services.chapter_regenerator import ChapterRegenerator
 from app.logger import get_logger
 from app.api.settings import get_user_ai_service
+from app.utils.sse_response import create_sse_response
 
 router = APIRouter(prefix="/chapters", tags=["章节管理"])
 logger = get_logger(__name__)
@@ -1284,15 +1291,7 @@ async def generate_chapter_content_stream(
                     except:
                         pass
     
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "X-Accel-Buffering": "no"
-        }
-    )
+    return create_sse_response(event_generator())
 
 
 @router.get("/{chapter_id}/analysis/status", summary="查询章节分析任务状态")
@@ -2293,3 +2292,290 @@ async def generate_single_chapter_for_batch(
         await db_session.refresh(chapter)
     
     logger.info(f"✅ 单章节生成完成: 第{chapter.chapter_number}章，共 {new_word_count} 字")
+
+
+
+
+# ==================== 章节重新生成相关API ====================
+
+@router.post("/{chapter_id}/regenerate-stream", summary="流式重新生成章节内容")
+async def regenerate_chapter_stream(
+    chapter_id: str,
+    request: Request,
+    regenerate_request: ChapterRegenerateRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    user_ai_service: AIService = Depends(get_user_ai_service)
+):
+    """
+    根据分析建议或自定义指令重新生成章节内容（流式返回）
+    
+    工作流程：
+    1. 验证章节和分析结果
+    2. 创建重新生成任务
+    3. 构建修改指令
+    4. 流式生成新内容
+    5. 保存为版本历史
+    6. 可选自动应用
+    """
+    user_id = getattr(request.state, 'user_id', None)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="未登录")
+    
+    # 验证章节存在
+    chapter_result = await db.execute(
+        select(Chapter).where(Chapter.id == chapter_id)
+    )
+    chapter = chapter_result.scalar_one_or_none()
+    
+    if not chapter:
+        raise HTTPException(status_code=404, detail="章节不存在")
+    
+    if not chapter.content or chapter.content.strip() == "":
+        raise HTTPException(status_code=400, detail="章节内容为空，无法重新生成")
+    
+    # 验证用户权限
+    await verify_project_access(chapter.project_id, user_id, db)
+    
+    # 获取分析结果（如果使用分析建议）
+    analysis = None
+    if regenerate_request.modification_source in ['analysis_suggestions', 'mixed']:
+        analysis_result = await db.execute(
+            select(PlotAnalysis)
+            .where(PlotAnalysis.chapter_id == chapter_id)
+            .order_by(PlotAnalysis.created_at.desc())
+            .limit(1)
+        )
+        analysis = analysis_result.scalar_one_or_none()
+        
+        if not analysis:
+            raise HTTPException(status_code=404, detail="该章节暂无分析结果")
+    
+    # 预先获取项目上下文数据
+    async for temp_db in get_db(request):
+        try:
+            # 获取项目信息
+            project_result = await temp_db.execute(
+                select(Project).where(Project.id == chapter.project_id)
+            )
+            project = project_result.scalar_one_or_none()
+            
+            # 获取角色信息
+            characters_result = await temp_db.execute(
+                select(Character).where(Character.project_id == chapter.project_id)
+            )
+            characters = characters_result.scalars().all()
+            
+            # 获取章节大纲
+            outline_result = await temp_db.execute(
+                select(Outline)
+                .where(Outline.project_id == chapter.project_id)
+                .where(Outline.order_index == chapter.chapter_number)
+            )
+            outline = outline_result.scalar_one_or_none()
+            
+            # 构建项目上下文
+            project_context = {
+                'project_title': project.title if project else '未知',
+                'genre': project.genre if project else '未设定',
+                'theme': project.theme if project else '未设定',
+                'narrative_perspective': project.narrative_perspective if project else '第三人称',
+                'time_period': project.world_time_period if project else '未设定',
+                'location': project.world_location if project else '未设定',
+                'atmosphere': project.world_atmosphere if project else '未设定',
+                'characters_info': "\n".join([
+                    f"- {c.name}({'组织' if c.is_organization else '角色'}, {c.role_type}): {c.personality[:100] if c.personality else ''}"
+                    for c in characters
+                ]) if characters else '暂无角色信息',
+                'chapter_outline': outline.content if outline else chapter.summary or '暂无大纲',
+                'previous_context': ''  # 可以后续扩展添加前置章节上下文
+            }
+        finally:
+            await temp_db.close()
+        break
+    
+    async def event_generator():
+        """流式生成事件生成器"""
+        db_session = None
+        db_committed = False
+        
+        try:
+            # 创建独立数据库会话
+            async for db_session in get_db(request):
+                # 发送开始事件
+                yield f"data: {json.dumps({'type': 'start', 'message': '开始重新生成章节...'}, ensure_ascii=False)}\n\n"
+                
+                # 创建重新生成任务
+                regen_task = RegenerationTask(
+                    chapter_id=chapter_id,
+                    analysis_id=analysis.id if analysis else None,
+                    user_id=user_id,
+                    project_id=chapter.project_id,
+                    modification_instructions="",  # 稍后填充
+                    original_suggestions=analysis.suggestions if analysis else None,
+                    selected_suggestion_indices=regenerate_request.selected_suggestion_indices,
+                    custom_instructions=regenerate_request.custom_instructions,
+                    style_id=regenerate_request.style_id,
+                    target_word_count=regenerate_request.target_word_count,
+                    focus_areas=regenerate_request.focus_areas,
+                    preserve_elements=regenerate_request.preserve_elements.model_dump() if regenerate_request.preserve_elements else None,
+                    status='running',
+                    original_content=chapter.content,
+                    original_word_count=chapter.word_count or len(chapter.content),
+                    version_note=regenerate_request.version_note,
+                    started_at=datetime.now()
+                )
+                db_session.add(regen_task)
+                await db_session.commit()
+                await db_session.refresh(regen_task)
+                
+                task_id = regen_task.id
+                logger.info(f"📝 创建重新生成任务: {task_id}")
+                
+                yield f"data: {json.dumps({'type': 'task_created', 'task_id': task_id}, ensure_ascii=False)}\n\n"
+                
+                # 初始化重新生成器
+                regenerator = ChapterRegenerator(user_ai_service)
+                
+                # 流式生成新内容
+                full_content = ""
+                async for event in regenerator.regenerate_with_feedback(
+                    chapter=chapter,
+                    analysis=analysis,
+                    regenerate_request=regenerate_request,
+                    project_context=project_context
+                ):
+                    # 处理不同类型的事件
+                    if event['type'] == 'chunk':
+                        # 内容块
+                        chunk = event['content']
+                        full_content += chunk
+                        yield f"data: {json.dumps({'type': 'chunk', 'content': chunk}, ensure_ascii=False)}\n\n"
+                    elif event['type'] == 'progress':
+                        # 进度更新
+                        progress_data = {
+                            'type': 'progress',
+                            'progress': event.get('progress', 0),
+                            'message': event.get('message', ''),
+                            'word_count': event.get('word_count', 0)
+                        }
+                        yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
+                    
+                    await asyncio.sleep(0)
+                
+                # 更新任务状态
+                regen_task.status = 'completed'
+                regen_task.regenerated_content = full_content
+                regen_task.regenerated_word_count = len(full_content)
+                regen_task.completed_at = datetime.now()
+                
+                # 计算差异统计
+                diff_stats = regenerator.calculate_content_diff(chapter.content, full_content)
+                
+                await db_session.commit()
+                db_committed = True
+                
+                # 先发送结果数据
+                result_data = {
+                    'type': 'result',
+                    'data': {
+                        'task_id': task_id,
+                        'word_count': len(full_content),
+                        'version_number': regen_task.version_number,
+                        'auto_applied': regenerate_request.auto_apply,
+                        'diff_stats': diff_stats
+                    }
+                }
+                yield f"data: {json.dumps(result_data, ensure_ascii=False)}\n\n"
+                
+                # 再发送完成事件
+                completion_data = {
+                    'type': 'done',
+                    'message': '重新生成完成'
+                }
+                yield f"data: {json.dumps(completion_data, ensure_ascii=False)}\n\n"
+                
+                logger.info(f"✅ 章节重新生成完成: {chapter_id}, 任务: {task_id}")
+                
+                break
+        
+        except Exception as e:
+            logger.error(f"❌ 重新生成失败: {str(e)}", exc_info=True)
+            
+            # 更新任务状态为失败
+            if db_session and not db_committed:
+                try:
+                    task_result = await db_session.execute(
+                        select(RegenerationTask).where(RegenerationTask.chapter_id == chapter_id)
+                        .order_by(RegenerationTask.created_at.desc()).limit(1)
+                    )
+                    task = task_result.scalar_one_or_none()
+                    if task:
+                        task.status = 'failed'
+                        task.error_message = str(e)[:500]
+                        task.completed_at = datetime.now()
+                        await db_session.commit()
+                except Exception as update_error:
+                    logger.error(f"更新任务失败状态失败: {str(update_error)}")
+            
+            yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+        
+        finally:
+            if db_session:
+                try:
+                    if not db_committed and db_session.in_transaction():
+                        await db_session.rollback()
+                    await db_session.close()
+                except Exception as close_error:
+                    logger.error(f"关闭数据库会话失败: {str(close_error)}")
+    
+    return create_sse_response(event_generator())
+
+
+@router.get("/{chapter_id}/regeneration/tasks", summary="获取章节的重新生成任务列表")
+async def get_regeneration_tasks(
+    chapter_id: str,
+    request: Request,
+    limit: int = Query(10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db)
+):
+    """获取指定章节的重新生成任务历史"""
+    user_id = getattr(request.state, 'user_id', None)
+    
+    # 验证章节存在和权限
+    chapter_result = await db.execute(
+        select(Chapter).where(Chapter.id == chapter_id)
+    )
+    chapter = chapter_result.scalar_one_or_none()
+    if not chapter:
+        raise HTTPException(status_code=404, detail="章节不存在")
+    
+    await verify_project_access(chapter.project_id, user_id, db)
+    
+    # 获取任务列表
+    result = await db.execute(
+        select(RegenerationTask)
+        .where(RegenerationTask.chapter_id == chapter_id)
+        .order_by(RegenerationTask.created_at.desc())
+        .limit(limit)
+    )
+    tasks = result.scalars().all()
+    
+    return {
+        "chapter_id": chapter_id,
+        "total": len(tasks),
+        "tasks": [
+            {
+                "task_id": task.id,
+                "status": task.status,
+                "version_number": task.version_number,
+                "version_note": task.version_note,
+                "original_word_count": task.original_word_count,
+                "regenerated_word_count": task.regenerated_word_count,
+                "created_at": task.created_at.isoformat() if task.created_at else None,
+                "completed_at": task.completed_at.isoformat() if task.completed_at else None
+            }
+            for task in tasks
+        ]
+    }
+
