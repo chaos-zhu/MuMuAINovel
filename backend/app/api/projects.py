@@ -366,7 +366,11 @@ async def export_project_chapters(
             txt_content.append("\n\n" + "=" * 80 + "\n\n")
         
         txt_content.append(f"--- 全文完 ---")
-        txt_content.append(f"\n导出时间: {func.now()}")
+        
+        # 获取当前时间
+        from datetime import datetime
+        export_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        txt_content.append(f"\n导出时间: {export_time}")
         
         final_content = "\n".join(txt_content)
         
@@ -671,6 +675,7 @@ async def validate_import_file(
 @router.post("/import", response_model=ImportResult, summary="导入项目")
 async def import_project(
     file: UploadFile = File(...),
+    request: Request = None,
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -683,7 +688,13 @@ async def import_project(
         导入结果
     """
     try:
-        logger.info(f"开始导入项目: {file.filename}")
+        # 从认证中间件获取用户ID
+        user_id = getattr(request.state, 'user_id', None)
+        if not user_id:
+            logger.warning("未登录用户尝试导入项目")
+            raise HTTPException(status_code=401, detail="未登录")
+        
+        logger.info(f"开始导入项目: {file.filename}, user_id={user_id}")
         
         # 检查文件类型
         if not file.filename.endswith('.json'):
@@ -703,8 +714,8 @@ async def import_project(
         except json.JSONDecodeError as e:
             raise HTTPException(status_code=400, detail=f"无效的JSON格式: {str(e)}")
         
-        # 导入数据
-        import_result = await ImportExportService.import_project(data, db)
+        # 导入数据（传入user_id）
+        import_result = await ImportExportService.import_project(data, db, user_id)
         
         if import_result.success:
             logger.info(f"项目导入成功: {import_result.project_id}")

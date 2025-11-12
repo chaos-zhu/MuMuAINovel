@@ -55,35 +55,65 @@
 git clone https://github.com/xiamuceer-j/MuMuAINovel.git
 cd MuMuAINovel
 
-# 2. 配置环境变量
+# 2. 配置环境变量（必需）
 cp backend/.env.example .env
-# 编辑 .env 文件，填入必要配置
+# 编辑 .env 文件，填入必要配置（API Key、数据库密码等）
+
+# 3. 确保文件准备完整
+# ⚠️ 重要：确保以下文件存在
+# - .env（配置文件，必需挂载到容器）
+# - backend/scripts/init_postgres.sql（数据库初始化脚本）
+
+# 4. 启动服务
+docker-compose up -d
+
+# 5. 访问应用
+# 打开浏览器访问 http://localhost:8000
+```
+
+> **📌 注意事项**
+>
+> 1. **`.env` 文件挂载**: `docker-compose.yml` 会自动将 `.env` 挂载到容器，确保文件存在
+> 2. **数据库初始化**: `init_postgres.sql` 会在首次启动时自动执行，安装必要的PostgreSQL扩展
+> 3. **自行构建**: 如需从源码构建，请先下载 embedding 模型文件（[加群获取](https://linux.do/t/topic/1100112)）
+
+### 使用 Docker Hub 镜像（推荐新手）
+
+```bash
+# 1. 拉取最新镜像（已包含模型文件）
+docker pull mumujie/mumuainovel:latest
+
+# 2. 配置 .env 文件
+cp backend/.env.example .env
+# 编辑 .env 填入配置
 
 # 3. 启动服务
 docker-compose up -d
 
-# 4. 访问应用
-# 打开浏览器访问 http://localhost:8000
-```
-
-### 使用 Docker Hub 镜像
-
-```bash
-# 拉取最新镜像
-docker pull mumujie/mumuainovel:latest
-
-# 使用 docker-compose.yml 启动
-docker-compose up -d
-
-# 查看日志
+# 4. 查看日志
 docker-compose logs -f
 
-# 更新到最新版本
+# 5. 更新到最新版本
 docker-compose pull
 docker-compose up -d
 ```
 
-### 本地开发
+> **💡 提示**: Docker Hub 镜像已包含所有依赖和模型文件，无需额外下载
+
+### 本地开发 / 从源码构建
+
+#### 前置准备
+
+```bash
+# ⚠️ 重要：如果从源码构建，需要先下载 embedding 模型文件
+# 模型文件较大（约 400MB），需放置到以下目录：
+# backend/embedding/models--sentence-transformers--paraphrase-multilingual-MiniLM-L12-v2/
+#
+# 📥 获取方式：
+# - 加入项目 QQ 群或 Linux DO 讨论区获取下载链接
+# - 群号：见项目主页
+# - Linux DO：https://linux.do/t/topic/1100112
+```
 
 #### 后端
 
@@ -95,6 +125,14 @@ pip install -r requirements.txt
 
 # 配置 .env 文件
 cp .env.example .env
+# 编辑 .env 填入必要配置
+
+# 启动 PostgreSQL（可使用 Docker）
+docker run -d --name postgres \
+  -e POSTGRES_PASSWORD=your_password \
+  -e POSTGRES_DB=mumuai_novel \
+  -p 5432:5432 \
+  postgres:18-alpine
 
 # 启动后端
 python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
@@ -170,13 +208,27 @@ OPENAI_BASE_URL=https://your-proxy-service.com/v1
 
 - **postgres**: PostgreSQL 18 数据库
   - 端口: 5432
-  - 数据持久化: `./postgres_data`
+  - 数据持久化: `postgres_data` volume
+  - 初始化脚本: `backend/scripts/init_postgres.sql`（自动挂载）
   - 优化配置: 支持 80-150 并发用户
 
 - **mumuainovel**: 主应用服务
   - 端口: 8000
   - 日志目录: `./logs`
+  - 配置挂载: `.env` 文件
   - 自动等待数据库就绪
+  - 健康检查: 每 30 秒检测一次
+
+### 重要文件说明
+
+| 文件 | 说明 | 是否必需 |
+|------|------|---------|
+| `.env` | 环境配置（API Key、数据库密码等） | ✅ 必需 |
+| `docker-compose.yml` | 服务编排配置 | ✅ 必需 |
+| `backend/scripts/init_postgres.sql` | PostgreSQL 扩展安装脚本 | ✅ 自动挂载 |
+| `backend/embedding/models--*/` | Embedding 模型文件 | ⚠️ 自建需要 |
+
+> **注意**: 使用 Docker Hub 镜像时，模型文件已包含在镜像中，无需额外下载
 
 ### 常用命令
 
