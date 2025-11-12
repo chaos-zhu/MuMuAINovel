@@ -156,6 +156,14 @@ export const userApi = {
   deleteUser: (userId: string) => api.delete(`/users/${userId}`),
   
   getUser: (userId: string) => api.get<unknown, User>(`/users/${userId}`),
+  
+  resetPassword: (userId: string, newPassword?: string) =>
+    api.post<unknown, {
+      message: string;
+      user_id: string;
+      username: string;
+      default_password?: string;
+    }>('/users/reset-password', { user_id: userId, new_password: newPassword }),
 };
 
 export const settingsApi = {

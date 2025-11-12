@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Dropdown, Avatar, Space, Typography, message, Modal, Table, Button, Tag, Popconfirm, Pagination, Form, Input } from 'antd';
-import { UserOutlined, LogoutOutlined, TeamOutlined, CrownOutlined, LockOutlined } from '@ant-design/icons';
+import { UserOutlined, LogoutOutlined, TeamOutlined, CrownOutlined, LockOutlined, KeyOutlined } from '@ant-design/icons';
 import { authApi, userApi } from '../services/api';
 import type { User } from '../types';
 import type { MenuProps } from 'antd';
@@ -85,6 +85,55 @@ export default function UserMenu() {
       console.error('删除用户失败:', error);
       message.error('删除用户失败');
     }
+  };
+
+  const handleResetPassword = async (userId: string, username: string) => {
+    Modal.confirm({
+      title: '重置用户密码',
+      content: (
+        <div>
+          <p>确定要重置用户 <strong>{username}</strong> 的密码吗？</p>
+          <p style={{ color: '#8c8c8c', fontSize: 12 }}>密码将被重置为默认密码：<strong>{username}@666</strong></p>
+        </div>
+      ),
+      okText: '确定重置',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const result = await userApi.resetPassword(userId);
+          if (result.default_password) {
+            Modal.success({
+              title: '密码重置成功',
+              content: (
+                <div>
+                  <p>用户 <strong>{result.username}</strong> 的密码已重置为：</p>
+                  <p style={{
+                    padding: '8px 12px',
+                    background: '#f5f5f5',
+                    borderRadius: 4,
+                    fontSize: 16,
+                    fontFamily: 'monospace',
+                    color: '#1890ff',
+                    fontWeight: 'bold'
+                  }}>
+                    {result.default_password}
+                  </p>
+                  <p style={{ color: '#ff4d4f', fontSize: 12, marginTop: 8 }}>
+                    请将此密码告知用户，建议用户登录后立即修改密码
+                  </p>
+                </div>
+              ),
+            });
+          } else {
+            message.success('密码重置成功');
+          }
+          loadUsers();
+        } catch (error: any) {
+          console.error('重置密码失败:', error);
+          message.error(error.response?.data?.detail || '重置密码失败');
+        }
+      },
+    });
   };
 
   const handleChangePassword = async (values: { oldPassword: string; newPassword: string }) => {
@@ -186,11 +235,11 @@ export default function UserMenu() {
     {
       title: '操作',
       key: 'actions',
-      width: 200,
+      width: 280,
       render: (_: unknown, record: User) => {
         const isSelf = record.user_id === currentUser?.user_id;
         return (
-          <Space>
+          <Space size="small">
             {record.is_admin ? (
               <Popconfirm
                 title="确定要取消管理员权限吗？"
@@ -210,6 +259,15 @@ export default function UserMenu() {
                 设为管理员
               </Button>
             )}
+            <Button
+              size="small"
+              icon={<KeyOutlined />}
+              onClick={() => handleResetPassword(record.user_id, record.username)}
+              disabled={isSelf}
+              title={isSelf ? '不能重置自己的密码' : '重置为默认密码'}
+            >
+              重置密码
+            </Button>
             <Popconfirm
               title="确定要删除该用户吗？此操作不可恢复！"
               onConfirm={() => handleDeleteUser(record.user_id)}
