@@ -554,6 +554,12 @@ export default function MCPPluginsPage() {
                           checked={plugin.enabled}
                           onChange={(checked) => handleToggle(plugin, checked)}
                           size={isMobile ? 'small' : 'default'}
+                          style={{
+                            flexShrink: 0,
+                            height: isMobile ? 16 : 22,
+                            minHeight: isMobile ? 16 : 22,
+                            lineHeight: isMobile ? '16px' : '22px'
+                          }}
                         />
                       </Tooltip>
                       <Tooltip title="测试连接">

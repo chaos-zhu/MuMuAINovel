@@ -248,7 +248,7 @@ class PromptService:
 2. **关系约束**：relationships_array只能引用本批次中已经出现的角色名称
 3. **组织约束**：organization_memberships只能引用本批次中is_organization=true的实体名称
 4. **禁止幻觉**：不要引用任何不存在的角色或组织，如果没有可引用的就留空数组[]
-5. intimacy_level和loyalty都是0-100的整数
+5. intimacy_level是-100到100的整数（负值表示敌对仇恨关系），loyalty是0-100的整数
 6. 角色之间要形成合理的关系网络
 
 **示例说明**：
@@ -682,7 +682,7 @@ class PromptService:
 **重要说明：**
 1. relationships数组：只包含与上面列出的已存在角色的关系，通过target_character_name匹配
 2. organization_memberships数组：只包含与上面列出的已存在组织的关系
-3. intimacy_level和loyalty都是0-100的整数
+3. intimacy_level是-100到100的整数（负值表示敌对、仇恨等关系），loyalty是0-100的整数
 4. 如果没有关系或组织，对应数组为空[]
 5. relationships_text是自然语言描述，用于展示给用户看
 

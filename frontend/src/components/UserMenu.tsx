@@ -1,20 +1,17 @@
 import { useState, useEffect } from 'react';
-import { Dropdown, Avatar, Space, Typography, message, Modal, Table, Button, Tag, Popconfirm, Pagination, Form, Input } from 'antd';
-import { UserOutlined, LogoutOutlined, TeamOutlined, CrownOutlined, LockOutlined, KeyOutlined } from '@ant-design/icons';
-import { authApi, userApi } from '../services/api';
+import { Dropdown, Avatar, Space, Typography, message, Modal, Form, Input, Button } from 'antd';
+import { UserOutlined, LogoutOutlined, TeamOutlined, CrownOutlined, LockOutlined } from '@ant-design/icons';
+import { authApi } from '../services/api';
 import type { User } from '../types';
 import type { MenuProps } from 'antd';
+import { useNavigate } from 'react-router-dom';
 
 const { Text } = Typography;
 
 export default function UserMenu() {
+  const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [showUserManagement, setShowUserManagement] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
-  const [users, setUsers] = useState<User[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
   const [changePasswordForm] = Form.useForm();
   const [changingPassword, setChangingPassword] = useState(false);
 
@@ -42,98 +39,12 @@ export default function UserMenu() {
     }
   };
 
-  const handleShowUserManagement = async () => {
+  const handleShowUserManagement = () => {
     if (!currentUser?.is_admin) {
       message.warning('只有管理员可以访问用户管理');
       return;
     }
-
-    setShowUserManagement(true);
-    loadUsers();
-  };
-
-  const loadUsers = async () => {
-    try {
-      setLoading(true);
-      const userList = await userApi.listUsers();
-      setUsers(userList);
-    } catch (error) {
-      console.error('获取用户列表失败:', error);
-      message.error('获取用户列表失败');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSetAdmin = async (userId: string, isAdmin: boolean) => {
-    try {
-      await userApi.setAdmin(userId, isAdmin);
-      message.success(isAdmin ? '已设置为管理员' : '已取消管理员权限');
-      loadUsers();
-    } catch (error) {
-      console.error('设置管理员失败:', error);
-      message.error('设置管理员失败');
-    }
-  };
-
-  const handleDeleteUser = async (userId: string) => {
-    try {
-      await userApi.deleteUser(userId);
-      message.success('用户已删除');
-      loadUsers();
-    } catch (error) {
-      console.error('删除用户失败:', error);
-      message.error('删除用户失败');
-    }
-  };
-
-  const handleResetPassword = async (userId: string, username: string) => {
-    Modal.confirm({
-      title: '重置用户密码',
-      content: (
-        <div>
-          <p>确定要重置用户 <strong>{username}</strong> 的密码吗？</p>
-          <p style={{ color: '#8c8c8c', fontSize: 12 }}>密码将被重置为默认密码：<strong>{username}@666</strong></p>
-        </div>
-      ),
-      okText: '确定重置',
-      cancelText: '取消',
-      onOk: async () => {
-        try {
-          const result = await userApi.resetPassword(userId);
-          if (result.default_password) {
-            Modal.success({
-              title: '密码重置成功',
-              content: (
-                <div>
-                  <p>用户 <strong>{result.username}</strong> 的密码已重置为：</p>
-                  <p style={{
-                    padding: '8px 12px',
-                    background: '#f5f5f5',
-                    borderRadius: 4,
-                    fontSize: 16,
-                    fontFamily: 'monospace',
-                    color: '#1890ff',
-                    fontWeight: 'bold'
-                  }}>
-                    {result.default_password}
-                  </p>
-                  <p style={{ color: '#ff4d4f', fontSize: 12, marginTop: 8 }}>
-                    请将此密码告知用户，建议用户登录后立即修改密码
-                  </p>
-                </div>
-              ),
-            });
-          } else {
-            message.success('密码重置成功');
-          }
-          loadUsers();
-        } catch (error: any) {
-          console.error('重置密码失败:', error);
-          message.error(error.response?.data?.detail || '重置密码失败');
-        }
-      },
-    });
+    navigate('/user-management');
   };
 
   const handleChangePassword = async (values: { oldPassword: string; newPassword: string }) => {
@@ -169,14 +80,17 @@ export default function UserMenu() {
     {
       type: 'divider',
     },
-    ...(currentUser?.is_admin ? [{
-      key: 'user-management',
-      icon: <TeamOutlined />,
-      label: '用户管理',
-      onClick: handleShowUserManagement,
-    }, {
-      type: 'divider' as const,
-    }] : []),
+    ...(currentUser?.is_admin ? [
+      {
+        key: 'user-management',
+        icon: <TeamOutlined />,
+        label: '用户管理',
+        onClick: handleShowUserManagement,
+      },
+      {
+        type: 'divider' as const,
+      }
+    ] : []),
     {
       key: 'change-password',
       icon: <LockOutlined />,
@@ -191,95 +105,6 @@ export default function UserMenu() {
       icon: <LogoutOutlined />,
       label: '退出登录',
       onClick: handleLogout,
-    },
-  ];
-
-  const columns = [
-    {
-      title: '用户名',
-      dataIndex: 'username',
-      key: 'username',
-      render: (text: string, record: User) => (
-        <Space>
-          <Avatar src={record.avatar_url} icon={<UserOutlined />} size="small" />
-          <div>
-            <div>{record.display_name || text}</div>
-            <Text type="secondary" style={{ fontSize: 12 }}>{text}</Text>
-          </div>
-        </Space>
-      ),
-    },
-    {
-      title: 'Trust Level',
-      dataIndex: 'trust_level',
-      key: 'trust_level',
-      width: 120,
-      render: (level: number) => <Tag color="blue">{level}</Tag>,
-    },
-    {
-      title: '角色',
-      dataIndex: 'is_admin',
-      key: 'is_admin',
-      width: 100,
-      render: (isAdmin: boolean) => (
-        isAdmin ? <Tag color="gold" icon={<CrownOutlined />}>管理员</Tag> : <Tag>普通用户</Tag>
-      ),
-    },
-    {
-      title: '最后登录',
-      dataIndex: 'last_login',
-      key: 'last_login',
-      width: 180,
-      render: (date: string) => new Date(date).toLocaleString('zh-CN'),
-    },
-    {
-      title: '操作',
-      key: 'actions',
-      width: 280,
-      render: (_: unknown, record: User) => {
-        const isSelf = record.user_id === currentUser?.user_id;
-        return (
-          <Space size="small">
-            {record.is_admin ? (
-              <Popconfirm
-                title="确定要取消管理员权限吗？"
-                onConfirm={() => handleSetAdmin(record.user_id, false)}
-                disabled={isSelf}
-              >
-                <Button size="small" disabled={isSelf}>
-                  取消管理员
-                </Button>
-              </Popconfirm>
-            ) : (
-              <Button
-                size="small"
-                type="primary"
-                onClick={() => handleSetAdmin(record.user_id, true)}
-              >
-                设为管理员
-              </Button>
-            )}
-            <Button
-              size="small"
-              icon={<KeyOutlined />}
-              onClick={() => handleResetPassword(record.user_id, record.username)}
-              disabled={isSelf}
-              title={isSelf ? '不能重置自己的密码' : '重置为默认密码'}
-            >
-              重置密码
-            </Button>
-            <Popconfirm
-              title="确定要删除该用户吗？此操作不可恢复！"
-              onConfirm={() => handleDeleteUser(record.user_id)}
-              disabled={isSelf}
-            >
-              <Button size="small" danger disabled={isSelf}>
-                删除
-              </Button>
-            </Popconfirm>
-          </Space>
-        );
-      },
     },
   ];
 
@@ -364,68 +189,6 @@ export default function UserMenu() {
           </Space>
         </div>
       </Dropdown>
-
-      <Modal
-        title="用户管理"
-        open={showUserManagement}
-        onCancel={() => setShowUserManagement(false)}
-        footer={null}
-        width={900}
-        centered
-        styles={{
-          body: {
-            padding: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            height: 'calc(100vh - 380px)',
-          }
-        }}
-      >
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          height: '100%',
-        }}>
-          <div style={{
-            flex: 1,
-            overflow: 'hidden',
-            padding: '0 12px',
-            display: 'flex',
-            flexDirection: 'column',
-          }}>
-            <Table
-              columns={columns}
-              dataSource={users.slice((currentPage - 1) * pageSize, currentPage * pageSize)}
-              rowKey="user_id"
-              loading={loading}
-              pagination={false}
-              scroll={{ x: 800, y: 'calc(100vh - 520px)' }}
-              sticky
-            />
-          </div>
-          <div style={{
-            padding: '16px 24px',
-            borderTop: '1px solid #f0f0f0',
-            background: '#fff',
-            display: 'flex',
-            justifyContent: 'center',
-            flexShrink: 0,
-          }}>
-            <Pagination
-              current={currentPage}
-              pageSize={pageSize}
-              total={users.length}
-              showSizeChanger
-              showTotal={(total) => `共 ${total} 个用户`}
-              pageSizeOptions={['10', '20', '50', '100']}
-              onChange={(page, newPageSize) => {
-                setCurrentPage(page);
-                setPageSize(newPageSize);
-              }}
-            />
-          </div>
-        </div>
-      </Modal>
 
       <Modal
         title="修改密码"

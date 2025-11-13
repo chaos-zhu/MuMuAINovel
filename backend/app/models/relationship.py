@@ -38,7 +38,7 @@ class CharacterRelationship(Base):
     relationship_name = Column(String(100), comment="自定义关系名称")
     
     # 关系属性
-    intimacy_level = Column(Integer, default=50, comment="亲密度：0-100")
+    intimacy_level = Column(Integer, default=50, comment="亲密度：-100到100")
     status = Column(String(20), default="active", comment="状态：active/broken/past/complicated")
     description = Column(Text, comment="关系详细描述")
     

@@ -133,6 +133,7 @@ export default function Relationships() {
     if (level >= 75) return 'green';
     if (level >= 50) return 'blue';
     if (level >= 25) return 'orange';
+    if (level >= 0) return 'volcano';
     return 'red';
   };
 
@@ -417,9 +418,15 @@ export default function Relationships() {
             initialValue={50}
           >
             <Slider
-              min={0}
+              min={-100}
               max={100}
-              marks={{ 0: '0', 25: '25', 50: '50', 75: '75', 100: '100' }}
+              marks={{
+                '-100': '-100',
+                '-50': '-50',
+                0: '0',
+                50: '50',
+                100: '100'
+              }}
             />
           </Form.Item>
 

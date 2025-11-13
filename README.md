@@ -341,7 +341,7 @@ MuMuAINovel/
 ## 📧 联系方式
 
 - 提交 [Issue](https://github.com/xiamuceer-j/MuMuAINovel/issues)
-- Linux DO [讨论](https://linux.do/t/topic/1100112)
+- Linux DO [讨论](https://linux.do/t/topic/1106333)
 
 ---
 
