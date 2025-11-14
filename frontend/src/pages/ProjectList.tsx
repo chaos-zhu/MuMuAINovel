@@ -307,104 +307,120 @@ export default function ProjectList() {
             </Col>
             <Col xs={24} sm={12} md={14}>
               {window.innerWidth <= 768 ? (
-                // 移动端：按钮分两行显示
+                // 移动端：优化布局
                 <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                  <Space size={8} style={{ width: '100%' }}>
-                    <Button
-                      type="primary"
-                      size="middle"
-                      icon={<BulbOutlined />}
-                      onClick={() => navigate('/inspiration')}
-                      style={{
-                        flex: 1,
-                        borderRadius: 8,
-                        background: 'linear-gradient(135deg, #ffd700 0%, #ff8c00 100%)',
-                        border: 'none',
-                        boxShadow: '0 2px 8px rgba(255, 215, 0, 0.4)',
-                        color: '#fff'
-                      }}
-                    >
-                      灵感模式
-                    </Button>
-                    <Button
-                      type="primary"
-                      size="middle"
-                      icon={<RocketOutlined />}
-                      onClick={() => navigate('/wizard')}
-                      style={{
-                        flex: 1,
-                        borderRadius: 8,
-                        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                        border: 'none',
-                        boxShadow: '0 2px 8px rgba(102, 126, 234, 0.4)'
-                      }}
-                    >
-                      向导创建
-                    </Button>
-                    <Button
-                      type="default"
-                      size="middle"
-                      icon={<SettingOutlined />}
-                      onClick={() => navigate('/settings')}
-                      style={{
-                        flex: 1,
-                        borderRadius: 8,
-                        borderColor: '#d9d9d9',
-                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)'
-                      }}
-                    >
-                      API设置
-                    </Button>
-                    <UserMenu />
-                  </Space>
-                  <Space size={8} style={{ width: '100%' }}>
-                    <Button
-                      type="default"
-                      size="middle"
-                      icon={<DownloadOutlined />}
-                      onClick={handleOpenExportModal}
-                      disabled={exportableProjects.length === 0}
-                      style={{
-                        flex: 1,
-                        borderRadius: 8,
-                        borderColor: '#1890ff',
-                        color: '#1890ff',
-                        boxShadow: '0 2px 8px rgba(24, 144, 255, 0.2)'
-                      }}
-                    >
-                      导出
-                    </Button>
-                    <Button
-                      type="default"
-                      size="middle"
-                      icon={<UploadOutlined />}
-                      onClick={() => setImportModalVisible(true)}
-                      style={{
-                        flex: 1,
-                        borderRadius: 8,
-                        borderColor: '#52c41a',
-                        color: '#52c41a',
-                        boxShadow: '0 2px 8px rgba(82, 196, 26, 0.2)'
-                      }}
-                    >
-                      导入
-                    </Button>
-                    <Button
-                      type="default"
-                      size="middle"
-                      icon={<ApiOutlined />}
-                      onClick={() => navigate('/mcp-plugins')}
-                      style={{
-                        flex: 1,
-                        borderRadius: 8,
-                        borderColor: '#722ed1',
-                        color: '#722ed1',
-                        boxShadow: '0 2px 8px rgba(114, 46, 209, 0.2)'
-                      }}
-                    >
-                      MCP
-                    </Button>
-                  </Space>
+                  {/* 第一行：主要创建按钮 */}
+                  <Row gutter={8}>
+                    <Col span={12}>
+                      <Button
+                        type="primary"
+                        size="middle"
+                        icon={<BulbOutlined />}
+                        onClick={() => navigate('/inspiration')}
+                        block
+                        style={{
+                          borderRadius: 8,
+                          background: 'linear-gradient(135deg, #ffd700 0%, #ff8c00 100%)',
+                          border: 'none',
+                          boxShadow: '0 2px 8px rgba(255, 215, 0, 0.4)',
+                          color: '#fff',
+                          height: 40
+                        }}
+                      >
+                        灵感模式
+                      </Button>
+                    </Col>
+                    <Col span={12}>
+                      <Button
+                        type="primary"
+                        size="middle"
+                        icon={<RocketOutlined />}
+                        onClick={() => navigate('/wizard')}
+                        block
+                        style={{
+                          borderRadius: 8,
+                          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                          border: 'none',
+                          boxShadow: '0 2px 8px rgba(102, 126, 234, 0.4)',
+                          height: 40
+                        }}
+                      >
+                        向导创建
+                      </Button>
+                    </Col>
+                  </Row>
+                  {/* 第二行：功能按钮 */}
+                  <Row gutter={8}>
+                    <Col span={8}>
+                      <Button
+                        type="default"
+                        size="middle"
+                        icon={<SettingOutlined />}
+                        onClick={() => navigate('/settings')}
+                        block
+                        style={{
+                          borderRadius: 8,
+                          borderColor: '#d9d9d9',
+                          boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                          height: 36,
+                          padding: '0 8px'
+                        }}
+                      >
+                        设置
+                      </Button>
+                    </Col>
+                    <Col span={8}>
+                      <Dropdown
+                        menu={{
+                          items: [
+                            {
+                              key: 'export',
+                              label: '导出项目',
+                              icon: <DownloadOutlined />,
+                              onClick: handleOpenExportModal,
+                              disabled: exportableProjects.length === 0
+                            },
+                            {
+                              key: 'import',
+                              label: '导入项目',
+                              icon: <UploadOutlined />,
+                              onClick: () => setImportModalVisible(true)
+                            },
+                            {
+                              type: 'divider'
+                            },
+                            {
+                              key: 'mcp',
+                              label: 'MCP插件',
+                              icon: <ApiOutlined />,
+                              onClick: () => navigate('/mcp-plugins')
+                            }
+                          ]
+                        }}
+                        placement="bottomRight"
+                        trigger={['click']}
+                      >
+                        <Button
+                          size="middle"
+                          icon={<MoreOutlined />}
+                          block
+                          style={{
+                            borderRadius: 8,
+                            borderColor: '#d9d9d9',
+                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.08)',
+                            height: 36
+                          }}
+                        >
+                          更多
+                        </Button>
+                      </Dropdown>
+                    </Col>
+                    <Col span={8}>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                        <UserMenu />
+                      </div>
+                    </Col>
+                  </Row>
                 </Space>
               ) : (
                 // PC端：优化后的布局 - 主要按钮 + 下拉菜单

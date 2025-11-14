@@ -178,7 +178,7 @@ const Inspiration: React.FC = () => {
         setCurrentStep('title');
         setLastFailedRequest(null);
       } else {
-        handleCustomInput(userInput);
+        await handleCustomInput(userInput);
       }
     } catch (error: any) {
       console.error('发送消息失败:', error);
@@ -292,22 +292,30 @@ const Inspiration: React.FC = () => {
   };
 
   const handleCustomInput = async (input: string) => {
-    const updatedData = { ...wizardData };
-    
-    if (currentStep === 'title') {
-      updatedData.title = input;
-    } else if (currentStep === 'description') {
-      updatedData.description = input;
-    } else if (currentStep === 'theme') {
-      updatedData.theme = input;
-    } else if (currentStep === 'genre') {
-      updatedData.genre = [input];
-    } else if (currentStep === 'perspective') {
-      updatedData.narrative_perspective = input;
+    setLoading(true);
+    try {
+      const updatedData = { ...wizardData };
+      
+      if (currentStep === 'title') {
+        updatedData.title = input;
+      } else if (currentStep === 'description') {
+        updatedData.description = input;
+      } else if (currentStep === 'theme') {
+        updatedData.theme = input;
+      } else if (currentStep === 'genre') {
+        updatedData.genre = [input];
+      } else if (currentStep === 'perspective') {
+        updatedData.narrative_perspective = input;
+      }
+      
+      setWizardData(updatedData);
+      await generateNextStep(updatedData);
+    } catch (error: any) {
+      console.error('处理自定义输入失败:', error);
+      message.error(error.response?.data?.detail || '处理失败，请重试');
+    } finally {
+      setLoading(false);
     }
-    
-    setWizardData(updatedData);
-    await generateNextStep(updatedData);
   };
 
   // 自动化生成项目流程
@@ -703,8 +711,7 @@ const Inspiration: React.FC = () => {
       <Card
         ref={chatContainerRef}
         style={{
-          minHeight: 500,
-          maxHeight: 600,
+          height: window.innerWidth <= 768 ? 'calc(100vh - 280px)' : 600,
           overflowY: 'auto',
           marginBottom: 16,
           boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
@@ -816,7 +823,10 @@ const Inspiration: React.FC = () => {
       </Card>
 
       {/* 输入区域 */}
-      <Card style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}>
+      <Card
+        style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.1)' }}
+        styles={{ body: { padding: 12 } }}
+      >
         <Space.Compact style={{ width: '100%' }}>
           <TextArea
             value={inputValue}
@@ -853,10 +863,10 @@ const Inspiration: React.FC = () => {
   );
 
   return (
-    <div style={{ 
-      minHeight: '100vh', 
+    <div style={{
+      minHeight: '100vh',
       background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      padding: '24px'
+      padding: window.innerWidth <= 768 ? '12px' : '24px'
     }}>
       <style>
         {`
@@ -897,21 +907,50 @@ const Inspiration: React.FC = () => {
       </style>
       <div style={{ maxWidth: 800, margin: '0 auto' }}>
         {/* 头部 */}
-        <div style={{ marginBottom: 24 }}>
-          <Button 
-            icon={<ArrowLeftOutlined />} 
+        <div style={{
+          marginBottom: window.innerWidth <= 768 ? 12 : 24,
+          position: 'relative'
+        }}>
+          <Button
+            icon={<ArrowLeftOutlined />}
             onClick={handleBack}
             type="text"
-            style={{ color: '#fff' }}
+            size={window.innerWidth <= 768 ? 'small' : 'middle'}
+            style={{
+              color: '#fff',
+              padding: window.innerWidth <= 768 ? '4px 8px' : '4px 15px',
+              height: window.innerWidth <= 768 ? 32 : 'auto',
+              position: window.innerWidth <= 768 ? 'absolute' : 'static',
+              left: 0,
+              top: 0,
+              zIndex: 1
+            }}
           >
-            返回项目列表
+            {window.innerWidth <= 768 ? '返回' : '返回项目列表'}
           </Button>
-          <Title level={2} style={{ color: '#fff', textAlign: 'center', marginTop: 16 }}>
-            ✨ 灵感模式
-          </Title>
-          <Text style={{ color: '#fff', display: 'block', textAlign: 'center' }}>
-            通过对话快速创建你的小说项目
-          </Text>
+          <div style={{
+            textAlign: 'center',
+            paddingTop: window.innerWidth <= 768 ? 0 : 0
+          }}>
+            <Title
+              level={window.innerWidth <= 768 ? 4 : 2}
+              style={{
+                color: '#fff',
+                margin: 0,
+                marginBottom: window.innerWidth <= 768 ? 4 : 8
+              }}
+            >
+              ✨ 灵感模式
+            </Title>
+            <Text style={{
+              color: '#fff',
+              display: 'block',
+              fontSize: window.innerWidth <= 768 ? 12 : 14,
+              opacity: 0.9
+            }}>
+              通过对话快速创建你的小说项目
+            </Text>
+          </div>
         </div>
 
         {/* 根据当前步骤渲染不同内容 */}
