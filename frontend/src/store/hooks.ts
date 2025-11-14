@@ -303,7 +303,8 @@ export function useChapterSync() {
     chapterId: string,
     onProgress?: (content: string) => void,
     styleId?: number,
-    targetWordCount?: number
+    targetWordCount?: number,
+    onProgressUpdate?: (message: string, progress: number) => void
   ) => {
     try {
       // 使用fetch处理流式响应
@@ -356,7 +357,20 @@ export function useChapterSync() {
             if (dataMatch) {
               const message = JSON.parse(dataMatch[1]);
               
-              if (message.type === 'content' && message.content) {
+              if (message.type === 'start') {
+                // 开始生成
+                if (onProgressUpdate) {
+                  onProgressUpdate(message.message || '开始生成...', 0);
+                }
+              } else if (message.type === 'progress') {
+                // 进度更新
+                if (onProgressUpdate) {
+                  onProgressUpdate(
+                    message.message || '生成中...',
+                    message.progress || 0
+                  );
+                }
+              } else if (message.type === 'content' && message.content) {
                 fullContent += message.content;
                 if (onProgress) {
                   onProgress(fullContent);
@@ -366,8 +380,17 @@ export function useChapterSync() {
               } else if (message.type === 'done') {
                 // 生成完成，保存分析任务ID
                 analysisTaskId = message.analysis_task_id;
+                if (onProgressUpdate) {
+                  onProgressUpdate('生成完成', 100);
+                }
                 // 生成完成，刷新章节数据
                 await refreshChapters();
+              } else if (message.type === 'analysis_started') {
+                // 分析已开始
+                analysisTaskId = message.task_id;
+                if (onProgressUpdate) {
+                  onProgressUpdate('章节分析已开始...', 100);
+                }
               } else if (message.type === 'analysis_queued') {
                 // 分析任务已加入队列
                 analysisTaskId = message.task_id;

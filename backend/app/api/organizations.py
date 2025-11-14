@@ -2,11 +2,12 @@
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_
-from typing import List, Optional
+from typing import List, Optional, AsyncGenerator
 from pydantic import BaseModel, Field
 import json
 
 from app.database import get_db
+from app.utils.sse_response import SSEResponse, create_sse_response
 from app.models.relationship import Organization, OrganizationMember
 from app.models.character import Character
 from app.models.project import Project
@@ -129,7 +130,7 @@ async def get_organization(
     return org
 
 
-@router.post("/", response_model=OrganizationResponse, summary="创建组织")
+@router.post("", response_model=OrganizationResponse, summary="创建组织")
 async def create_organization(
     organization: OrganizationCreate,
     request: Request,
@@ -616,3 +617,195 @@ async def generate_organization(
     except Exception as e:
         logger.error(f"生成组织失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"生成组织失败: {str(e)}")
+
+
+@router.post("/generate-stream", summary="AI生成组织（流式）")
+async def generate_organization_stream(
+    gen_request: OrganizationGenerateRequest,
+    http_request: Request,
+    db: AsyncSession = Depends(get_db),
+    user_ai_service: AIService = Depends(get_user_ai_service)
+):
+    """
+    使用AI生成组织设定（支持SSE流式进度显示）
+    
+    通过Server-Sent Events返回实时进度信息
+    """
+    async def generate() -> AsyncGenerator[str, None]:
+        try:
+            # 验证用户权限和项目是否存在
+            user_id = getattr(http_request.state, 'user_id', None)
+            project = await verify_project_access(gen_request.project_id, user_id, db)
+            
+            yield await SSEResponse.send_progress("开始生成组织...", 0)
+            
+            # 获取已存在的角色和组织列表
+            yield await SSEResponse.send_progress("获取项目上下文...", 10)
+            
+            existing_chars_result = await db.execute(
+                select(Character)
+                .where(Character.project_id == gen_request.project_id)
+                .order_by(Character.created_at.desc())
+            )
+            existing_characters = existing_chars_result.scalars().all()
+            
+            # 构建现有角色和组织信息摘要
+            existing_info = ""
+            character_list = []
+            organization_list = []
+            
+            if existing_characters:
+                for c in existing_characters[:10]:
+                    if c.is_organization:
+                        organization_list.append(f"- {c.name} [{c.organization_type or '组织'}]")
+                    else:
+                        character_list.append(f"- {c.name}（{c.role_type or '未知'}）")
+                
+                if character_list:
+                    existing_info += "\n已有角色：\n" + "\n".join(character_list)
+                if organization_list:
+                    existing_info += "\n\n已有组织：\n" + "\n".join(organization_list)
+            
+            # 构建项目上下文
+            project_context = f"""
+项目信息：
+- 书名：{project.title}
+- 主题：{project.theme or '未设定'}
+- 类型：{project.genre or '未设定'}
+- 时间背景：{project.world_time_period or '未设定'}
+- 地理位置：{project.world_location or '未设定'}
+- 氛围基调：{project.world_atmosphere or '未设定'}
+- 世界规则：{project.world_rules or '未设定'}
+{existing_info}
+"""
+            
+            user_input = f"""
+用户要求：
+- 组织名称：{gen_request.name or '请AI生成'}
+- 组织类型：{gen_request.organization_type or '请AI根据世界观决定'}
+- 背景设定：{gen_request.background or '无特殊要求'}
+- 其他要求：{gen_request.requirements or '无'}
+"""
+            
+            yield await SSEResponse.send_progress("构建AI提示词...", 20)
+            
+            prompt = prompt_service.get_single_organization_prompt(
+                project_context=project_context,
+                user_input=user_input
+            )
+            
+            yield await SSEResponse.send_progress("调用AI服务生成组织...", 30)
+            logger.info(f"🎯 开始为项目 {gen_request.project_id} 生成组织（SSE流式）")
+            
+            try:
+                ai_response = await user_ai_service.generate_text(prompt=prompt)
+                ai_content = ai_response.get("content", "") if isinstance(ai_response, dict) else str(ai_response)
+            except Exception as ai_error:
+                logger.error(f"❌ AI服务调用异常：{str(ai_error)}")
+                yield await SSEResponse.send_error(f"AI服务调用失败：{str(ai_error)}")
+                return
+            
+            if not ai_content or not ai_content.strip():
+                yield await SSEResponse.send_error("AI服务返回空响应")
+                return
+            
+            yield await SSEResponse.send_progress("解析AI响应...", 60)
+            
+            # 清理AI响应
+            cleaned_response = ai_content.strip()
+            if cleaned_response.startswith("```json"):
+                cleaned_response = cleaned_response[7:]
+            if cleaned_response.startswith("```"):
+                cleaned_response = cleaned_response[3:]
+            if cleaned_response.endswith("```"):
+                cleaned_response = cleaned_response[:-3]
+            cleaned_response = cleaned_response.strip()
+            
+            try:
+                organization_data = json.loads(cleaned_response)
+            except json.JSONDecodeError as e:
+                yield await SSEResponse.send_error(f"AI返回的内容无法解析为JSON：{str(e)}")
+                return
+            
+            yield await SSEResponse.send_progress("创建组织记录...", 75)
+            
+            # 创建角色记录（组织也是角色的一种）
+            character = Character(
+                project_id=gen_request.project_id,
+                name=organization_data.get("name", gen_request.name or "未命名组织"),
+                is_organization=True,
+                role_type="supporting",
+                personality=organization_data.get("personality", ""),
+                background=organization_data.get("background", ""),
+                appearance=organization_data.get("appearance", ""),
+                organization_type=organization_data.get("organization_type"),
+                organization_purpose=organization_data.get("organization_purpose"),
+                organization_members=json.dumps(
+                    organization_data.get("organization_members", []), 
+                    ensure_ascii=False
+                ),
+                traits=json.dumps(
+                    organization_data.get("traits", []), 
+                    ensure_ascii=False
+                )
+            )
+            db.add(character)
+            await db.flush()
+            
+            logger.info(f"✅ 组织角色创建成功：{character.name} (ID: {character.id})")
+            
+            yield await SSEResponse.send_progress("创建组织详情...", 85)
+            
+            # 自动创建Organization详情记录
+            organization = Organization(
+                character_id=character.id,
+                project_id=gen_request.project_id,
+                member_count=0,
+                power_level=organization_data.get("power_level", 50),
+                location=organization_data.get("location"),
+                motto=organization_data.get("motto"),
+                color=organization_data.get("color")
+            )
+            db.add(organization)
+            await db.flush()
+            
+            logger.info(f"✅ 组织详情创建成功：{character.name} (Org ID: {organization.id})")
+            
+            yield await SSEResponse.send_progress("保存生成历史...", 95)
+            
+            # 记录生成历史
+            history = GenerationHistory(
+                project_id=gen_request.project_id,
+                prompt=prompt,
+                generated_content=ai_content,
+                model=user_ai_service.default_model
+            )
+            db.add(history)
+            
+            await db.commit()
+            await db.refresh(character)
+            
+            logger.info(f"🎉 成功生成组织: {character.name}")
+            
+            yield await SSEResponse.send_progress("组织生成完成！", 100, "success")
+            
+            # 发送结果数据
+            yield await SSEResponse.send_result({
+                "character": {
+                    "id": character.id,
+                    "name": character.name,
+                    "organization_type": character.organization_type,
+                    "is_organization": character.is_organization
+                }
+            })
+            
+            yield await SSEResponse.send_done()
+            
+        except HTTPException as he:
+            logger.error(f"HTTP异常: {he.detail}")
+            yield await SSEResponse.send_error(he.detail, he.status_code)
+        except Exception as e:
+            logger.error(f"生成组织失败: {str(e)}")
+            yield await SSEResponse.send_error(f"生成组织失败: {str(e)}")
+    
+    return create_sse_response(generate())

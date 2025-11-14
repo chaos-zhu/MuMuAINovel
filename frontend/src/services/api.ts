@@ -303,6 +303,29 @@ export const characterApi = {
   
   getCharacter: (id: string) => api.get<unknown, Character>(`/characters/${id}`),
   
+  createCharacter: (data: {
+    project_id: string;
+    name: string;
+    age?: string;
+    gender?: string;
+    is_organization?: boolean;
+    role_type?: string;
+    personality?: string;
+    background?: string;
+    appearance?: string;
+    relationships?: string;
+    organization_type?: string;
+    organization_purpose?: string;
+    organization_members?: string;
+    traits?: string;
+    avatar_url?: string;
+    power_level?: number;
+    location?: string;
+    motto?: string;
+    color?: string;
+  }) =>
+    api.post<unknown, Character>('/characters', data),
+  
   updateCharacter: (id: string, data: CharacterUpdate) =>
     api.put<unknown, Character>(`/characters/${id}`, data),
   

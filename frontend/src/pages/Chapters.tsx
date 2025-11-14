@@ -7,6 +7,7 @@ import { projectApi, writingStyleApi } from '../services/api';
 import type { Chapter, ChapterUpdate, ApiError, WritingStyle, AnalysisTask } from '../types';
 import { cardStyles } from '../components/CardStyles';
 import ChapterAnalysis from '../components/ChapterAnalysis';
+import { SSELoadingOverlay } from '../components/SSELoadingOverlay';
 
 const { TextArea } = Input;
 
@@ -29,6 +30,10 @@ export default function Chapters() {
   // 分析任务状态管理
   const [analysisTasksMap, setAnalysisTasksMap] = useState<Record<string, AnalysisTask>>({});
   const pollingIntervalsRef = useRef<Record<string, number>>({});
+  
+  // 单章节生成进度状态
+  const [singleChapterProgress, setSingleChapterProgress] = useState(0);
+  const [singleChapterProgressMessage, setSingleChapterProgressMessage] = useState('');
   
   // 批量生成相关状态
   const [batchGenerateVisible, setBatchGenerateVisible] = useState(false);
@@ -301,17 +306,29 @@ export default function Chapters() {
     try {
       setIsContinuing(true);
       setIsGenerating(true);
+      setSingleChapterProgress(0);
+      setSingleChapterProgressMessage('准备开始生成...');
       
-      const result = await generateChapterContentStream(editingId, (content) => {
-        editorForm.setFieldsValue({ content });
-        
-        if (contentTextAreaRef.current) {
-          const textArea = contentTextAreaRef.current.resizableTextArea?.textArea;
-          if (textArea) {
-            textArea.scrollTop = textArea.scrollHeight;
+      const result = await generateChapterContentStream(
+        editingId,
+        (content) => {
+          editorForm.setFieldsValue({ content });
+          
+          if (contentTextAreaRef.current) {
+            const textArea = contentTextAreaRef.current.resizableTextArea?.textArea;
+            if (textArea) {
+              textArea.scrollTop = textArea.scrollHeight;
+            }
           }
+        },
+        selectedStyleId,
+        targetWordCount,
+        (progressMsg, progressValue) => {
+          // 进度回调
+          setSingleChapterProgress(progressValue);
+          setSingleChapterProgressMessage(progressMsg);
         }
-      }, selectedStyleId, targetWordCount);
+      );
       
       message.success('AI创作成功，正在分析章节内容...');
       
@@ -338,6 +355,8 @@ export default function Chapters() {
     } finally {
       setIsContinuing(false);
       setIsGenerating(false);
+      setSingleChapterProgress(0);
+      setSingleChapterProgressMessage('');
     }
   };
 
@@ -1378,6 +1397,13 @@ export default function Chapters() {
           </div>
         )}
       </Modal>
+
+      {/* 单章节生成进度显示 */}
+      <SSELoadingOverlay
+        loading={isGenerating}
+        progress={singleChapterProgress}
+        message={singleChapterProgressMessage}
+      />
     </div>
   );
 }

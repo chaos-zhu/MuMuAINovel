@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
-import { Card, Table, Tag, Button, Space, message, Modal, Form, Select, Slider, Input, Tabs } from 'antd';
+import { Card, Table, Tag, Button, Space, message, Modal, Form, Select, Slider, Input, Tabs, AutoComplete } from 'antd';
 import { PlusOutlined, TeamOutlined, UserOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import axios from 'axios';
@@ -384,14 +384,15 @@ export default function Relationships() {
             label="关系类型"
             rules={[{ required: true, message: '请选择或输入关系类型' }]}
           >
-            <Select
-              placeholder="选择预定义类型或输入自定义"
-              showSearch
-              allowClear
+            <AutoComplete
+              placeholder="选择预定义类型或输入自定义关系"
               options={relationshipTypes.map(t => ({
                 label: `${t.icon || ''} ${t.name} (${categoryLabels[t.category]})`,
                 value: t.name
               }))}
+              filterOption={(inputValue, option) =>
+                option!.value.toUpperCase().indexOf(inputValue.toUpperCase()) !== -1
+              }
             />
           </Form.Item>
 
