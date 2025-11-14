@@ -135,7 +135,7 @@ from app.api import (
     projects, outlines, characters, chapters,
     wizard_stream, relationships, organizations,
     auth, users, settings, writing_styles, memories,
-    mcp_plugins, admin
+    mcp_plugins, admin, inspiration
 )
 
 app.include_router(auth.router, prefix="/api")
@@ -145,6 +145,7 @@ app.include_router(admin.router, prefix="/api")
 
 app.include_router(projects.router, prefix="/api")
 app.include_router(wizard_stream.router, prefix="/api")
+app.include_router(inspiration.router, prefix="/api")
 app.include_router(outlines.router, prefix="/api")
 app.include_router(characters.router, prefix="/api")
 app.include_router(chapters.router, prefix="/api")

@@ -406,6 +406,38 @@ export const polishApi = {
   polishBatch: (texts: string[]) =>
     api.post<unknown, { polished_texts: string[] }>('/polish/batch', { texts }),
 };
+export const inspirationApi = {
+  // 生成选项建议
+  generateOptions: (data: {
+    step: 'title' | 'description' | 'theme' | 'genre';
+    context: {
+      title?: string;
+      description?: string;
+      theme?: string;
+    };
+  }) =>
+    api.post<unknown, {
+      prompt?: string;
+      options: string[];
+      error?: string;
+    }>('/inspiration/generate-options', data),
+  
+  // 智能补全缺失信息
+  quickGenerate: (data: {
+    title?: string;
+    description?: string;
+    theme?: string;
+    genre?: string | string[];
+  }) =>
+    api.post<unknown, {
+      title: string;
+      description: string;
+      theme: string;
+      genre: string[];
+      narrative_perspective: string;
+    }>('/inspiration/quick-generate', data),
+};
+
 export default api;
 
 

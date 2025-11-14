@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Button, Empty, Modal, message, Spin, Row, Col, Statistic, Space, Tag, Progress, Typography, Tooltip, Badge, Alert, Upload, Checkbox, Divider, Switch, Dropdown } from 'antd';
-import { EditOutlined, DeleteOutlined, BookOutlined, RocketOutlined, CalendarOutlined, FileTextOutlined, TrophyOutlined, FireOutlined, SettingOutlined, InfoCircleOutlined, CloseOutlined, UploadOutlined, DownloadOutlined, ApiOutlined, MoreOutlined } from '@ant-design/icons';
+import { EditOutlined, DeleteOutlined, BookOutlined, RocketOutlined, CalendarOutlined, FileTextOutlined, TrophyOutlined, FireOutlined, SettingOutlined, InfoCircleOutlined, CloseOutlined, UploadOutlined, DownloadOutlined, ApiOutlined, MoreOutlined, BulbOutlined } from '@ant-design/icons';
 import { projectApi } from '../services/api';
 import { useStore } from '../store';
 import { useProjectSync } from '../store/hooks';
@@ -313,6 +313,22 @@ export default function ProjectList() {
                     <Button
                       type="primary"
                       size="middle"
+                      icon={<BulbOutlined />}
+                      onClick={() => navigate('/inspiration')}
+                      style={{
+                        flex: 1,
+                        borderRadius: 8,
+                        background: 'linear-gradient(135deg, #ffd700 0%, #ff8c00 100%)',
+                        border: 'none',
+                        boxShadow: '0 2px 8px rgba(255, 215, 0, 0.4)',
+                        color: '#fff'
+                      }}
+                    >
+                      灵感模式
+                    </Button>
+                    <Button
+                      type="primary"
+                      size="middle"
                       icon={<RocketOutlined />}
                       onClick={() => navigate('/wizard')}
                       style={{
@@ -393,6 +409,21 @@ export default function ProjectList() {
               ) : (
                 // PC端：优化后的布局 - 主要按钮 + 下拉菜单
                 <Space size={12} style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                  <Button
+                    type="primary"
+                    size="large"
+                    icon={<BulbOutlined />}
+                    onClick={() => navigate('/inspiration')}
+                    style={{
+                      borderRadius: 8,
+                      background: 'linear-gradient(135deg, #ffd700 0%, #ff8c00 100%)',
+                      border: 'none',
+                      boxShadow: '0 2px 8px rgba(255, 215, 0, 0.4)',
+                      color: '#fff'
+                    }}
+                  >
+                    灵感模式
+                  </Button>
                   <Button
                     type="primary"
                     size="large"
@@ -599,14 +630,29 @@ export default function ProjectList() {
                     <Text style={{ fontSize: 16, color: '#8c8c8c' }}>
                       还没有项目，开始创建你的第一个小说项目吧！
                     </Text>
-                    <Button
-                      type="primary"
-                      size="large"
-                      icon={<RocketOutlined />}
-                      onClick={() => navigate('/wizard')}
-                    >
-                      向导创建
-                    </Button>
+                    <Space size={12}>
+                      <Button
+                        type="primary"
+                        size="large"
+                        icon={<BulbOutlined />}
+                        onClick={() => navigate('/inspiration')}
+                        style={{
+                          background: 'linear-gradient(135deg, #ffd700 0%, #ff8c00 100%)',
+                          border: 'none',
+                          color: '#fff'
+                        }}
+                      >
+                        灵感模式
+                      </Button>
+                      <Button
+                        type="primary"
+                        size="large"
+                        icon={<RocketOutlined />}
+                        onClick={() => navigate('/wizard')}
+                      >
+                        向导创建
+                      </Button>
+                    </Space>
                   </Space>
                 }
                 style={{ padding: '80px 0' }}
@@ -1024,6 +1070,7 @@ export default function ProjectList() {
           )}
         </Space>
       </Modal>
+
     </div>
   );
 }

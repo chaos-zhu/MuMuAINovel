@@ -3,6 +3,7 @@ import { ConfigProvider } from 'antd';
 import zhCN from 'antd/locale/zh_CN';
 import ProjectList from './pages/ProjectList';
 import ProjectWizardNew from './pages/ProjectWizardNew';
+import Inspiration from './pages/Inspiration';
 import ProjectDetail from './pages/ProjectDetail';
 import WorldSetting from './pages/WorldSetting';
 import Outline from './pages/Outline';
@@ -36,7 +37,9 @@ function App() {
           <Route path="/auth/callback" element={<AuthCallback />} />
           
           <Route path="/" element={<ProtectedRoute><ProjectList /></ProtectedRoute>} />
+          <Route path="/projects" element={<ProtectedRoute><ProjectList /></ProtectedRoute>} />
           <Route path="/wizard" element={<ProtectedRoute><ProjectWizardNew /></ProtectedRoute>} />
+          <Route path="/inspiration" element={<ProtectedRoute><Inspiration /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="/mcp-plugins" element={<ProtectedRoute><MCPPlugins /></ProtectedRoute>} />
           <Route path="/user-management" element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />
