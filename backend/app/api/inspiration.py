@@ -17,10 +17,10 @@ logger = get_logger(__name__)
 INSPIRATION_PROMPTS = {
     "title": {
         "system": """你是一位专业的小说创作顾问。
-用户想写的小说：{description}
+用户的原始想法：{initial_idea}
 
 请根据用户的想法，生成6个吸引人的书名建议，要求：
-1. 符合用户的故事构思
+1. 紧扣用户的原始想法和核心故事构思
 2. 富有创意和吸引力
 3. 涵盖不同的风格倾向
 
@@ -31,55 +31,61 @@ INSPIRATION_PROMPTS = {
 }}
 
 只返回纯JSON，不要有其他文字。""",
-        "user": "用户的想法：{description}\n请生成6个书名建议"
+        "user": "用户的想法：{initial_idea}\n请生成6个书名建议"
     },
     
     "description": {
         "system": """你是一位专业的小说创作顾问。
-用户已经确定了书名：{title}
+用户的原始想法：{initial_idea}
+已确定的书名：{title}
 
 请生成6个精彩的小说简介，要求：
-1. 符合书名风格
-2. 简洁有力，每个50-100字
-3. 包含核心冲突
-4. 涵盖不同的故事走向
+1. 必须紧扣用户的原始想法，确保简介是原始想法的具体展开
+2. 符合已确定的书名风格
+3. 简洁有力，每个50-100字
+4. 包含核心冲突
+5. 涵盖不同的故事走向，但都基于用户的原始构思
 
 返回JSON格式：
 {{"prompt":"选择一个简介：","options":["简介1","简介2","简介3","简介4","简介5","简介6"]}}
 
 只返回纯JSON，不要有其他文字，不要换行。""",
-        "user": "书名是：{title}，请生成6个简介选项"
+        "user": "原始想法：{initial_idea}\n书名：{title}\n请生成6个简介选项"
     },
     
     "theme": {
         "system": """你是一位专业的小说创作顾问。
-用户的小说信息：
+用户的原始想法：{initial_idea}
+小说信息：
 - 书名：{title}
 - 简介：{description}
 
 请生成6个深刻的主题选项，要求：
-1. 符合书名和简介的风格
-2. 有深度和思想性
-3. 每个50-150字
-4. 涵盖不同角度（如：成长、复仇、救赎、探索等）
+1. 必须与用户的原始想法保持高度一致
+2. 符合书名和简介的风格
+3. 有深度和思想性
+4. 每个50-150字
+5. 涵盖不同角度（如：成长、复仇、救赎、探索等），但都围绕用户的核心构思
 
 返回JSON格式：
 {{"prompt":"这本书的核心主题是什么？","options":["主题1","主题2","主题3","主题4","主题5","主题6"]}}
 
 只返回纯JSON，不要有其他文字，不要换行。""",
-        "user": "书名：{title}\n简介：{description}\n请生成6个主题选项"
+        "user": "原始想法：{initial_idea}\n书名：{title}\n简介：{description}\n请生成6个主题选项"
     },
     
     "genre": {
         "system": """你是一位专业的小说创作顾问。
-用户的小说信息：
+用户的原始想法：{initial_idea}
+小说信息：
 - 书名：{title}
 - 简介：{description}
 - 主题：{theme}
 
 请生成6个合适的类型标签（每个2-4字），要求：
-1. 符合小说整体风格
-2. 可以多选组合
+1. 必须符合用户原始想法中暗示的类型倾向
+2. 符合小说整体风格
+3. 可以多选组合
 
 常见类型：玄幻、都市、科幻、武侠、仙侠、历史、言情、悬疑、奇幻、修仙等
 
@@ -87,8 +93,17 @@ INSPIRATION_PROMPTS = {
 {{"prompt":"选择类型标签（可多选）：","options":["类型1","类型2","类型3","类型4","类型5","类型6"]}}
 
 只返回紧凑的纯JSON，不要换行，不要有其他文字。""",
-        "user": "书名：{title}\n简介：{description}\n主题：{theme}\n请生成6个类型标签"
+        "user": "原始想法：{initial_idea}\n书名：{title}\n简介：{description}\n主题：{theme}\n请生成6个类型标签"
     }
+}
+
+
+# 不同阶段的temperature设置（递减以保持一致性）
+TEMPERATURE_SETTINGS = {
+    "title": 0.8,        # 书名阶段可以更有创意
+    "description": 0.65, # 简介需要贴合书名和原始想法
+    "theme": 0.55,       # 主题需要更加贴合
+    "genre": 0.45        # 类型应该很明确
 }
 
 
@@ -179,7 +194,9 @@ async def generate_options(
             prompt_template = INSPIRATION_PROMPTS[step]
             
             # 准备格式化参数（提供默认值避免KeyError）
+            # 关键改进：保持initial_idea在所有阶段传递，确保内容关联性
             format_params = {
+                "initial_idea": context.get("initial_idea", context.get("description", "")),  # 优先使用initial_idea，兼容旧数据
                 "title": context.get("title", ""),
                 "description": context.get("description", ""),
                 "theme": context.get("theme", "")
@@ -194,11 +211,13 @@ async def generate_options(
                 system_prompt += f"\n\n⚠️ 这是第{attempt + 1}次生成，请务必严格按照JSON格式返回，确保options数组包含6个有效选项！"
             
             # 调用AI生成选项
-            logger.info(f"调用AI生成{step}选项...")
+            # 关键改进：使用递减的temperature以保持后续阶段与前文的一致性
+            temperature = TEMPERATURE_SETTINGS.get(step, 0.7)
+            logger.info(f"调用AI生成{step}选项... (temperature={temperature})")
             response = await ai_service.generate_text(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
-                temperature=0.8  # 提高创造性
+                temperature=temperature
             )
             
             content = response.get("content", "")
@@ -327,9 +346,11 @@ async def quick_generate(
 
 请生成完整的小说方案，包含：
 1. title: 书名（3-6字，如果用户已提供则保持原样）
-2. description: 简介（50-100字）
-3. theme: 核心主题（30-50字）
+2. description: 简介（50-100字，必须基于用户提供的信息，不要偏离原意）
+3. theme: 核心主题（30-50字，必须与用户提供的信息保持一致）
 4. genre: 类型标签数组（2-3个）
+
+重要：所有补全的内容都必须与用户提供的信息保持高度关联，确保前后一致性。
 
 返回JSON格式：
 {{

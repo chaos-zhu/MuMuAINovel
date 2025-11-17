@@ -40,6 +40,8 @@ const Inspiration: React.FC = () => {
   
   // 收集的数据
   const [wizardData, setWizardData] = useState<Partial<WizardData>>({});
+  // 保存用户的原始想法，用于保持上下文一致性
+  const [initialIdea, setInitialIdea] = useState<string>('');
   
   // 项目生成状态
   const [projectId, setProjectId] = useState<string>('');
@@ -148,9 +150,15 @@ const Inspiration: React.FC = () => {
 
     try {
       if (currentStep === 'idea') {
+        // 保存用户的原始想法
+        setInitialIdea(userInput);
+        
         const requestData = {
           step: 'title' as const,
-          context: { description: userInput }
+          context: {
+            initial_idea: userInput,
+            description: userInput
+          }
         };
         
         const response = await inspirationApi.generateOptions(requestData);
@@ -492,7 +500,10 @@ const Inspiration: React.FC = () => {
     if (nextStep === 'description') {
       const requestData = {
         step: 'description' as const,
-        context: { title: data.title }
+        context: {
+          initial_idea: initialIdea,
+          title: data.title
+        }
       };
       const response = await inspirationApi.generateOptions(requestData);
 
@@ -522,7 +533,11 @@ const Inspiration: React.FC = () => {
     } else if (nextStep === 'theme') {
       const requestData = {
         step: 'theme' as const,
-        context: { title: data.title, description: data.description }
+        context: {
+          initial_idea: initialIdea,
+          title: data.title,
+          description: data.description
+        }
       };
       const response = await inspirationApi.generateOptions(requestData);
 
@@ -553,6 +568,7 @@ const Inspiration: React.FC = () => {
       const requestData = {
         step: 'genre' as const,
         context: {
+          initial_idea: initialIdea,
           title: data.title,
           description: data.description,
           theme: data.theme
@@ -596,6 +612,7 @@ const Inspiration: React.FC = () => {
       }
     ]);
     setWizardData({});
+    setInitialIdea('');  // 重置原始想法
     setSelectedOptions([]);
     setLoading(false);
   };
