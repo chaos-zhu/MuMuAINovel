@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Request, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.orm import selectinload
 import json
 import asyncio
 from typing import Optional
@@ -125,7 +126,7 @@ async def get_project_chapters(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    """获取指定项目的所有章节（路径参数版本）"""
+    """获取指定项目的所有章节（带大纲信息）"""
     # 验证用户权限
     user_id = getattr(request.state, 'user_id', None)
     await verify_project_access(project_id, user_id, db)
@@ -136,7 +137,7 @@ async def get_project_chapters(
     )
     total = count_result.scalar_one()
     
-    # 获取章节列表
+    # 获取章节列表，同时加载关联的大纲信息
     result = await db.execute(
         select(Chapter)
         .where(Chapter.project_id == project_id)
@@ -144,7 +145,46 @@ async def get_project_chapters(
     )
     chapters = result.scalars().all()
     
-    return ChapterListResponse(total=total, items=chapters)
+    # 获取所有大纲信息（用于填充outline_title）
+    outline_ids = [ch.outline_id for ch in chapters if ch.outline_id]
+    outlines_map = {}
+    if outline_ids:
+        outlines_result = await db.execute(
+            select(Outline).where(Outline.id.in_(outline_ids))
+        )
+        outlines_map = {o.id: o for o in outlines_result.scalars().all()}
+    
+    # 为所有章节添加大纲信息（统一处理）
+    chapters_with_outline = []
+    for chapter in chapters:
+        chapter_dict = {
+            "id": chapter.id,
+            "project_id": chapter.project_id,
+            "chapter_number": chapter.chapter_number,
+            "title": chapter.title,
+            "content": chapter.content,
+            "summary": chapter.summary,
+            "word_count": chapter.word_count,
+            "status": chapter.status,
+            "outline_id": chapter.outline_id,
+            "sub_index": chapter.sub_index,
+            "expansion_plan": chapter.expansion_plan,
+            "created_at": chapter.created_at,
+            "updated_at": chapter.updated_at,
+        }
+        
+        # 添加大纲信息
+        if chapter.outline_id and chapter.outline_id in outlines_map:
+            outline = outlines_map[chapter.outline_id]
+            chapter_dict["outline_title"] = outline.title
+            chapter_dict["outline_order"] = outline.order_index
+        else:
+            chapter_dict["outline_title"] = None
+            chapter_dict["outline_order"] = None
+        
+        chapters_with_outline.append(chapter_dict)
+    
+    return ChapterListResponse(total=total, items=chapters_with_outline)
 
 
 @router.get("/{chapter_id}", response_model=ChapterResponse, summary="获取章节详情")

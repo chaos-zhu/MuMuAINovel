@@ -789,6 +789,81 @@ class PromptService:
 1. 只返回纯JSON对象，不要有```json```这样的标记
 2. 文本中不要使用中文引号（""），改用【】或《》
 3. 不要有任何额外的文字说明"""
+    
+    # 大纲展开为多章节的提示词
+    OUTLINE_EXPANSION = """你是专业的小说情节架构师。请分析以下大纲节点，将其展开为 {target_chapters} 个章节的详细规划。
+
+【项目信息】
+小说名称：{title}
+类型：{genre}
+主题：{theme}
+叙事视角：{narrative_perspective}
+
+【世界观背景】
+时间背景：{time_period}
+地理位置：{location}
+氛围基调：{atmosphere}
+世界规则：{rules}
+
+【角色信息】
+{characters_info}
+
+【大纲节点】
+序号：第 {outline_order} 节
+标题：{outline_title}
+内容：{outline_content}
+
+【上下文】
+{context_info}
+
+【展开策略】
+{strategy_instruction}
+
+【任务要求】
+1. 深度分析该大纲的剧情容量和叙事节奏
+2. 识别关键剧情点、冲突点和情感转折点
+3. 将大纲拆解为 {target_chapters} 个章节，每章需包含：
+   - sub_index: 子章节序号（1, 2, 3...）
+   - title: 章节标题（体现该章核心冲突或情感）
+   - plot_summary: 剧情摘要（200-300字，详细描述该章发生的事件）
+   - key_events: 关键事件列表（3-5个关键剧情点）
+   - character_focus: 角色焦点（主要涉及的角色名称）
+   - emotional_tone: 情感基调（如：紧张、温馨、悲伤、激动等）
+   - narrative_goal: 叙事目标（该章要达成的叙事效果）
+   - conflict_type: 冲突类型（如：内心挣扎、人际冲突、环境挑战等）
+   - estimated_words: 预计字数（建议2000-5000字）
+{scene_instruction}
+4. 确保章节间：
+   - 衔接自然流畅
+   - 剧情递进合理
+   - 节奏张弛有度
+   - 每章都有明确的叙事价值
+
+**重要格式要求：**
+1. 只返回纯JSON数组格式，不要包含任何markdown标记、代码块标记或其他说明文字
+2. 不要在JSON字符串值中使用中文引号（""''），请使用【】或《》
+3. 文本描述中的专有名词使用【】标记
+
+请严格按照以下JSON数组格式输出：
+[
+  {{
+    "sub_index": 1,
+    "title": "章节标题",
+    "plot_summary": "该章详细剧情摘要（200-300字）...",
+    "key_events": ["关键事件1", "关键事件2", "关键事件3"],
+    "character_focus": ["角色A", "角色B"],
+    "emotional_tone": "情感基调",
+    "narrative_goal": "叙事目标",
+    "conflict_type": "冲突类型",
+    "estimated_words": 3000{scene_field}
+  }}
+]
+
+再次强调：
+1. 只返回纯JSON数组，不要有```json```这样的标记
+2. 数组中要包含{target_chapters}个章节对象
+3. 每个plot_summary必须是200-300字的详细描述
+4. 文本中不要使用中文引号（""），改用【】或《》"""
 
     @staticmethod
     def format_prompt(template: str, **kwargs) -> str:
@@ -1105,6 +1180,72 @@ class PromptService:
             cls.SINGLE_ORGANIZATION_GENERATION,
             project_context=project_context,
             user_input=user_input
+        )
+    
+    @classmethod
+    def get_outline_expansion_prompt(cls, title: str, genre: str, theme: str,
+                                    narrative_perspective: str, time_period: str,
+                                    location: str, atmosphere: str, rules: str,
+                                    characters_info: str, outline_order: int,
+                                    outline_title: str, outline_content: str,
+                                    context_info: str, strategy: str = "balanced",
+                                    target_chapters: int = 3,
+                                    include_scenes: bool = False) -> str:
+        """
+        获取大纲展开为多章节的提示词
+        
+        Args:
+            title: 小说名称
+            genre: 类型
+            theme: 主题
+            narrative_perspective: 叙事视角
+            time_period: 时间背景
+            location: 地理位置
+            atmosphere: 氛围基调
+            rules: 世界规则
+            characters_info: 角色信息
+            outline_order: 大纲序号
+            outline_title: 大纲标题
+            outline_content: 大纲内容
+            context_info: 上下文信息
+            strategy: 展开策略 (balanced/climax/detail)
+            target_chapters: 目标章节数
+            include_scenes: 是否包含场景字段
+        """
+        # 根据策略生成指导说明
+        strategy_instructions = {
+            "balanced": "采用均衡策略：将大纲内容平均分配到各章节，保持节奏均匀，每章剧情密度相当。",
+            "climax": "采用高潮重点策略：识别大纲中的高潮部分，为其分配更多章节进行细致展开，其他部分适当精简。",
+            "detail": "采用细节丰富策略：深挖大纲中的每个细节，为每个关键事件、情感转折都安排足够的叙事空间。"
+        }
+        strategy_instruction = strategy_instructions.get(strategy, strategy_instructions["balanced"])
+        
+        # 场景相关的指令和字段
+        scene_instruction = ""
+        scene_field = ""
+        if include_scenes:
+            scene_instruction = "\n   - scenes: 场景列表（2-4个具体场景描述）"
+            scene_field = ',\n    "scenes": ["场景1", "场景2"]'
+        
+        return cls.format_prompt(
+            cls.OUTLINE_EXPANSION,
+            title=title,
+            genre=genre,
+            theme=theme,
+            narrative_perspective=narrative_perspective,
+            time_period=time_period,
+            location=location,
+            atmosphere=atmosphere,
+            rules=rules,
+            characters_info=characters_info,
+            outline_order=outline_order,
+            outline_title=outline_title,
+            outline_content=outline_content,
+            context_info=context_info,
+            strategy_instruction=strategy_instruction,
+            target_chapters=target_chapters,
+            scene_instruction=scene_instruction,
+            scene_field=scene_field
         )
 
 

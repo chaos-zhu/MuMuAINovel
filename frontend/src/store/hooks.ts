@@ -200,23 +200,6 @@ export function useOutlineSync() {
     }
   }, [removeOutline]);
 
-  // 重排序大纲（带同步）
-  const reorderOutlines = useCallback(async (orders: Array<{ id: string; order_index: number }>, projectId?: string) => {
-    try {
-      await outlineApi.reorderOutlines({ orders });
-      // 重新获取完整列表以确保顺序正确
-      const id = projectId || currentProject?.id;
-      if (id) {
-        const data = await outlineApi.getOutlines(id);
-        const outlines = Array.isArray(data) ? data : (data as PaginationResponse<Outline>).items || [];
-        setOutlines(outlines);
-      }
-    } catch (error) {
-      console.error('重排序大纲失败:', error);
-      throw error;
-    }
-  }, [currentProject?.id, setOutlines]); // 添加 currentProject?.id 到依赖数组
-
   // AI生成大纲（带同步）
   const generateOutlines = useCallback(async (data: GenerateOutlineRequest) => {
     try {
@@ -235,7 +218,6 @@ export function useOutlineSync() {
     createOutline,
     updateOutline: updateOutlineSync,
     deleteOutline,
-    reorderOutlines,
     generateOutlines,
   };
 }

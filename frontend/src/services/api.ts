@@ -18,6 +18,10 @@ import type {
   OutlineCreate,
   OutlineUpdate,
   OutlineReorderRequest,
+  OutlineExpansionRequest,
+  OutlineExpansionResponse,
+  BatchOutlineExpansionRequest,
+  BatchOutlineExpansionResponse,
   Character,
   CharacterUpdate,
   Chapter,
@@ -295,6 +299,65 @@ export const outlineApi = {
   
   generateOutline: (data: GenerateOutlineRequest) =>
     api.post<unknown, { total: number; items: Outline[] }>('/outlines/generate', data).then(res => res.items),
+  
+  // 获取大纲关联的章节
+  getOutlineChapters: (outlineId: string) =>
+    api.get<unknown, {
+      has_chapters: boolean;
+      outline_id: string;
+      outline_title: string;
+      chapter_count: number;
+      chapters: Array<{
+        id: string;
+        chapter_number: number;
+        title: string;
+        summary: string;
+        sub_index: number;
+        status: string;
+        word_count: number;
+      }>;
+      expansion_plans: Array<{
+        sub_index: number;
+        title: string;
+        plot_summary: string;
+        key_events: string[];
+        character_focus: string[];
+        emotional_tone: string;
+        narrative_goal: string;
+        conflict_type: string;
+        estimated_words: number;
+        scenes?: Array<{
+          location: string;
+          characters: string[];
+          purpose: string;
+        }> | null;
+      }> | null;
+    }>(`/outlines/${outlineId}/chapters`),
+  
+  // 单个大纲展开为多章
+  expandOutline: (outlineId: string, data: OutlineExpansionRequest) =>
+    api.post<unknown, OutlineExpansionResponse>(`/outlines/${outlineId}/expand`, data),
+  
+  // 根据已有规划创建章节（避免重复AI调用）
+  createChaptersFromPlans: (outlineId: string, chapterPlans: any[]) =>
+    api.post<unknown, {
+      outline_id: string;
+      outline_title: string;
+      chapters_created: number;
+      created_chapters: Array<{
+        id: string;
+        chapter_number: number;
+        title: string;
+        summary: string;
+        outline_id: string;
+        sub_index: number;
+        status: string;
+      }>;
+    }>(`/outlines/${outlineId}/create-chapters-from-plans`, { chapter_plans: chapterPlans }),
+  
+  // 批量展开大纲
+  batchExpandOutlines: (data: BatchOutlineExpansionRequest) =>
+    api.post<unknown, BatchOutlineExpansionResponse>('/outlines/batch-expand', data),
 };
 
 export const characterApi = {
