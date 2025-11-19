@@ -6,7 +6,7 @@ import { useOutlineSync } from '../store/hooks';
 import { cardStyles } from '../components/CardStyles';
 import { SSEPostClient } from '../utils/sseClient';
 import { outlineApi, chapterApi } from '../services/api';
-import type { OutlineExpansionRequest, OutlineExpansionResponse, BatchOutlineExpansionResponse } from '../types';
+import type { OutlineExpansionResponse, BatchOutlineExpansionResponse } from '../types';
 
 const { TextArea } = Input;
 
