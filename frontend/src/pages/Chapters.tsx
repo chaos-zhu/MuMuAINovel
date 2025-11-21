@@ -1358,6 +1358,20 @@ export default function Chapters() {
           onClose={() => {
             setAnalysisVisible(false);
             
+            // 刷新章节列表以显示最新内容
+            refreshChapters();
+            
+            // 刷新项目信息以更新字数统计
+            if (currentProject) {
+              projectApi.getProject(currentProject.id)
+                .then(updatedProject => {
+                  setCurrentProject(updatedProject);
+                })
+                .catch(error => {
+                  console.error('刷新项目信息失败:', error);
+                });
+            }
+            
             // 延迟500ms后刷新该章节的分析状态，给后端足够时间完成数据库写入
             if (analysisChapterId) {
               const chapterIdToRefresh = analysisChapterId;
