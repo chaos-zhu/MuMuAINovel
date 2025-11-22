@@ -49,7 +49,14 @@ async def lifespan(app: FastAPI):
     
     # 清理MCP插件
     await mcp_registry.cleanup_all()
+    
+    # 清理HTTP客户端池
+    from app.services.ai_service import cleanup_http_clients
+    await cleanup_http_clients()
+    
+    # 关闭数据库连接
     await close_db()
+    
     logger.info("应用已关闭")
 
 

@@ -72,24 +72,39 @@ async def get_engine(user_id: str):
             
             engine = create_async_engine(
                 settings.database_url,
-                echo=False,  # 生产环境关闭SQL日志
+                echo=settings.database_echo_pool,  # 根据配置决定是否输出连接池日志
+                echo_pool=settings.database_echo_pool,  # 连接池操作日志
                 future=True,
-                pool_size=settings.database_pool_size,  # 核心连接数：30
-                max_overflow=settings.database_max_overflow,  # 溢出连接数：20
-                pool_timeout=settings.database_pool_timeout,  # 连接超时：60秒
+                pool_size=settings.database_pool_size,  # 核心连接数：50（优化后）
+                max_overflow=settings.database_max_overflow,  # 溢出连接数：30（优化后）
+                pool_timeout=settings.database_pool_timeout,  # 连接超时：90秒（优化后）
                 pool_pre_ping=settings.database_pool_pre_ping,  # 连接前检测
                 pool_recycle=settings.database_pool_recycle,  # 连接回收：1800秒
                 pool_use_lifo=settings.database_pool_use_lifo,  # LIFO策略提高复用
+                pool_reset_on_return=settings.database_pool_reset_on_return,  # 连接归还时重置
+                max_identifier_length=settings.database_max_identifier_length,  # 标识符最大长度
                 connect_args=connect_args
             )
             _engine_cache[cache_key] = engine
+            
+            # 计算总连接数和预估并发能力
+            total_connections = settings.database_pool_size + settings.database_max_overflow
+            estimated_concurrent_users = total_connections * 2  # 每个用户平均0.5个连接
+            
             logger.info(
-                f"✅ PostgreSQL引擎已创建（优化配置）\n"
-                f"   ├─ 连接池: {settings.database_pool_size} 核心 + {settings.database_max_overflow} 溢出 = {settings.database_pool_size + settings.database_max_overflow} 总连接\n"
-                f"   ├─ 超时: {settings.database_pool_timeout}秒\n"
-                f"   ├─ 回收: {settings.database_pool_recycle}秒\n"
-                f"   ├─ 策略: LIFO（提高复用率）\n"
-                f"   └─ 预估并发: 80-150用户"
+                f"   \n"
+                f"   ├─ 连接池配置:\n"
+                f"   │  ├─ 核心连接: {settings.database_pool_size}\n"
+                f"   │  ├─ 溢出连接: {settings.database_max_overflow}\n"
+                f"   │  └─ 总连接数: {total_connections}\n"
+                f"   ├─ 超时配置:\n"
+                f"   │  ├─ 获取超时: {settings.database_pool_timeout}秒\n"
+                f"   │  └─ 连接回收: {settings.database_pool_recycle}秒 ({settings.database_pool_recycle//60}分钟)\n"
+                f"   ├─ 优化策略:\n"
+                f"   │  ├─ 复用策略: LIFO（后进先出）\n"
+                f"   │  ├─ 健康检查: Pre-ping enabled\n"
+                f"   │  └─ 归还重置: {settings.database_pool_reset_on_return}\n"
+                f"   └─ 预估并发: {estimated_concurrent_users}-{estimated_concurrent_users + 50}用户"
             )
         
         return _engine_cache[cache_key]
@@ -340,6 +355,24 @@ async def get_database_stats():
     """
     from app.config import settings
     
+    # 获取连接池详细状态
+    pool_stats = {}
+    cache_key = "shared_postgres"
+    if cache_key in _engine_cache:
+        engine = _engine_cache[cache_key]
+        try:
+            pool = engine.pool
+            pool_stats = {
+                "size": pool.size(),  # 当前连接池大小
+                "checked_in": pool.checkedin(),  # 可用连接数
+                "checked_out": pool.checkedout(),  # 正在使用的连接数
+                "overflow": pool.overflow(),  # 溢出连接数
+                "usage_percent": (pool.checkedout() / (settings.database_pool_size + settings.database_max_overflow)) * 100,
+            }
+        except Exception as e:
+            logger.warning(f"获取连接池状态失败: {e}")
+            pool_stats = {"error": str(e)}
+    
     stats = {
         "session_stats": {
             "created": _session_stats["created"],
@@ -349,6 +382,7 @@ async def get_database_stats():
             "generator_exits": _session_stats["generator_exits"],
             "last_check": _session_stats["last_check"],
         },
+        "pool_stats": pool_stats,  # 新增：连接池实时状态
         "engine_cache": {
             "total_engines": len(_engine_cache),
             "engine_keys": list(_engine_cache.keys()),
@@ -359,6 +393,7 @@ async def get_database_stats():
             "max_overflow": settings.database_max_overflow,
             "total_connections": settings.database_pool_size + settings.database_max_overflow,
             "pool_timeout": settings.database_pool_timeout,
+            "pool_recycle": settings.database_pool_recycle,
             "session_max_active_threshold": settings.database_session_max_active,
             "session_leak_threshold": settings.database_session_leak_threshold,
         },
@@ -385,9 +420,20 @@ async def get_database_stats():
         stats["health"]["status"] = "error"
         stats["health"]["errors"].append(f"活跃会话数异常: {_session_stats['active']}")
     
+    # 连接池使用率检查
+    if pool_stats and "usage_percent" in pool_stats:
+        usage = pool_stats["usage_percent"]
+        if usage > 90:
+            stats["health"]["status"] = "warning"
+            stats["health"]["warnings"].append(f"连接池使用率过高: {usage:.1f}%")
+        elif usage > 95:
+            stats["health"]["status"] = "critical"
+            stats["health"]["errors"].append(f"连接池几乎耗尽: {usage:.1f}%")
+    
     error_rate = (_session_stats["errors"] / max(_session_stats["created"], 1)) * 100
     if error_rate > 5:
-        stats["health"]["status"] = "warning"
+        if stats["health"]["status"] == "healthy":
+            stats["health"]["status"] = "warning"
         stats["health"]["warnings"].append(f"会话错误率过高: {error_rate:.2f}%")
     
     stats["health"]["error_rate"] = f"{error_rate:.2f}%"

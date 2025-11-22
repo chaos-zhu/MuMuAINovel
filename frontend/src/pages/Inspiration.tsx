@@ -435,7 +435,7 @@ const Inspiration: React.FC = () => {
       await wizardStreamApi.generateCompleteOutlineStream(
         {
           project_id: createdProjectId,
-          chapter_count: 5,
+          chapter_count: 3,
           narrative_perspective: data.narrative_perspective,
           target_words: 100000,
         },

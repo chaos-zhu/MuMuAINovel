@@ -43,13 +43,18 @@ class Settings(BaseSettings):
     # 数据库配置 - PostgreSQL
     database_url: str = DATABASE_URL
     
-    # PostgreSQL连接池配置（优化后支持80-150并发用户）
-    database_pool_size: int = 30  # 核心连接池大小（从20提升到30）
-    database_max_overflow: int = 20  # 最大溢出连接数（从10提升到20）
-    database_pool_timeout: int = 60  # 连接池超时秒数（从30提升到60）
-    database_pool_recycle: int = 1800  # 连接回收时间秒数（从3600降低到1800，30分钟）
+    # PostgreSQL连接池配置（优化后支持150-200并发用户）
+    database_pool_size: int = 50  # 核心连接池大小（优化：从30提升到50）
+    database_max_overflow: int = 30  # 最大溢出连接数（优化：从20提升到30）
+    database_pool_timeout: int = 90  # 连接池超时秒数（优化：从60提升到90）
+    database_pool_recycle: int = 1800  # 连接回收时间秒数（30分钟，防止长时间连接失效）
     database_pool_pre_ping: bool = True  # 连接前ping检测，确保连接有效
     database_pool_use_lifo: bool = True  # 使用LIFO策略提高连接复用率
+    
+    # 连接池高级配置
+    database_echo_pool: bool = False  # 是否记录连接池日志（调试用）
+    database_pool_reset_on_return: str = "rollback"  # 连接归还时的重置策略：rollback/commit/none
+    database_max_identifier_length: int = 128  # PostgreSQL标识符最大长度
     
     # 会话监控配置
     database_session_max_active: int = 50  # 活跃会话警告阈值（从100降低到50）

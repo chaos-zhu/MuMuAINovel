@@ -129,9 +129,9 @@ export default function SettingsPage() {
   };
 
   const apiProviders = [
-    { value: 'openai', label: 'OpenAI', defaultUrl: 'https://api.openai.com/v1' },
+    { value: 'openai', label: 'OpenAl Compatible', defaultUrl: 'https://api.openai.com/v1' },
     // { value: 'azure', label: 'Azure OpenAI', defaultUrl: 'https://YOUR-RESOURCE.openai.azure.com' },
-    { value: 'anthropic', label: 'Anthropic', defaultUrl: 'https://api.anthropic.com' },
+    // { value: 'anthropic', label: 'Anthropic', defaultUrl: 'https://api.anthropic.com' },
     // { value: 'custom', label: '自定义', defaultUrl: '' },
   ];
 
@@ -639,46 +639,61 @@ export default function SettingsPage() {
                 {/* 操作按钮 */}
                 <Form.Item style={{ marginBottom: 0, marginTop: isMobile ? 24 : 32 }}>
                   {isMobile ? (
-                    // 移动端：垂直堆叠布局
-                    <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-                      <Button
-                        type="primary"
-                        size="large"
-                        icon={<SaveOutlined />}
-                        htmlType="submit"
-                        loading={loading}
-                        block
-                        style={{
-                          background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-                          border: 'none',
-                          height: '44px'
-                        }}
-                      >
-                        保存设置
-                      </Button>
-                      <Space size="middle" style={{ width: '100%' }}>
+                      // 移动端：垂直堆叠布局
+                      <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                        <Button
+                          type="primary"
+                          size="large"
+                          icon={<SaveOutlined />}
+                          htmlType="submit"
+                          loading={loading}
+                          block
+                          style={{
+                            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                            border: 'none',
+                            height: '44px'
+                          }}
+                        >
+                          保存设置
+                        </Button>
                         <Button
                           size="large"
-                          icon={<ReloadOutlined />}
-                          onClick={handleReset}
-                          style={{ flex: 1, height: '44px' }}
+                          icon={<ThunderboltOutlined />}
+                          onClick={handleTestConnection}
+                          loading={testingApi}
+                          block
+                          style={{
+                            borderColor: '#52c41a',
+                            color: '#52c41a',
+                            fontWeight: 500,
+                            height: '44px'
+                          }}
                         >
-                          重置
+                          {testingApi ? '测试中...' : '测试连接'}
                         </Button>
-                        {hasSettings && (
+                        <Space size="middle" style={{ width: '100%' }}>
                           <Button
-                            danger
                             size="large"
-                            icon={<DeleteOutlined />}
-                            onClick={handleDelete}
-                            loading={loading}
+                            icon={<ReloadOutlined />}
+                            onClick={handleReset}
                             style={{ flex: 1, height: '44px' }}
                           >
-                            删除
+                            重置
                           </Button>
-                        )}
+                          {hasSettings && (
+                            <Button
+                              danger
+                              size="large"
+                              icon={<DeleteOutlined />}
+                              onClick={handleDelete}
+                              loading={loading}
+                              style={{ flex: 1, height: '44px' }}
+                            >
+                              删除
+                            </Button>
+                          )}
+                        </Space>
                       </Space>
-                    </Space>
                   ) : (
                     // 桌面端：删除在左边，测试、重置和保存在右边
                     <div style={{

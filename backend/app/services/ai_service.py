@@ -6,8 +6,106 @@ from app.config import settings as app_settings
 from app.logger import get_logger
 import httpx
 import json
+import hashlib
 
 logger = get_logger(__name__)
+
+# 全局HTTP客户端池（按配置复用）
+_http_client_pool: Dict[str, httpx.AsyncClient] = {}
+_client_pool_lock = False  # 简单的锁标志
+
+
+def _get_client_key(provider: str, base_url: Optional[str], api_key: str) -> str:
+    """生成HTTP客户端的唯一键
+    
+    Args:
+        provider: 提供商名称
+        base_url: API基础URL
+        api_key: API密钥（用于区分不同用户）
+        
+    Returns:
+        客户端唯一键
+    """
+    # 使用API密钥的哈希值（安全性）+ 提供商 + base_url 作为键
+    key_hash = hashlib.md5(api_key.encode()).hexdigest()[:8]
+    url_part = base_url or "default"
+    return f"{provider}_{url_part}_{key_hash}"
+
+
+def _get_or_create_http_client(
+    provider: str,
+    base_url: Optional[str],
+    api_key: str
+) -> httpx.AsyncClient:
+    """获取或创建HTTP客户端（复用连接）
+    
+    Args:
+        provider: 提供商名称
+        base_url: API基础URL
+        api_key: API密钥
+        
+    Returns:
+        httpx.AsyncClient实例
+    """
+    global _http_client_pool
+    
+    client_key = _get_client_key(provider, base_url, api_key)
+    
+    # 检查是否已存在
+    if client_key in _http_client_pool:
+        client = _http_client_pool[client_key]
+        # 检查客户端是否仍然有效
+        if not client.is_closed:
+            logger.debug(f"♻️ 复用HTTP客户端: {client_key}")
+            return client
+        else:
+            # 客户端已关闭，从池中移除
+            logger.warning(f"⚠️ HTTP客户端已关闭，重新创建: {client_key}")
+            del _http_client_pool[client_key]
+    
+    # 创建新客户端
+    limits = httpx.Limits(
+        max_keepalive_connections=50,  # 最大保持连接数
+        max_connections=100,  # 最大总连接数
+        keepalive_expiry=30.0  # 保持连接30秒
+    )
+    
+    client = httpx.AsyncClient(
+        timeout=httpx.Timeout(
+            connect=60.0,  # 连接超时
+            read=180.0,  # 读取超时
+            write=60.0,  # 写入超时
+            pool=60.0  # 连接池超时
+        ),
+        limits=limits,
+        headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+        }
+    )
+    
+    # 添加到池中
+    _http_client_pool[client_key] = client
+    logger.info(f"✅ 创建新HTTP客户端并加入池: {client_key} (池大小: {len(_http_client_pool)})")
+    
+    return client
+
+
+async def cleanup_http_clients():
+    """清理所有HTTP客户端（应用关闭时调用）"""
+    global _http_client_pool
+    
+    logger.info(f"🧹 开始清理HTTP客户端池 (共 {len(_http_client_pool)} 个客户端)")
+    
+    for key, client in list(_http_client_pool.items()):
+        try:
+            if not client.is_closed:
+                await client.aclose()
+                logger.debug(f"✅ 关闭HTTP客户端: {key}")
+        except Exception as e:
+            logger.error(f"❌ 关闭HTTP客户端失败 {key}: {e}")
+    
+    _http_client_pool.clear()
+    logger.info("✅ HTTP客户端池清理完成")
 
 
 class AIService:
@@ -39,30 +137,20 @@ class AIService:
         self.default_temperature = default_temperature or app_settings.default_temperature
         self.default_max_tokens = default_max_tokens or app_settings.default_max_tokens
         
-        # 初始化OpenAI客户端
+        # 初始化OpenAI客户端（使用HTTP客户端池）
         openai_key = api_key if api_provider == "openai" else app_settings.openai_api_key
         if openai_key:
             try:
-                limits = httpx.Limits(
-                    max_keepalive_connections=50,
-                    max_connections=100,
-                    keepalive_expiry=30.0
-                )
+                base_url = api_base_url if api_provider == "openai" else app_settings.openai_base_url
                 
-                http_client = httpx.AsyncClient(
-                    timeout=httpx.Timeout(connect=60.0, read=180.0, write=60.0, pool=60.0),
-                    limits=limits,
-                    headers={
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                    }
-                )
+                # 从池中获取或创建HTTP客户端（复用连接）
+                http_client = _get_or_create_http_client("openai", base_url, openai_key)
                 
                 client_kwargs = {
                     "api_key": openai_key,
                     "http_client": http_client
                 }
                 
-                base_url = api_base_url if api_provider == "openai" else app_settings.openai_base_url
                 if base_url:
                     client_kwargs["base_url"] = base_url
                 
@@ -70,7 +158,7 @@ class AIService:
                 self.openai_http_client = http_client
                 self.openai_api_key = openai_key
                 self.openai_base_url = base_url
-                logger.info("✅ OpenAI客户端初始化成功")
+                logger.info("✅ OpenAI客户端初始化成功（复用HTTP连接）")
             except Exception as e:
                 logger.error(f"OpenAI客户端初始化失败: {e}")
                 self.openai_client = None
@@ -86,35 +174,25 @@ class AIService:
             if self.api_provider == "openai":
                 logger.warning("⚠️ OpenAI API key未配置，但被设置为当前AI提供商")
         
-        # 初始化Anthropic客户端
+        # 初始化Anthropic客户端（使用HTTP客户端池）
         anthropic_key = api_key if api_provider == "anthropic" else app_settings.anthropic_api_key
         if anthropic_key:
             try:
-                limits = httpx.Limits(
-                    max_keepalive_connections=50,
-                    max_connections=100,
-                    keepalive_expiry=30.0
-                )
+                base_url = api_base_url if api_provider == "anthropic" else app_settings.anthropic_base_url
                 
-                http_client = httpx.AsyncClient(
-                    timeout=httpx.Timeout(connect=60.0, read=180.0, write=60.0, pool=60.0),
-                    limits=limits,
-                    headers={
-                        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                    }
-                )
+                # 从池中获取或创建HTTP客户端（复用连接）
+                http_client = _get_or_create_http_client("anthropic", base_url, anthropic_key)
                 
                 client_kwargs = {
                     "api_key": anthropic_key,
                     "http_client": http_client
                 }
                 
-                base_url = api_base_url if api_provider == "anthropic" else app_settings.anthropic_base_url
                 if base_url:
                     client_kwargs["base_url"] = base_url
                 
                 self.anthropic_client = AsyncAnthropic(**client_kwargs)
-                logger.info("✅ Anthropic客户端初始化成功")
+                logger.info("✅ Anthropic客户端初始化成功（复用HTTP连接）")
             except Exception as e:
                 logger.error(f"Anthropic客户端初始化失败: {e}")
                 self.anthropic_client = None
