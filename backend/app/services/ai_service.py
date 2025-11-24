@@ -4,6 +4,7 @@ from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
 from app.config import settings as app_settings
 from app.logger import get_logger
+from app.mcp.adapters import UniversalMCPAdapter, PromptInjectionAdapter
 import httpx
 import json
 import hashlib
@@ -118,7 +119,8 @@ class AIService:
         api_base_url: Optional[str] = None,
         default_model: Optional[str] = None,
         default_temperature: Optional[float] = None,
-        default_max_tokens: Optional[int] = None
+        default_max_tokens: Optional[int] = None,
+        enable_mcp_adapter: bool = True
     ):
         """
         初始化AI客户端（优化并发性能）
@@ -136,6 +138,15 @@ class AIService:
         self.default_model = default_model or app_settings.default_model
         self.default_temperature = default_temperature or app_settings.default_temperature
         self.default_max_tokens = default_max_tokens or app_settings.default_max_tokens
+        
+        # 初始化MCP适配器
+        self.enable_mcp_adapter = enable_mcp_adapter
+        if enable_mcp_adapter:
+            self.mcp_adapter = UniversalMCPAdapter()
+            logger.info("✅ MCP通用适配器已启用")
+        else:
+            self.mcp_adapter = None
+            logger.info("⚠️ MCP适配器已禁用")
         
         # 初始化OpenAI客户端（使用HTTP客户端池）
         openai_key = api_key if api_provider == "openai" else app_settings.openai_api_key
@@ -396,7 +407,7 @@ class AIService:
         tools: Optional[List[Dict[str, Any]]] = None,
         tool_choice: Optional[str] = None
     ) -> Dict[str, Any]:
-        """使用OpenAI生成文本（支持工具调用）"""
+        """使用OpenAI生成文本（支持工具调用，集成MCP适配器）"""
         if not self.openai_http_client:
             raise ValueError("OpenAI客户端未初始化，请检查API key配置")
         
@@ -405,8 +416,101 @@ class AIService:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
         
+        # 如果启用了MCP适配器且有工具，使用适配器处理
+        if self.enable_mcp_adapter and self.mcp_adapter and tools:
+            logger.info(f"🎯 使用MCP适配器处理工具调用")
+            
+            # 生成API标识符
+            api_identifier = f"openai_{self.openai_base_url or 'default'}"
+            
+            # 定义API调用函数
+            async def call_api(message: str, tools_param: Optional[List] = None, tool_choice_param: Optional[str] = None):
+                """实际调用OpenAI API的函数"""
+                call_messages = messages.copy()
+                call_messages[-1]["content"] = message
+                
+                url = f"{self.openai_base_url}/chat/completions"
+                headers = {
+                    "Authorization": f"Bearer {self.openai_api_key}",
+                    "Content-Type": "application/json"
+                }
+                payload = {
+                    "model": model,
+                    "messages": call_messages,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens
+                }
+                
+                # 只在tools_param不为None时添加工具参数
+                if tools_param is not None:
+                    # 清理工具定义，移除$schema字段（某些API不支持）
+                    cleaned_tools = []
+                    for tool in tools_param:
+                        cleaned_tool = tool.copy()
+                        if "function" in cleaned_tool and "parameters" in cleaned_tool["function"]:
+                            params = cleaned_tool["function"]["parameters"].copy()
+                            # 移除$schema字段
+                            params.pop("$schema", None)
+                            cleaned_tool["function"]["parameters"] = params
+                        cleaned_tools.append(cleaned_tool)
+                    
+                    payload["tools"] = cleaned_tools
+                    if tool_choice_param:
+                        payload["tool_choice"] = tool_choice_param
+                
+                response = await self.openai_http_client.post(url, headers=headers, json=payload)
+                response.raise_for_status()
+                return response.json()
+            
+            # 定义测试函数（检测API是否支持Function Calling）
+            async def test_fc():
+                """测试Function Calling支持"""
+                test_tools = [{
+                    "type": "function",
+                    "function": {
+                        "name": "test_function",
+                        "description": "测试函数",
+                        "parameters": {"type": "object", "properties": {}}
+                    }
+                }]
+                try:
+                    result = await call_api("测试", tools_param=test_tools, tool_choice_param="none")
+                    return result
+                except Exception as e:
+                    logger.debug(f"Function Calling测试失败: {e}")
+                    raise
+            
+            try:
+                # 使用适配器处理（自动检测、降级、缓存）
+                result = await self.mcp_adapter.call_with_fallback(
+                    api_identifier=api_identifier,
+                    tools=tools,
+                    user_message=prompt,
+                    call_function=call_api,
+                    test_function=test_fc
+                )
+                
+                # 转换结果格式
+                if result.has_tool_calls:
+                    return {
+                        "tool_calls": result.tool_calls,
+                        "content": result.raw_response,
+                        "finish_reason": "tool_calls"
+                    }
+                else:
+                    return {
+                        "content": result.raw_response,
+                        "finish_reason": "stop"
+                    }
+                    
+            except Exception as e:
+                logger.error(f"❌ MCP适配器调用失败: {str(e)}")
+                # 降级到原始实现
+                logger.warning("⚠️ 降级到原始OpenAI调用")
+        
+        # 原始实现（无适配器或降级）
         try:
-            logger.info(f"🔵 开始调用OpenAI API（支持工具调用）")
+            logger.info(f"🔵 开始调用OpenAI API（原始模式）")
             logger.info(f"  - 模型: {model}")
             logger.info(f"  - 工具数量: {len(tools) if tools else 0}")
             

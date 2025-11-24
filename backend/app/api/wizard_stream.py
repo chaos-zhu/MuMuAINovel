@@ -68,11 +68,19 @@ async def world_building_generator(
         reference_materials = ""
         if enable_mcp and user_id:
             try:
-                yield await SSEResponse.send_progress("🔍 尝试使用MCP工具收集参考资料...", 18)
+                # 先静默检查是否有可用工具
+                from app.services.mcp_tool_service import mcp_tool_service
+                available_tools = await mcp_tool_service.get_user_enabled_tools(
+                    user_id=user_id,
+                    db_session=db
+                )
                 
-                # 直接调用MCP增强的AI，内部会自动检查和加载工具
-                # 构建资料收集提示词
-                planning_prompt = f"""你正在为小说《{title}》设计世界观。
+                # 只有在真正有可用工具时才显示消息和调用
+                if available_tools:
+                    yield await SSEResponse.send_progress("🔍 尝试使用MCP工具收集参考资料...", 18)
+                    
+                    # 构建资料收集提示词
+                    planning_prompt = f"""你正在为小说《{title}》设计世界观。
 
 【小说信息】
 - 题材：{genre}
@@ -88,28 +96,32 @@ async def world_building_generator(
 4. 类似作品的设定参考
 
 请根据题材特点，有针对性地查询2-3个关键问题。"""
-                    
-                # 调用MCP增强的AI（非流式，最多2轮工具调用）
-                planning_result = await user_ai_service.generate_text_with_mcp(
-                    prompt=planning_prompt,
-                    user_id=user_id,
-                    db_session=db,
-                    enable_mcp=True,
-                    max_tool_rounds=2,
-                    tool_choice="auto",
-                    provider=None,
-                    model=None
-                )
-                
-                # 提取参考资料
-                if planning_result.get("tool_calls_made", 0) > 0:
-                    yield await SSEResponse.send_progress(
-                        f"✅ MCP工具调用成功（{planning_result['tool_calls_made']}次）",
-                        25
+                        
+                    # 调用MCP增强的AI（非流式，最多2轮工具调用）
+                    planning_result = await user_ai_service.generate_text_with_mcp(
+                        prompt=planning_prompt,
+                        user_id=user_id,
+                        db_session=db,
+                        enable_mcp=True,
+                        max_tool_rounds=2,
+                        tool_choice="auto",
+                        provider=None,
+                        model=None
                     )
-                    reference_materials = planning_result.get("content", "")
+                    
+                    # 提取参考资料
+                    if planning_result.get("tool_calls_made", 0) > 0:
+                        yield await SSEResponse.send_progress(
+                            f"✅ MCP工具调用成功（{planning_result['tool_calls_made']}次）",
+                            25
+                        )
+                        reference_materials = planning_result.get("content", "")
+                    else:
+                        # 有工具但未使用
+                        logger.debug("MCP工具可用但AI未选择使用")
                 else:
-                    yield await SSEResponse.send_progress("ℹ️ 未使用MCP工具（无可用工具或不需要）", 25)
+                    # 没有可用工具，静默跳过
+                    logger.debug(f"用户 {user_id} 未启用MCP工具，跳过MCP增强")
                     
             except Exception as e:
                 logger.warning(f"MCP工具调用失败（降级处理）: {e}")
@@ -325,10 +337,19 @@ async def characters_generator(
         character_reference_materials = ""
         if enable_mcp and user_id:
             try:
-                yield await SSEResponse.send_progress("🔍 尝试使用MCP工具收集角色参考资料...", 8)
+                # 先静默检查是否有可用工具
+                from app.services.mcp_tool_service import mcp_tool_service
+                available_tools = await mcp_tool_service.get_user_enabled_tools(
+                    user_id=user_id,
+                    db_session=db
+                )
                 
-                # 构建角色资料收集提示词
-                planning_prompt = f"""你正在为小说《{project.title}》设计角色。
+                # 只有在真正有可用工具时才显示消息和调用
+                if available_tools:
+                    yield await SSEResponse.send_progress("🔍 尝试使用MCP工具收集角色参考资料...", 8)
+                    
+                    # 构建角色资料收集提示词
+                    planning_prompt = f"""你正在为小说《{project.title}》设计角色。
 
 【小说信息】
 - 题材：{genre or project.genre}
@@ -345,28 +366,32 @@ async def characters_generator(
 4. 相关领域的人物原型
 
 请根据题材特点，有针对性地查询1-2个关键问题。"""
-                
-                # 调用MCP增强的AI（非流式，最多2轮工具调用）
-                planning_result = await user_ai_service.generate_text_with_mcp(
-                    prompt=planning_prompt,
-                    user_id=user_id,
-                    db_session=db,
-                    enable_mcp=True,
-                    max_tool_rounds=2,
-                    tool_choice="auto",
-                    provider=None,
-                    model=None
-                )
-                
-                # 提取参考资料
-                if planning_result.get("tool_calls_made", 0) > 0:
-                    yield await SSEResponse.send_progress(
-                        f"✅ MCP工具调用成功（{planning_result['tool_calls_made']}次）",
-                        12
+                    
+                    # 调用MCP增强的AI（非流式，最多2轮工具调用）
+                    planning_result = await user_ai_service.generate_text_with_mcp(
+                        prompt=planning_prompt,
+                        user_id=user_id,
+                        db_session=db,
+                        enable_mcp=True,
+                        max_tool_rounds=2,
+                        tool_choice="auto",
+                        provider=None,
+                        model=None
                     )
-                    character_reference_materials = planning_result.get("content", "")
+                    
+                    # 提取参考资料
+                    if planning_result.get("tool_calls_made", 0) > 0:
+                        yield await SSEResponse.send_progress(
+                            f"✅ MCP工具调用成功（{planning_result['tool_calls_made']}次）",
+                            12
+                        )
+                        character_reference_materials = planning_result.get("content", "")
+                    else:
+                        # 有工具但未使用
+                        logger.debug("MCP工具可用但AI未选择使用")
                 else:
-                    yield await SSEResponse.send_progress("ℹ️ 未使用MCP工具（无可用工具或不需要）", 12)
+                    # 没有可用工具，静默跳过
+                    logger.debug(f"用户 {user_id} 未启用MCP工具，跳过MCP增强")
                     
             except Exception as e:
                 logger.warning(f"MCP工具调用失败（降级处理）: {e}")
