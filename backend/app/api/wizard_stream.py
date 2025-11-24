@@ -95,15 +95,15 @@ async def world_building_generator(
 3. 相关领域的专业知识
 4. 类似作品的设定参考
 
-请根据题材特点，有针对性地查询2-3个关键问题。"""
+请查询最关键的1个问题（不要超过1个）。"""
                         
-                    # 调用MCP增强的AI（非流式，最多2轮工具调用）
+                    # 调用MCP增强的AI（非流式，最多1轮工具调用，避免超时）
                     planning_result = await user_ai_service.generate_text_with_mcp(
                         prompt=planning_prompt,
                         user_id=user_id,
                         db_session=db,
                         enable_mcp=True,
-                        max_tool_rounds=2,
+                        max_tool_rounds=1,
                         tool_choice="auto",
                         provider=None,
                         model=None
@@ -365,15 +365,15 @@ async def characters_generator(
 3. 职业特点和生活方式
 4. 相关领域的人物原型
 
-请根据题材特点，有针对性地查询1-2个关键问题。"""
+请查询最关键的1个问题（不要超过1个）。"""
                     
-                    # 调用MCP增强的AI（非流式，最多2轮工具调用）
+                    # 调用MCP增强的AI（非流式，最多1轮工具调用，避免超时）
                     planning_result = await user_ai_service.generate_text_with_mcp(
                         prompt=planning_prompt,
                         user_id=user_id,
                         db_session=db,
                         enable_mcp=True,
-                        max_tool_rounds=2,
+                        max_tool_rounds=1,  # ✅ 优化: 从2轮减少到1轮
                         tool_choice="auto",
                         provider=None,
                         model=None

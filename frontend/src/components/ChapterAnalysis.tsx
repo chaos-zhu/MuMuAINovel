@@ -57,12 +57,9 @@ export default function ChapterAnalysis({ chapterId, visible, onClose }: Chapter
     };
   }, [visible, chapterId]);
 
-  const fetchAnalysisStatus = async () => {
+  // 🔧 新增：独立的章节信息加载函数
+  const loadChapterInfo = async () => {
     try {
-      setLoading(true);
-      setError(null);
-      
-      // 同时获取章节信息
       const chapterResponse = await fetch(`/api/chapters/${chapterId}`);
       if (chapterResponse.ok) {
         const chapterData = await chapterResponse.json();
@@ -71,7 +68,20 @@ export default function ChapterAnalysis({ chapterId, visible, onClose }: Chapter
           chapter_number: chapterData.chapter_number,
           content: chapterData.content || ''
         });
+        console.log('✅ 已刷新章节内容，字数:', chapterData.content?.length || 0);
       }
+    } catch (error) {
+      console.error('❌ 加载章节信息失败:', error);
+    }
+  };
+
+  const fetchAnalysisStatus = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      
+      // 🔧 使用独立的章节加载函数
+      await loadChapterInfo();
       
       const response = await fetch(`/api/chapters/${chapterId}/analysis/status`);
       
@@ -134,6 +144,8 @@ export default function ChapterAnalysis({ chapterId, visible, onClose }: Chapter
         if (taskData.status === 'completed') {
           clearInterval(pollInterval);
           await fetchAnalysisResult();
+          // 🔧 分析完成后刷新章节内容，确保显示最新内容
+          await loadChapterInfo();
         } else if (taskData.status === 'failed') {
           clearInterval(pollInterval);
           setError(taskData.error_message || '分析失败');
@@ -151,6 +163,9 @@ export default function ChapterAnalysis({ chapterId, visible, onClose }: Chapter
     try {
       setLoading(true);
       setError(null);
+      
+      // 🔧 触发分析前先刷新章节内容，确保分析的是最新内容
+      await loadChapterInfo();
       
       const response = await fetch(`/api/chapters/${chapterId}/analyze`, {
         method: 'POST'

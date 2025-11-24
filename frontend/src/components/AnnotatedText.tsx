@@ -24,6 +24,7 @@ interface TextSegment {
   type: 'text' | 'annotated';
   content: string;
   annotation?: MemoryAnnotation;
+  annotations?: MemoryAnnotation[]; // 🔧 支持多个标注
 }
 
 interface AnnotatedTextProps {
@@ -108,30 +109,89 @@ const AnnotatedText: React.FC<AnnotatedTextProps> = ({
     const result: TextSegment[] = [];
     let lastPos = 0;
 
+    // 🔧 智能分组：检测重叠和相邻的标注
+    const annotationRanges: Array<{
+      start: number;
+      end: number;
+      annotations: MemoryAnnotation[];
+    }> = [];
+
     for (const annotation of processedAnnotations) {
       const { position, length } = annotation;
-      
-      // 添加普通文本片段
-      if (position > lastPos) {
+      const actualLength = length > 0 ? length : 30;
+      const start = position;
+      const end = position + actualLength;
+
+      // 查找是否有重叠或紧邻的范围
+      const overlappingRange = annotationRanges.find(
+        (range) =>
+          (start >= range.start && start <= range.end) || // 起始点在范围内
+          (end >= range.start && end <= range.end) || // 结束点在范围内
+          (start <= range.start && end >= range.end) || // 完全包含
+          Math.abs(start - range.end) <= 5 || // 紧邻（容差5字符）
+          Math.abs(end - range.start) <= 5
+      );
+
+      if (overlappingRange) {
+        // 合并到现有范围
+        overlappingRange.start = Math.min(overlappingRange.start, start);
+        overlappingRange.end = Math.max(overlappingRange.end, end);
+        overlappingRange.annotations.push(annotation);
+      } else {
+        // 创建新范围
+        annotationRanges.push({
+          start,
+          end,
+          annotations: [annotation],
+        });
+      }
+    }
+
+    // 按起始位置排序
+    annotationRanges.sort((a, b) => a.start - b.start);
+
+    // 🔧 智能分片：将重叠区域分成多个小片段
+    for (const range of annotationRanges) {
+      // 添加前面的普通文本
+      if (range.start > lastPos) {
         result.push({
           type: 'text',
-          content: content.slice(lastPos, position),
+          content: content.slice(lastPos, range.start),
         });
       }
 
-      // 添加标注片段
-      const annotatedContent = content.slice(
-        position,
-        position + (length > 0 ? length : 30) // 如果没有长度，默认30字符
-      );
-      
-      result.push({
-        type: 'annotated',
-        content: annotatedContent,
-        annotation,
-      });
+      if (range.annotations.length === 1) {
+        // 单个标注，直接添加
+        result.push({
+          type: 'annotated',
+          content: content.slice(range.start, range.end),
+          annotation: range.annotations[0],
+          annotations: range.annotations,
+        });
+      } else {
+        // 🔧 多个标注：将文本分成多个小片段
+        const totalLength = range.end - range.start;
+        const segmentLength = Math.max(1, Math.floor(totalLength / range.annotations.length));
 
-      lastPos = position + (length > 0 ? length : 30);
+        // 按重要性排序标注
+        const sortedAnnotations = [...range.annotations].sort((a, b) => b.importance - a.importance);
+
+        for (let i = 0; i < sortedAnnotations.length; i++) {
+          const segmentStart = range.start + i * segmentLength;
+          const segmentEnd = i === sortedAnnotations.length - 1
+            ? range.end
+            : range.start + (i + 1) * segmentLength;
+
+          result.push({
+            type: 'annotated',
+            content: content.slice(segmentStart, segmentEnd),
+            annotation: sortedAnnotations[i],
+            annotations: sortedAnnotations, // 保留所有标注信息
+          });
+        }
+      }
+
+      lastPos = range.end;
     }
 
     // 添加剩余文本
@@ -142,6 +202,7 @@ const AnnotatedText: React.FC<AnnotatedTextProps> = ({
       });
     }
 
+    console.log(`AnnotatedText: 处理${processedAnnotations.length}个标注，生成${result.length}个片段`);
     return result;
   }, [content, processedAnnotations]);
 
@@ -151,42 +212,72 @@ const AnnotatedText: React.FC<AnnotatedTextProps> = ({
       return <span key={index}>{segment.content}</span>;
     }
 
-    const { annotation } = segment;
+    const { annotation, annotations } = segment;
     if (!annotation) return null;
 
     const color = TYPE_COLORS[annotation.type];
     const icon = TYPE_ICONS[annotation.type];
     const isActive = activeAnnotationId === annotation.id;
 
-    // 工具提示内容
+    // 🔧 工具提示内容：如果有多个标注，显示所有标注信息
     const tooltipContent = (
-      <div style={{ maxWidth: 300 }}>
-        <div style={{ fontWeight: 'bold', marginBottom: 4 }}>
-          {icon} {annotation.title}
-        </div>
-        <div style={{ fontSize: 12, opacity: 0.9 }}>
-          {annotation.content.slice(0, 100)}
-          {annotation.content.length > 100 ? '...' : ''}
-        </div>
-        <div style={{ marginTop: 8, fontSize: 11, opacity: 0.7 }}>
-          重要性: {(annotation.importance * 10).toFixed(1)}/10
-        </div>
-        {annotation.tags && annotation.tags.length > 0 && (
-          <div style={{ marginTop: 4, fontSize: 11 }}>
-            {annotation.tags.map((tag, i) => (
-              <span
-                key={i}
-                style={{
-                  display: 'inline-block',
-                  background: 'rgba(255,255,255,0.2)',
-                  padding: '2px 6px',
-                  borderRadius: 3,
-                  marginRight: 4,
-                }}
-              >
-                {tag}
-              </span>
+      <div style={{ maxWidth: 350 }}>
+        {annotations && annotations.length > 1 ? (
+          // 多个标注
+          <div>
+            <div style={{ fontWeight: 'bold', marginBottom: 8, borderBottom: '1px solid rgba(255,255,255,0.3)', paddingBottom: 4 }}>
+              📍 此处有 {annotations.length} 个标注
+            </div>
+            {annotations.map((ann, idx) => (
+              <div key={ann.id} style={{
+                marginBottom: idx < annotations.length - 1 ? 8 : 0,
+                paddingBottom: idx < annotations.length - 1 ? 8 : 0,
+                borderBottom: idx < annotations.length - 1 ? '1px solid rgba(255,255,255,0.1)' : 'none'
+              }}>
+                <div style={{ fontWeight: 'bold', marginBottom: 4, fontSize: 13 }}>
+                  {TYPE_ICONS[ann.type]} {ann.title}
+                </div>
+                <div style={{ fontSize: 11, opacity: 0.9 }}>
+                  {ann.content.slice(0, 80)}
+                  {ann.content.length > 80 ? '...' : ''}
+                </div>
+                <div style={{ marginTop: 4, fontSize: 10, opacity: 0.7 }}>
+                  重要性: {(ann.importance * 10).toFixed(1)}/10
+                </div>
+              </div>
             ))}
+          </div>
+        ) : (
+          // 单个标注
+          <div>
+            <div style={{ fontWeight: 'bold', marginBottom: 4 }}>
+              {icon} {annotation.title}
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.9 }}>
+              {annotation.content.slice(0, 100)}
+              {annotation.content.length > 100 ? '...' : ''}
+            </div>
+            <div style={{ marginTop: 8, fontSize: 11, opacity: 0.7 }}>
+              重要性: {(annotation.importance * 10).toFixed(1)}/10
+            </div>
+            {annotation.tags && annotation.tags.length > 0 && (
+              <div style={{ marginTop: 4, fontSize: 11 }}>
+                {annotation.tags.map((tag, i) => (
+                  <span
+                    key={i}
+                    style={{
+                      display: 'inline-block',
+                      background: 'rgba(255,255,255,0.2)',
+                      padding: '2px 6px',
+                      borderRadius: 3,
+                      marginRight: 4,
+                    }}
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </div>

@@ -73,10 +73,10 @@ def _get_or_create_http_client(
     
     client = httpx.AsyncClient(
         timeout=httpx.Timeout(
-            connect=60.0,  # 连接超时
-            read=180.0,  # 读取超时
-            write=60.0,  # 写入超时
-            pool=60.0  # 连接池超时
+            connect=90.0,  # 连接超时
+            read=300.0,  # 读取超时
+            write=90.0,  # 写入超时
+            pool=90.0  # 连接池超时
         ),
         limits=limits,
         headers={
@@ -959,7 +959,7 @@ class AIService:
         
         else:
             # 达到最大轮次
-            logger.warning(f"达到MCP最大调用轮次 {max_tool_rounds}")
+            logger.info(f"达到MCP最大调用轮次 {max_tool_rounds}")
             result["content"] = conversation_history[-1].get("content", "")
             result["finish_reason"] = "max_rounds"
         

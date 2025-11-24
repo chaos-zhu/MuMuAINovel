@@ -291,16 +291,18 @@ class MCPToolService:
         user_id: str,
         tool_calls: List[Dict[str, Any]],
         db_session: AsyncSession,
-        timeout: Optional[float] = None
+        timeout: Optional[float] = None,
+        max_concurrent: int = 2 
     ) -> List[Dict[str, Any]]:
         """
-        批量执行AI请求的工具调用（并行执行）
+        批量执行AI请求的工具调用（限制并发数，避免超时）
         
         Args:
             user_id: 用户ID
             tool_calls: AI返回的工具调用列表
             db_session: 数据库会话
             timeout: 单个工具调用的超时时间（秒，默认使用配置）
+            max_concurrent: 最大并发工具调用数（默认2）
         
         Returns:
             工具调用结果列表
@@ -311,41 +313,54 @@ class MCPToolService:
         # 使用配置的默认超时
         actual_timeout = timeout or mcp_config.TOOL_CALL_TIMEOUT_SECONDS
         
-        logger.info(f"开始执行 {len(tool_calls)} 个工具调用 (超时={actual_timeout}s)")
+        logger.info(f"开始执行 {len(tool_calls)} 个工具调用 (超时={actual_timeout}s, 最大并发={max_concurrent})")
         
-        # 创建异步任务列表
-        tasks = [
-            self._execute_single_tool(
-                user_id=user_id,
-                tool_call=tool_call,
-                db_session=db_session,
-                timeout=actual_timeout
-            )
-            for tool_call in tool_calls
-        ]
-        
-        # 并行执行所有工具调用
-        results = await asyncio.gather(*tasks, return_exceptions=True)
-        
-        # 处理结果
-        formatted_results = []
-        for i, result in enumerate(results):
-            tool_call = tool_calls[i]
+        # ✅ 分批执行，每批最多max_concurrent个
+        all_results = []
+        for i in range(0, len(tool_calls), max_concurrent):
+            batch = tool_calls[i:i+max_concurrent]
+            batch_num = i // max_concurrent + 1
+            total_batches = (len(tool_calls) + max_concurrent - 1) // max_concurrent
             
-            if isinstance(result, Exception):
-                # 工具调用异常
-                formatted_results.append({
-                    "tool_call_id": tool_call.get("id", f"call_{i}"),
-                    "role": "tool",
-                    "name": tool_call["function"]["name"],
-                    "content": f"工具调用失败: {str(result)}",
-                    "success": False,
-                    "error": str(result)
-                })
-            else:
-                formatted_results.append(result)
+            logger.info(f"执行工具批次 {batch_num}/{total_batches}, 数量: {len(batch)}")
+            
+            # 创建当前批次的异步任务
+            tasks = [
+                self._execute_single_tool(
+                    user_id=user_id,
+                    tool_call=tool_call,
+                    db_session=db_session,
+                    timeout=actual_timeout
+                )
+                for tool_call in batch
+            ]
+            
+            # 并行执行当前批次
+            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+            
+            # 处理批次结果
+            for j, result in enumerate(batch_results):
+                tool_call = batch[j]
+                
+                if isinstance(result, Exception):
+                    # 工具调用异常
+                    all_results.append({
+                        "tool_call_id": tool_call.get("id", f"call_{i+j}"),
+                        "role": "tool",
+                        "name": tool_call["function"]["name"],
+                        "content": f"工具调用失败: {str(result)}",
+                        "success": False,
+                        "error": str(result)
+                    })
+                else:
+                    all_results.append(result)
+            
+            # 批次间增加短暂延迟，避免API限流
+            if i + max_concurrent < len(tool_calls):
+                await asyncio.sleep(0.5)
+                logger.debug(f"批次间延迟 0.5 秒...")
         
-        return formatted_results
+        return all_results
     
     async def _execute_single_tool(
         self,
