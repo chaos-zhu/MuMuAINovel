@@ -55,17 +55,26 @@ class MCPPluginRegistry:
         # 启动后台清理任务
         self._cleanup_task = None
         self._health_check_task = None
-        self._start_background_tasks()
+        self._tasks_started = False
     
-    def _start_background_tasks(self):
-        """启动后台任务"""
-        if self._cleanup_task is None:
-            self._cleanup_task = asyncio.create_task(self._cleanup_loop())
-            logger.info("✅ MCP插件注册表后台清理任务已启动")
-        
-        if self._health_check_task is None:
-            self._health_check_task = asyncio.create_task(self._health_check_loop())
-            logger.info("✅ MCP会话健康检查任务已启动")
+    def _ensure_background_tasks(self):
+        """确保后台任务已启动（延迟初始化）"""
+        if not self._tasks_started:
+            try:
+                # 检查是否有运行中的事件循环
+                loop = asyncio.get_running_loop()
+                if self._cleanup_task is None:
+                    self._cleanup_task = asyncio.create_task(self._cleanup_loop())
+                    logger.info("✅ MCP插件注册表后台清理任务已启动")
+                
+                if self._health_check_task is None:
+                    self._health_check_task = asyncio.create_task(self._health_check_loop())
+                    logger.info("✅ MCP会话健康检查任务已启动")
+                
+                self._tasks_started = True
+            except RuntimeError:
+                # 没有运行中的事件循环，稍后再试
+                pass
     
     async def _cleanup_loop(self):
         """后台清理过期客户端"""
@@ -201,6 +210,9 @@ class MCPPluginRegistry:
         Returns:
             是否加载成功
         """
+        # 确保后台任务已启动
+        self._ensure_background_tasks()
+        
         # 使用细粒度锁（只锁定当前用户）
         user_lock = await self._get_user_lock(plugin.user_id)
         async with user_lock:

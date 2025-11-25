@@ -75,7 +75,7 @@ class Settings(BaseSettings):
     default_ai_provider: str = "openai"
     default_model: str = "gpt-4"
     default_temperature: float = 0.7
-    default_max_tokens: int = 2000
+    default_max_tokens: int = 32000
     
     # MCP适配器配置
     enable_mcp_adapter: bool = True  # 是否启用MCP适配器（自动检测API能力）

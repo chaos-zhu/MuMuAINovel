@@ -102,6 +102,12 @@ dmypy.json
 # Jupyter Notebook
 .ipynb_checkpoints
 
+#build
+BUILD_GUIDE.md
+launcher.py
+launcher.spec
+
+
 data/
 docs/
 data_old/

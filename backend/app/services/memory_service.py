@@ -10,10 +10,29 @@ import hashlib
 
 logger = get_logger(__name__)
 
-# 配置模型缓存目录（不设置离线模式，让它自动选择）
-# 如果本地有模型就用本地的，没有才联网下载
+# 配置模型缓存目录
+# 优先使用 backend/embedding 目录（打包后的实际位置）
+import sys
+from pathlib import Path
+
 if 'SENTENCE_TRANSFORMERS_HOME' not in os.environ:
-    os.environ['SENTENCE_TRANSFORMERS_HOME'] = 'embedding'
+    # 根据运行环境确定模型目录
+    if getattr(sys, 'frozen', False):
+        # PyInstaller 打包后
+        base_dir = Path(sys.executable).parent
+    else:
+        # 开发模式，从当前文件位置向上找到项目根目录
+        base_dir = Path(__file__).parent.parent.parent
+    
+    model_dir = base_dir / 'backend' / 'embedding'
+    if model_dir.exists():
+        os.environ['SENTENCE_TRANSFORMERS_HOME'] = str(model_dir)
+        logger.info(f"🔧 设置模型目录: {model_dir}")
+    else:
+        # 降级到项目根目录的 embedding
+        fallback_dir = base_dir / 'embedding'
+        os.environ['SENTENCE_TRANSFORMERS_HOME'] = str(fallback_dir)
+        logger.info(f"🔧 使用降级模型目录: {fallback_dir}")
 
 
 class MemoryService:
@@ -44,9 +63,10 @@ class MemoryService:
             # 初始化多语言embedding模型(支持中文)
             logger.info("🔄 正在加载Embedding模型...")
             
-            # 确保模型缓存目录存在
-            model_cache_dir = 'embedding'
+            # 使用环境变量中配置的模型目录
+            model_cache_dir = os.environ.get('SENTENCE_TRANSFORMERS_HOME', 'embedding')
             os.makedirs(model_cache_dir, exist_ok=True)
+            logger.info(f"📂 使用模型缓存目录: {os.path.abspath(model_cache_dir)}")
             
             # 调试信息：打印环境变量和路径
             logger.info(f"📂 当前工作目录: {os.getcwd()}")
@@ -56,40 +76,91 @@ class MemoryService:
             logger.info(f"🔧 HF_HUB_OFFLINE: {os.environ.get('HF_HUB_OFFLINE', '未设置')}")
             
             # 检查模型目录内容
-            if os.path.exists(model_cache_dir):
+            abs_cache_dir = os.path.abspath(model_cache_dir)
+            logger.info(f"📂 检查模型缓存目录: {abs_cache_dir}")
+            
+            if os.path.exists(abs_cache_dir):
                 logger.info(f"📁 模型目录存在，检查内容...")
                 try:
-                    items = os.listdir(model_cache_dir)
-                    logger.info(f"📁 模型目录内容: {items}")
+                    items = os.listdir(abs_cache_dir)
+                    logger.info(f"📁 模型目录内容 ({len(items)} 项): {items}")
                     
                     # 检查是否有预期的模型文件夹
-                    expected_model_dir = os.path.join(model_cache_dir, 'models--sentence-transformers--paraphrase-multilingual-MiniLM-L12-v2')
+                    expected_model_dir = os.path.join(abs_cache_dir, 'models--sentence-transformers--paraphrase-multilingual-MiniLM-L12-v2')
+                    logger.info(f"🔍 检查预期路径: {expected_model_dir}")
+                    
                     if os.path.exists(expected_model_dir):
-                        logger.info(f"✅ 找到本地模型目录: {expected_model_dir}")
+                        logger.info(f"✅ 找到本地模型目录!")
                         # 检查快照目录
                         snapshots_dir = os.path.join(expected_model_dir, 'snapshots')
                         if os.path.exists(snapshots_dir):
                             snapshots = os.listdir(snapshots_dir)
-                            logger.info(f"📁 模型快照: {snapshots}")
+                            logger.info(f"📁 模型快照 ({len(snapshots)} 个): {snapshots}")
+                            # 检查是否有有效的快照
+                            if snapshots:
+                                logger.info(f"✅ 发现有效快照，可以使用离线模式")
                     else:
-                        logger.warning(f"⚠️ 未找到本地模型目录: {expected_model_dir}")
+                        logger.warning(f"⚠️ 未找到本地模型目录")
+                        logger.warning(f"   预期位置: {expected_model_dir}")
                 except Exception as e:
                     logger.error(f"❌ 检查模型目录失败: {str(e)}")
+                    import traceback
+                    logger.error(f"   堆栈: {traceback.format_exc()}")
             else:
-                logger.warning(f"⚠️ 模型目录不存在: {os.path.abspath(model_cache_dir)}")
+                logger.warning(f"⚠️ 模型目录不存在: {abs_cache_dir}")
             
             try:
                 logger.info("🔄 尝试加载主模型: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
-                # 优先使用本地缓存的模型
-                # cache_folder会让模型优先从本地加载，只有不存在时才联网下载
-                # 注意：不要设置local_files_only=True，这会阻止fallback到联网下载
-                self.embedding_model = SentenceTransformer(
-                    'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2',
-                    cache_folder=model_cache_dir,
-                    device='cpu',  # 明确指定使用CPU
-                    trust_remote_code=False,  # 安全起见
+                
+                # 使用绝对路径检查本地模型
+                abs_cache_dir = os.path.abspath(model_cache_dir)
+                local_model_path = os.path.join(
+                    abs_cache_dir,
+                    'models--sentence-transformers--paraphrase-multilingual-MiniLM-L12-v2'
                 )
-                logger.info("✅ Embedding模型加载成功 (paraphrase-multilingual-MiniLM-L12-v2)")
+                
+                logger.info(f"🔍 检查本地模型路径: {local_model_path}")
+                logger.info(f"🔍 路径存在检查: {os.path.exists(local_model_path)}")
+                
+                # 检查快照目录是否存在且有内容
+                snapshots_dir = os.path.join(local_model_path, 'snapshots')
+                has_valid_model = False
+                if os.path.exists(snapshots_dir):
+                    try:
+                        snapshots = os.listdir(snapshots_dir)
+                        if snapshots:
+                            logger.info(f"✅ 发现本地模型快照: {snapshots}")
+                            has_valid_model = True
+                    except Exception as e:
+                        logger.warning(f"⚠️ 检查快照失败: {e}")
+                
+                # 优先尝试从本地路径加载
+                if has_valid_model:
+                    logger.info(f"✅ 检测到完整本地模型，使用离线模式加载")
+                    try:
+                        self.embedding_model = SentenceTransformer(
+                            'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2',
+                            cache_folder=abs_cache_dir,
+                            device='cpu',
+                            trust_remote_code=True,
+                            local_files_only=True  # 强制使用本地文件
+                        )
+                        logger.info("✅ Embedding模型加载成功 (离线模式)")
+                    except Exception as local_err:
+                        logger.warning(f"⚠️ 离线模式加载失败: {str(local_err)}")
+                        logger.info("🔄 尝试在线模式...")
+                        raise local_err
+                else:
+                    logger.info("📥 本地模型不完整或不存在，将联网下载...")
+                    logger.info(f"   下载后将保存到: {abs_cache_dir}")
+                    self.embedding_model = SentenceTransformer(
+                        'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2',
+                        cache_folder=abs_cache_dir,
+                        device='cpu',
+                        trust_remote_code=True,
+                        local_files_only=False  # 允许联网下载
+                    )
+                    logger.info("✅ Embedding模型加载成功 (在线下载)")
             except Exception as e:
                 logger.warning(f"⚠️ 无法加载多语言模型: {str(e)}")
                 logger.error(f"❌ 详细错误: {repr(e)}")

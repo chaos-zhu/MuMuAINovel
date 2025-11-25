@@ -60,52 +60,83 @@ async def get_engine(user_id: str):
     
     async with _cache_lock:
         if cache_key not in _engine_cache:
-            # 优化后的PostgreSQL连接配置
-            connect_args = {
-                "server_settings": {
-                    "application_name": settings.app_name,
-                    "jit": "off",  # 关闭JIT以提高短查询性能
-                },
-                "command_timeout": 60,  # 命令超时60秒
-                "statement_cache_size": 500,  # 启用语句缓存，提升重复查询性能
+            # 检测数据库类型
+            is_sqlite = 'sqlite' in settings.database_url.lower()
+            
+            # 基础引擎参数
+            engine_args = {
+                "echo": settings.database_echo_pool,
+                "echo_pool": settings.database_echo_pool,
+                "future": True,
             }
             
-            engine = create_async_engine(
-                settings.database_url,
-                echo=settings.database_echo_pool,  # 根据配置决定是否输出连接池日志
-                echo_pool=settings.database_echo_pool,  # 连接池操作日志
-                future=True,
-                pool_size=settings.database_pool_size,  # 核心连接数：50（优化后）
-                max_overflow=settings.database_max_overflow,  # 溢出连接数：30（优化后）
-                pool_timeout=settings.database_pool_timeout,  # 连接超时：90秒（优化后）
-                pool_pre_ping=settings.database_pool_pre_ping,  # 连接前检测
-                pool_recycle=settings.database_pool_recycle,  # 连接回收：1800秒
-                pool_use_lifo=settings.database_pool_use_lifo,  # LIFO策略提高复用
-                pool_reset_on_return=settings.database_pool_reset_on_return,  # 连接归还时重置
-                max_identifier_length=settings.database_max_identifier_length,  # 标识符最大长度
-                connect_args=connect_args
-            )
+            if is_sqlite:
+                # SQLite 配置（使用 NullPool，不支持连接池参数）
+                engine_args["connect_args"] = {
+                    "check_same_thread": False,
+                    "timeout": 30.0,  # 等待锁释放的超时时间（秒）
+                }
+                # 启用连接前检测以支持更好的并发
+                engine_args["pool_pre_ping"] = True
+                
+                logger.info("📊 使用 SQLite 数据库（NullPool，超时30秒，WAL模式）")
+            else:
+                # PostgreSQL 配置（完整连接池支持）
+                connect_args = {
+                    "server_settings": {
+                        "application_name": settings.app_name,
+                        "jit": "off",
+                    },
+                    "command_timeout": 60,
+                    "statement_cache_size": 500,
+                }
+                
+                engine_args.update({
+                    "pool_size": settings.database_pool_size,
+                    "max_overflow": settings.database_max_overflow,
+                    "pool_timeout": settings.database_pool_timeout,
+                    "pool_pre_ping": settings.database_pool_pre_ping,
+                    "pool_recycle": settings.database_pool_recycle,
+                    "pool_use_lifo": settings.database_pool_use_lifo,
+                    "pool_reset_on_return": settings.database_pool_reset_on_return,
+                    "max_identifier_length": settings.database_max_identifier_length,
+                    "connect_args": connect_args
+                })
+                
+                total_connections = settings.database_pool_size + settings.database_max_overflow
+                estimated_concurrent_users = total_connections * 2
+                
+                logger.info(
+                    f"📊 PostgreSQL 连接池配置:\n"
+                    f"   ├─ 核心连接: {settings.database_pool_size}\n"
+                    f"   ├─ 溢出连接: {settings.database_max_overflow}\n"
+                    f"   ├─ 总连接数: {total_connections}\n"
+                    f"   ├─ 获取超时: {settings.database_pool_timeout}秒\n"
+                    f"   ├─ 连接回收: {settings.database_pool_recycle}秒\n"
+                    f"   └─ 预估并发: {estimated_concurrent_users}+用户"
+                )
+            
+            engine = create_async_engine(settings.database_url, **engine_args)
             _engine_cache[cache_key] = engine
             
-            # 计算总连接数和预估并发能力
-            total_connections = settings.database_pool_size + settings.database_max_overflow
-            estimated_concurrent_users = total_connections * 2  # 每个用户平均0.5个连接
-            
-            logger.info(
-                f"   \n"
-                f"   ├─ 连接池配置:\n"
-                f"   │  ├─ 核心连接: {settings.database_pool_size}\n"
-                f"   │  ├─ 溢出连接: {settings.database_max_overflow}\n"
-                f"   │  └─ 总连接数: {total_connections}\n"
-                f"   ├─ 超时配置:\n"
-                f"   │  ├─ 获取超时: {settings.database_pool_timeout}秒\n"
-                f"   │  └─ 连接回收: {settings.database_pool_recycle}秒 ({settings.database_pool_recycle//60}分钟)\n"
-                f"   ├─ 优化策略:\n"
-                f"   │  ├─ 复用策略: LIFO（后进先出）\n"
-                f"   │  ├─ 健康检查: Pre-ping enabled\n"
-                f"   │  └─ 归还重置: {settings.database_pool_reset_on_return}\n"
-                f"   └─ 预估并发: {estimated_concurrent_users}-{estimated_concurrent_users + 50}用户"
-            )
+            # 如果是 SQLite，启用 WAL 模式以支持读写并发
+            if is_sqlite:
+                try:
+                    from sqlalchemy import event
+                    from sqlalchemy.pool import NullPool
+                    
+                    @event.listens_for(engine.sync_engine, "connect")
+                    def set_sqlite_pragma(dbapi_conn, connection_record):
+                        cursor = dbapi_conn.cursor()
+                        cursor.execute("PRAGMA journal_mode=WAL")
+                        cursor.execute("PRAGMA synchronous=NORMAL")
+                        cursor.execute("PRAGMA cache_size=-64000")  # 64MB 缓存
+                        cursor.execute("PRAGMA busy_timeout=30000")  # 30秒超时
+                        cursor.close()
+                    
+                    logger.info("✅ SQLite WAL 模式已启用（支持读写并发）")
+                except Exception as e:
+                    logger.warning(f"⚠️ 启用 WAL 模式失败: {e}，使用默认配置")
         
         return _engine_cache[cache_key]
 
