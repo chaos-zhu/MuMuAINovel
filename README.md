@@ -16,6 +16,20 @@
 
 ---
 
+<div align="center">
+
+## 💖 支持项目
+
+如果这个项目对你有帮助，欢迎通过以下方式支持开发：
+
+**[☕ 请我喝杯咖啡](https://zanzhupage.vercel.app/)**
+
+您的支持是我持续开发的动力！🙏
+
+</div>
+
+---
+
 ## ✨ 特性
 
 - 🤖 **多 AI 模型** - 支持 OpenAI、Gemini、Claude 等主流模型
