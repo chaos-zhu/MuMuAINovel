@@ -1,9 +1,10 @@
-import { Card, Descriptions, Empty, Typography, Button, Modal, Form, Input, message } from 'antd';
-import { GlobalOutlined, EditOutlined } from '@ant-design/icons';
+import { Card, Descriptions, Empty, Typography, Button, Modal, Form, Input, message, Space } from 'antd';
+import { GlobalOutlined, EditOutlined, SyncOutlined } from '@ant-design/icons';
 import { useState } from 'react';
 import { useStore } from '../store';
 import { cardStyles } from '../components/CardStyles';
-import { projectApi } from '../services/api';
+import { projectApi, wizardStreamApi } from '../services/api';
+import { SSELoadingOverlay } from '../components/SSELoadingOverlay';
 
 const { Title, Paragraph } = Typography;
 const { TextArea } = Input;
@@ -13,6 +14,111 @@ export default function WorldSetting() {
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [editForm] = Form.useForm();
   const [isSaving, setIsSaving] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
+  const [regenerateProgress, setRegenerateProgress] = useState(0);
+  const [regenerateMessage, setRegenerateMessage] = useState('');
+  const [isPreviewModalVisible, setIsPreviewModalVisible] = useState(false);
+  const [newWorldData, setNewWorldData] = useState<{
+    time_period: string;
+    location: string;
+    atmosphere: string;
+    rules: string;
+  } | null>(null);
+  const [isSavingPreview, setIsSavingPreview] = useState(false);
+
+  // AI重新生成世界观
+  const handleRegenerate = async () => {
+    if (!currentProject) return;
+
+    Modal.confirm({
+      title: '确认重新生成',
+      content: '确定要使用AI重新生成世界观设定吗？这将替换当前的世界观内容。',
+      centered: true,
+      okText: '确认重新生成',
+      cancelText: '取消',
+      onOk: async () => {
+        setIsRegenerating(true);
+        setRegenerateProgress(0);
+        setRegenerateMessage('准备重新生成世界观...');
+
+        try {
+          await wizardStreamApi.regenerateWorldBuildingStream(
+            currentProject.id,
+            {},
+            {
+              onProgress: (msg: string, progress: number) => {
+                setRegenerateProgress(progress);
+                setRegenerateMessage(msg);
+              },
+              onChunk: (chunk: string) => {
+                // 可以在这里显示生成的内容片段（可选）
+                console.log('生成片段:', chunk);
+              },
+              onResult: (result: any) => {
+                // 保存新生成的数据
+                const newData = {
+                  time_period: result.time_period,
+                  location: result.location,
+                  atmosphere: result.atmosphere,
+                  rules: result.rules,
+                };
+                setNewWorldData(newData);
+              },
+              onError: (errorMsg: string) => {
+                console.error('重新生成失败:', errorMsg);
+                message.error(errorMsg || '重新生成失败，请重试');
+              },
+              onComplete: () => {
+                setIsRegenerating(false);
+                setRegenerateProgress(0);
+                setRegenerateMessage('');
+                // 显示预览对话框
+                setIsPreviewModalVisible(true);
+              }
+            }
+          );
+        } catch (error) {
+          console.error('重新生成出错:', error);
+          message.error('重新生成出错，请重试');
+          setIsRegenerating(false);
+          setRegenerateProgress(0);
+          setRegenerateMessage('');
+        }
+      }
+    });
+  };
+
+  // 确认保存重新生成的内容
+  const handleConfirmSave = async () => {
+    if (!currentProject || !newWorldData) return;
+
+    setIsSavingPreview(true);
+    try {
+      const updatedProject = await projectApi.updateProject(currentProject.id, {
+        world_time_period: newWorldData.time_period,
+        world_location: newWorldData.location,
+        world_atmosphere: newWorldData.atmosphere,
+        world_rules: newWorldData.rules,
+      });
+
+      setCurrentProject(updatedProject);
+      message.success('世界观已更新！');
+      setIsPreviewModalVisible(false);
+      setNewWorldData(null);
+    } catch (error) {
+      console.error('保存失败:', error);
+      message.error('保存失败，请重试');
+    } finally {
+      setIsSavingPreview(false);
+    }
+  };
+
+  // 取消保存，关闭预览
+  const handleCancelSave = () => {
+    setIsPreviewModalVisible(false);
+    setNewWorldData(null);
+    message.info('已取消，保持原有内容');
+  };
 
   if (!currentProject) return null;
 
@@ -75,21 +181,30 @@ export default function WorldSetting() {
           <GlobalOutlined style={{ fontSize: 24, marginRight: 12, color: '#1890ff' }} />
           <h2 style={{ margin: 0 }}>世界设定</h2>
         </div>
-        <Button
-          type="primary"
-          icon={<EditOutlined />}
-          onClick={() => {
-            editForm.setFieldsValue({
-              world_time_period: currentProject.world_time_period || '',
-              world_location: currentProject.world_location || '',
-              world_atmosphere: currentProject.world_atmosphere || '',
-              world_rules: currentProject.world_rules || '',
-            });
-            setIsEditModalVisible(true);
-          }}
-        >
-          编辑世界观
-        </Button>
+        <Space>
+          <Button
+            icon={<SyncOutlined />}
+            onClick={handleRegenerate}
+            disabled={isRegenerating}
+          >
+            AI重新生成
+          </Button>
+          <Button
+            type="primary"
+            icon={<EditOutlined />}
+            onClick={() => {
+              editForm.setFieldsValue({
+                world_time_period: currentProject.world_time_period || '',
+                world_location: currentProject.world_location || '',
+                world_atmosphere: currentProject.world_atmosphere || '',
+                world_rules: currentProject.world_rules || '',
+              });
+              setIsEditModalVisible(true);
+            }}
+          >
+            编辑世界观
+          </Button>
+        </Space>
       </div>
 
       {/* 可滚动内容区域 */}
@@ -301,6 +416,101 @@ export default function WorldSetting() {
             />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* AI重新生成加载遮罩 */}
+      <SSELoadingOverlay
+        loading={isRegenerating}
+        progress={regenerateProgress}
+        message={regenerateMessage}
+      />
+
+      {/* 预览重新生成的内容模态框 */}
+      <Modal
+        title="预览重新生成的世界观"
+        open={isPreviewModalVisible}
+        centered
+        width={900}
+        onOk={handleConfirmSave}
+        onCancel={handleCancelSave}
+        confirmLoading={isSavingPreview}
+        okText="确认替换"
+        cancelText="取消"
+        okButtonProps={{ danger: true }}
+      >
+        {newWorldData && (
+          <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+            <div style={{ marginBottom: 24, padding: 16, background: '#fff7e6', border: '1px solid #ffd591', borderRadius: 8 }}>
+              <Typography.Text type="warning" strong>
+                ⚠️ 注意：点击"确认替换"将会用新内容替换当前的世界观设定
+              </Typography.Text>
+            </div>
+
+            <div style={{ marginBottom: 24 }}>
+              <Title level={5} style={{ color: '#1890ff', marginBottom: 12 }}>
+                时间设定
+              </Title>
+              <Paragraph style={{
+                fontSize: 15,
+                lineHeight: 1.8,
+                padding: 16,
+                background: '#f5f5f5',
+                borderRadius: 8,
+                borderLeft: '4px solid #1890ff'
+              }}>
+                {newWorldData.time_period}
+              </Paragraph>
+            </div>
+
+            <div style={{ marginBottom: 24 }}>
+              <Title level={5} style={{ color: '#52c41a', marginBottom: 12 }}>
+                地点设定
+              </Title>
+              <Paragraph style={{
+                fontSize: 15,
+                lineHeight: 1.8,
+                padding: 16,
+                background: '#f5f5f5',
+                borderRadius: 8,
+                borderLeft: '4px solid #52c41a'
+              }}>
+                {newWorldData.location}
+              </Paragraph>
+            </div>
+
+            <div style={{ marginBottom: 24 }}>
+              <Title level={5} style={{ color: '#faad14', marginBottom: 12 }}>
+                氛围设定
+              </Title>
+              <Paragraph style={{
+                fontSize: 15,
+                lineHeight: 1.8,
+                padding: 16,
+                background: '#f5f5f5',
+                borderRadius: 8,
+                borderLeft: '4px solid #faad14'
+              }}>
+                {newWorldData.atmosphere}
+              </Paragraph>
+            </div>
+
+            <div style={{ marginBottom: 0 }}>
+              <Title level={5} style={{ color: '#f5222d', marginBottom: 12 }}>
+                规则设定
+              </Title>
+              <Paragraph style={{
+                fontSize: 15,
+                lineHeight: 1.8,
+                padding: 16,
+                background: '#f5f5f5',
+                borderRadius: 8,
+                borderLeft: '4px solid #f5222d'
+              }}>
+                {newWorldData.rules}
+              </Paragraph>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
