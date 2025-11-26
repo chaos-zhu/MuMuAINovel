@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Button, Empty, Modal, message, Spin, Row, Col, Statistic, Space, Tag, Progress, Typography, Tooltip, Badge, Alert, Upload, Checkbox, Divider, Switch, Dropdown, Form, Input, InputNumber } from 'antd';
-import { EditOutlined, DeleteOutlined, BookOutlined, RocketOutlined, CalendarOutlined, FileTextOutlined, TrophyOutlined, FireOutlined, SettingOutlined, InfoCircleOutlined, CloseOutlined, UploadOutlined, DownloadOutlined, ApiOutlined, MoreOutlined, BulbOutlined } from '@ant-design/icons';
+import { EditOutlined, DeleteOutlined, BookOutlined, RocketOutlined, CalendarOutlined, FileTextOutlined, TrophyOutlined, FireOutlined, SettingOutlined, InfoCircleOutlined, CloseOutlined, UploadOutlined, DownloadOutlined, ApiOutlined, MoreOutlined, BulbOutlined, LoadingOutlined } from '@ant-design/icons';
 import { projectApi } from '../services/api';
 import { useStore } from '../store';
 import { useProjectSync } from '../store/hooks';
@@ -115,9 +115,15 @@ export default function ProjectList() {
     }
   };
 
-  const handleEnterProject = (id: string) => {
-    // 简化后直接进入项目，不再检查向导状态
-    navigate(`/project/${id}`);
+  const handleEnterProject = async (project: any) => {
+    // 检查项目是否未完成生成(wizard_status为incomplete)
+    if (project.wizard_status === 'incomplete') {
+      // 未完成的项目跳转到生成页面继续生成
+      navigate(`/wizard?project_id=${project.id}`);
+    } else {
+      // 已完成的项目进入项目详情页
+      navigate(`/project/${project.id}`);
+    }
   };
 
   const getStatusTag = (status: string) => {
@@ -725,14 +731,16 @@ export default function ProjectList() {
                 return (
                   <Col {...gridConfig} key={project.id}>
                     <Badge.Ribbon
-                      text={getStatusTag(project.status)}
+                      text={project.wizard_status === 'incomplete' ? (
+                        <Tag color="orange" icon={<LoadingOutlined spin />}>生成中断</Tag>
+                      ) : getStatusTag(project.status)}
                       color="transparent"
                       style={{ top: 12, right: 12 }}
                     >
                       <Card
                         hoverable
                         variant="borderless"
-                        onClick={() => handleEnterProject(project.id)}
+                        onClick={() => handleEnterProject(project)}
                         style={cardStyles.project}
                         styles={{ body: { padding: 0, overflow: 'hidden' } }}
                         {...cardHoverHandlers}

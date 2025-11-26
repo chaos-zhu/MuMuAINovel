@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
-import { List, Button, Modal, Form, Input, Select, message, Empty, Space, Badge, Tag, Card, Tooltip, InputNumber, Progress, Alert, Radio, Descriptions, Collapse, Popconfirm, FloatButton } from 'antd';
+import { List, Button, Modal, Form, Input, Select, message, Empty, Space, Badge, Tag, Card, Tooltip, InputNumber, Alert, Radio, Descriptions, Collapse, Popconfirm, FloatButton } from 'antd';
 import { EditOutlined, FileTextOutlined, ThunderboltOutlined, LockOutlined, DownloadOutlined, SettingOutlined, FundOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, RocketOutlined, StopOutlined, InfoCircleOutlined, CaretRightOutlined, DeleteOutlined, BookOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import { useChapterSync } from '../store/hooks';
@@ -7,6 +7,7 @@ import { projectApi, writingStyleApi } from '../services/api';
 import type { Chapter, ChapterUpdate, ApiError, WritingStyle, AnalysisTask, ExpansionPlanData } from '../types';
 import ChapterAnalysis from '../components/ChapterAnalysis';
 import { SSELoadingOverlay } from '../components/SSELoadingOverlay';
+import { SSEProgressModal } from '../components/SSEProgressModal';
 import FloatingIndexPanel from '../components/FloatingIndexPanel';
 
 const { TextArea } = Input;
@@ -748,43 +749,129 @@ export default function Chapters() {
       
       Modal.info({
         title: (
-          <Space>
+          <Space style={{ flexWrap: 'wrap' }}>
             <InfoCircleOutlined style={{ color: '#1890ff' }} />
-            <span>第{chapter.chapter_number}章展开规划</span>
+            <span style={{ wordBreak: 'break-word' }}>第{chapter.chapter_number}章展开规划</span>
           </Space>
         ),
-        width: 800,
+        width: isMobile ? '95%' : 800,
+        centered: true,
+        style: isMobile ? {
+          top: 20,
+          maxWidth: 'calc(100vw - 16px)',
+          margin: '0 8px'
+        } : undefined,
+        styles: {
+          body: {
+            maxHeight: isMobile ? 'calc(100vh - 150px)' : 'calc(80vh - 110px)',
+            overflowY: 'auto'
+          }
+        },
         content: (
           <div style={{ marginTop: 16 }}>
-            <Descriptions column={1} size="small" bordered>
+            <Descriptions
+              column={1}
+              size="small"
+              bordered
+              labelStyle={{
+                whiteSpace: 'normal',
+                wordBreak: 'break-word',
+                width: isMobile ? '80px' : '100px'
+              }}
+              contentStyle={{
+                whiteSpace: 'normal',
+                wordBreak: 'break-word',
+                overflowWrap: 'break-word'
+              }}
+            >
               <Descriptions.Item label="章节标题">
-                <strong>{chapter.title}</strong>
+                <strong style={{
+                  wordBreak: 'break-word',
+                  whiteSpace: 'normal',
+                  overflowWrap: 'break-word'
+                }}>
+                  {chapter.title}
+                </strong>
               </Descriptions.Item>
               <Descriptions.Item label="情感基调">
-                <Tag color="blue">{planData.emotional_tone}</Tag>
+                <Tag
+                  color="blue"
+                  style={{
+                    whiteSpace: 'normal',
+                    wordBreak: 'break-word',
+                    height: 'auto',
+                    lineHeight: '1.5',
+                    padding: '4px 8px'
+                  }}
+                >
+                  {planData.emotional_tone}
+                </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="冲突类型">
-                <Tag color="orange">{planData.conflict_type}</Tag>
+                <Tag
+                  color="orange"
+                  style={{
+                    whiteSpace: 'normal',
+                    wordBreak: 'break-word',
+                    height: 'auto',
+                    lineHeight: '1.5',
+                    padding: '4px 8px'
+                  }}
+                >
+                  {planData.conflict_type}
+                </Tag>
               </Descriptions.Item>
               <Descriptions.Item label="预估字数">
                 <Tag color="green">{planData.estimated_words}字</Tag>
               </Descriptions.Item>
               <Descriptions.Item label="叙事目标">
-                {planData.narrative_goal}
+                <span style={{
+                  wordBreak: 'break-word',
+                  whiteSpace: 'normal',
+                  overflowWrap: 'break-word'
+                }}>
+                  {planData.narrative_goal}
+                </span>
               </Descriptions.Item>
               <Descriptions.Item label="关键事件">
                 <Space direction="vertical" size="small" style={{ width: '100%' }}>
                   {planData.key_events.map((event, idx) => (
-                    <div key={idx} style={{ padding: '4px 0' }}>
-                      <Tag color="purple">{idx + 1}</Tag> {event}
+                    <div
+                      key={idx}
+                      style={{
+                        padding: '4px 0',
+                        wordBreak: 'break-word',
+                        whiteSpace: 'normal',
+                        overflowWrap: 'break-word'
+                      }}
+                    >
+                      <Tag color="purple" style={{ flexShrink: 0 }}>{idx + 1}</Tag>{' '}
+                      <span style={{
+                        wordBreak: 'break-word',
+                        whiteSpace: 'normal',
+                        overflowWrap: 'break-word'
+                      }}>
+                        {event}
+                      </span>
                     </div>
                   ))}
                 </Space>
               </Descriptions.Item>
               <Descriptions.Item label="涉及角色">
-                <Space wrap>
+                <Space wrap style={{ maxWidth: '100%' }}>
                   {planData.character_focus.map((char, idx) => (
-                    <Tag key={idx} color="cyan">{char}</Tag>
+                    <Tag
+                      key={idx}
+                      color="cyan"
+                      style={{
+                        whiteSpace: 'normal',
+                        wordBreak: 'break-word',
+                        height: 'auto',
+                        lineHeight: '1.5'
+                      }}
+                    >
+                      {char}
+                    </Tag>
                   ))}
                 </Space>
               </Descriptions.Item>
@@ -792,20 +879,68 @@ export default function Chapters() {
                 <Descriptions.Item label="场景规划">
                   <Space direction="vertical" size="small" style={{ width: '100%' }}>
                     {planData.scenes.map((scene, idx) => (
-                      <Card key={idx} size="small" style={{ backgroundColor: '#fafafa' }}>
-                        <div style={{ marginBottom: 4 }}>
-                          <strong>📍 地点：</strong>{scene.location}
+                      <Card
+                        key={idx}
+                        size="small"
+                        style={{
+                          backgroundColor: '#fafafa',
+                          maxWidth: '100%',
+                          overflow: 'hidden'
+                        }}
+                      >
+                        <div style={{
+                          marginBottom: 4,
+                          wordBreak: 'break-word',
+                          whiteSpace: 'normal',
+                          overflowWrap: 'break-word'
+                        }}>
+                          <strong>📍 地点：</strong>
+                          <span style={{
+                            wordBreak: 'break-word',
+                            whiteSpace: 'normal',
+                            overflowWrap: 'break-word'
+                          }}>
+                            {scene.location}
+                          </span>
                         </div>
                         <div style={{ marginBottom: 4 }}>
                           <strong>👥 角色：</strong>
-                          <Space size="small" wrap style={{ marginLeft: 8 }}>
+                          <Space
+                            size="small"
+                            wrap
+                            style={{
+                              marginLeft: isMobile ? 0 : 8,
+                              marginTop: isMobile ? 4 : 0,
+                              display: isMobile ? 'flex' : 'inline-flex'
+                            }}
+                          >
                             {scene.characters.map((char, charIdx) => (
-                              <Tag key={charIdx}>{char}</Tag>
+                              <Tag
+                                key={charIdx}
+                                style={{
+                                  whiteSpace: 'normal',
+                                  wordBreak: 'break-word',
+                                  height: 'auto'
+                                }}
+                              >
+                                {char}
+                              </Tag>
                             ))}
                           </Space>
                         </div>
-                        <div>
-                          <strong>🎯 目的：</strong>{scene.purpose}
+                        <div style={{
+                          wordBreak: 'break-word',
+                          whiteSpace: 'normal',
+                          overflowWrap: 'break-word'
+                        }}>
+                          <strong>🎯 目的：</strong>
+                          <span style={{
+                            wordBreak: 'break-word',
+                            whiteSpace: 'normal',
+                            overflowWrap: 'break-word'
+                          }}>
+                            {scene.purpose}
+                          </span>
                         </div>
                       </Card>
                     ))}
@@ -1590,42 +1725,6 @@ export default function Chapters() {
           </Form>
         ) : (
           <div>
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                <span>生成进度：</span>
-                <span>
-                  <strong style={{ color: '#1890ff', fontSize: 18 }}>
-                    {batchProgress?.completed || 0} / {batchProgress?.total || 0}
-                  </strong>
-                  章
-                </span>
-              </div>
-              <Progress
-                percent={batchProgress ? Math.round((batchProgress.completed / batchProgress.total) * 100) : 0}
-                status={batchProgress?.status === 'failed' ? 'exception' : 'active'}
-                strokeColor={{
-                  '0%': '#722ed1',
-                  '100%': '#1890ff',
-                }}
-              />
-            </div>
-
-            {batchProgress?.current_chapter_number && (
-              <Alert
-                message={`正在生成第 ${batchProgress.current_chapter_number} 章...`}
-                type="info"
-                showIcon
-                icon={<SyncOutlined spin />}
-                style={{ marginBottom: 16 }}
-              />
-            )}
-
-            {batchProgress?.estimated_time_minutes && batchProgress.completed === 0 && (
-              <div style={{ marginBottom: 16, color: '#666', fontSize: 13 }}>
-                ⏱️ 预计耗时：约 {batchProgress.estimated_time_minutes} 分钟
-              </div>
-            )}
-
             <Alert
               message="温馨提示"
               description={
@@ -1633,9 +1732,12 @@ export default function Chapters() {
                   <li>批量生成需要一定时间，可以切换到其他页面</li>
                   <li>关闭页面后重新打开，会自动恢复任务进度</li>
                   <li>可以随时点击"取消任务"按钮中止生成</li>
+                  {batchProgress?.estimated_time_minutes && batchProgress.completed === 0 && (
+                    <li>⏱️ 预计耗时：约 {batchProgress.estimated_time_minutes} 分钟</li>
+                  )}
                 </ul>
               }
-              type="warning"
+              type="info"
               showIcon
               style={{ marginBottom: 16 }}
             />
@@ -1667,6 +1769,18 @@ export default function Chapters() {
         loading={isGenerating}
         progress={singleChapterProgress}
         message={singleChapterProgressMessage}
+      />
+
+      {/* 批量生成进度显示 - 使用统一的进度组件 */}
+      <SSEProgressModal
+        visible={batchGenerating}
+        progress={batchProgress ? Math.round((batchProgress.completed / batchProgress.total) * 100) : 0}
+        message={
+          batchProgress?.current_chapter_number
+            ? `正在生成第 ${batchProgress.current_chapter_number} 章... (${batchProgress.completed}/${batchProgress.total})`
+            : `批量生成进行中... (${batchProgress?.completed || 0}/${batchProgress?.total || 0})`
+        }
+        title="批量生成章节"
       />
 
       <FloatButton

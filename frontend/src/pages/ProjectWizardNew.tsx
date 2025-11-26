@@ -1,43 +1,28 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
-  Form, Input, InputNumber, Select, Button, message, Card,
-  Row, Col, Typography, Space, Progress
+  Form, Input, InputNumber, Select, Button, Card,
+  Row, Col, Typography, Space, message
 } from 'antd';
 import {
-  RocketOutlined, ArrowLeftOutlined, CheckCircleOutlined,
-  LoadingOutlined
+  RocketOutlined, ArrowLeftOutlined
 } from '@ant-design/icons';
-import { wizardStreamApi } from '../services/api';
-import type { WizardBasicInfo, ApiError } from '../types';
-import { SSELoadingOverlay } from '../components/SSELoadingOverlay';
+import { AIProjectGenerator, type GenerationConfig } from '../components/AIProjectGenerator';
+import type { WizardBasicInfo } from '../types';
 
 const { TextArea } = Input;
-const { Title, Paragraph, Text } = Typography;
+const { Title, Paragraph } = Typography;
 
 export default function ProjectWizardNew() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [form] = Form.useForm();
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   
   // 状态管理
-  const [loading, setLoading] = useState(false);
-  const [currentStep, setCurrentStep] = useState<'form' | 'generating' | 'complete'>('form');
-  const [projectId, setProjectId] = useState<string>('');
-  const [projectTitle, setProjectTitle] = useState<string>('');
-  
-  // SSE流式进度状态
-  const [progress, setProgress] = useState(0);
-  const [progressMessage, setProgressMessage] = useState('');
-  const [generationSteps, setGenerationSteps] = useState<{
-    worldBuilding: 'pending' | 'processing' | 'completed' | 'error';
-    characters: 'pending' | 'processing' | 'completed' | 'error';
-    outline: 'pending' | 'processing' | 'completed' | 'error';
-  }>({
-    worldBuilding: 'pending',
-    characters: 'pending',
-    outline: 'pending'
-  });
+  const [currentStep, setCurrentStep] = useState<'form' | 'generating'>('form');
+  const [generationConfig, setGenerationConfig] = useState<GenerationConfig | null>(null);
+  const [resumeProjectId, setResumeProjectId] = useState<string | null>(null);
 
   useEffect(() => {
     const handleResize = () => {
@@ -47,140 +32,72 @@ export default function ProjectWizardNew() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // 自动化生成流程
-  const handleAutoGenerate = async (values: WizardBasicInfo) => {
-    try {
-      setLoading(true);
-      setCurrentStep('generating');
-      setProjectTitle(values.title);
-      setProgress(0);
-      setProgressMessage('开始创建项目...');
-
-      // 步骤1: 生成世界观并创建项目
-      setGenerationSteps(prev => ({ ...prev, worldBuilding: 'processing' }));
-      setProgressMessage('正在生成世界观...');
-      
-      const worldResult = await wizardStreamApi.generateWorldBuildingStream(
-        {
-          title: values.title,
-          description: values.description,
-          theme: values.theme,
-          genre: Array.isArray(values.genre) ? values.genre.join('、') : values.genre,
-          narrative_perspective: values.narrative_perspective,
-          target_words: values.target_words,
-          chapter_count: values.chapter_count || 30,
-          character_count: values.character_count || 5,
-        },
-        {
-          onProgress: (msg, prog) => {
-            setProgress(Math.floor(prog / 3)); // 0-33%
-            setProgressMessage(msg);
-          },
-          onResult: (data) => {
-            setProjectId(data.project_id);
-            setGenerationSteps(prev => ({ ...prev, worldBuilding: 'completed' }));
-          },
-          onError: (error) => {
-            setGenerationSteps(prev => ({ ...prev, worldBuilding: 'error' }));
-            throw new Error(error);
-          },
-          onComplete: () => {
-            console.log('世界观生成完成');
-          }
-        }
-      );
-
-      if (!worldResult?.project_id) {
-        throw new Error('项目创建失败');
-      }
-
-      const createdProjectId = worldResult.project_id;
-      setProjectId(createdProjectId);
-
-      // 步骤2: 生成角色
-      setGenerationSteps(prev => ({ ...prev, characters: 'processing' }));
-      setProgressMessage('正在生成角色...');
-      
-      await wizardStreamApi.generateCharactersStream(
-        {
-          project_id: createdProjectId,
-          count: values.character_count || 5,
-          world_context: {
-            time_period: worldResult.time_period || '',
-            location: worldResult.location || '',
-            atmosphere: worldResult.atmosphere || '',
-            rules: worldResult.rules || '',
-          },
-          theme: values.theme,
-          genre: Array.isArray(values.genre) ? values.genre.join('、') : values.genre,
-        },
-        {
-          onProgress: (msg, prog) => {
-            setProgress(33 + Math.floor(prog / 3)); // 33-66%
-            setProgressMessage(msg);
-          },
-          onResult: (data) => {
-            console.log(`成功生成${data.characters?.length || 0}个角色`);
-            setGenerationSteps(prev => ({ ...prev, characters: 'completed' }));
-          },
-          onError: (error) => {
-            setGenerationSteps(prev => ({ ...prev, characters: 'error' }));
-            throw new Error(error);
-          },
-          onComplete: () => {
-            console.log('角色生成完成');
-          }
-        }
-      );
-
-      // 步骤3: 生成大纲
-      setGenerationSteps(prev => ({ ...prev, outline: 'processing' }));
-      setProgressMessage('正在生成大纲...');
-      
-      await wizardStreamApi.generateCompleteOutlineStream(
-        {
-          project_id: createdProjectId,
-          chapter_count: 3, // 生成3个大纲节点（不展开）
-          narrative_perspective: values.narrative_perspective,
-          target_words: values.target_words,
-        },
-        {
-          onProgress: (msg, prog) => {
-            setProgress(66 + Math.floor(prog / 3)); // 66-99%
-            setProgressMessage(msg);
-          },
-          onResult: () => {
-            console.log('大纲生成完成');
-            setGenerationSteps(prev => ({ ...prev, outline: 'completed' }));
-          },
-          onError: (error) => {
-            setGenerationSteps(prev => ({ ...prev, outline: 'error' }));
-            throw new Error(error);
-          },
-          onComplete: () => {
-            console.log('大纲生成完成');
-          }
-        }
-      );
-
-      // 全部完成
-      setProgress(100);
-      setProgressMessage('项目创建完成！');
-      setCurrentStep('complete');
-      message.success('项目创建成功！');
-      
-    } catch (error) {
-      const apiError = error as ApiError;
-      message.error('创建项目失败：' + (apiError.response?.data?.detail || apiError.message || '未知错误'));
-      setCurrentStep('form');
-      setGenerationSteps({
-        worldBuilding: 'pending',
-        characters: 'pending',
-        outline: 'pending'
-      });
-    } finally {
-      setLoading(false);
+  // 检查URL参数,如果有project_id则恢复生成
+  useEffect(() => {
+    const projectId = searchParams.get('project_id');
+    if (projectId) {
+      setResumeProjectId(projectId);
+      handleResumeGeneration(projectId);
     }
+  }, [searchParams]);
+
+  // 恢复未完成项目的生成
+  const handleResumeGeneration = async (projectId: string) => {
+    try {
+      const response = await fetch(`/api/projects/${projectId}`, {
+        credentials: 'include'
+      });
+      if (!response.ok) {
+        throw new Error('获取项目信息失败');
+      }
+      const project = await response.json();
+      
+      const config: GenerationConfig = {
+        title: project.title,
+        description: project.description || '',
+        theme: project.theme || '',
+        genre: project.genre || '',
+        narrative_perspective: project.narrative_perspective || '第三人称',
+        target_words: project.target_words || 100000,
+        chapter_count: 3,
+        character_count: project.character_count || 5,
+      };
+      
+      setGenerationConfig(config);
+      setCurrentStep('generating');
+    } catch (error) {
+      console.error('恢复生成失败:', error);
+      message.error('恢复生成失败,请重试');
+      navigate('/');
+    }
+  };
+
+  // 开始生成流程
+  const handleAutoGenerate = async (values: WizardBasicInfo) => {
+    const config: GenerationConfig = {
+      title: values.title,
+      description: values.description,
+      theme: values.theme,
+      genre: values.genre,
+      narrative_perspective: values.narrative_perspective,
+      target_words: values.target_words || 100000,
+      chapter_count: 3, // 默认生成3章大纲
+      character_count: values.character_count || 5,
+    };
+    
+    setGenerationConfig(config);
+    setCurrentStep('generating');
+  };
+
+  // 生成完成回调
+  const handleComplete = (projectId: string) => {
+    console.log('项目创建完成:', projectId);
+  };
+
+  // 返回表单页面
+  const handleBack = () => {
+    setCurrentStep('form');
+    setGenerationConfig(null);
   };
 
   // 渲染表单页面
@@ -317,7 +234,6 @@ export default function ProjectWizardNew() {
               htmlType="submit"
               size="large"
               block
-              loading={loading}
               icon={<RocketOutlined />}
             >
               开始创建项目
@@ -335,150 +251,12 @@ export default function ProjectWizardNew() {
     </Card>
   );
 
-  // 渲染生成进度页面
-  const renderGenerating = () => {
-    const getStepStatus = (step: 'pending' | 'processing' | 'completed' | 'error') => {
-      if (step === 'completed') return { icon: <CheckCircleOutlined />, color: '#52c41a' };
-      if (step === 'processing') return { icon: <LoadingOutlined />, color: '#1890ff' };
-      if (step === 'error') return { icon: '✗', color: '#ff4d4f' };
-      return { icon: '○', color: '#d9d9d9' };
-    };
-
-    return (
-      <Card>
-        <div style={{ textAlign: 'center', padding: isMobile ? '32px 16px' : '40px 0' }}>
-          <Title level={isMobile ? 4 : 3} style={{ marginBottom: 32 }}>
-            正在为《{projectTitle}》生成内容
-          </Title>
-
-          <Progress
-            percent={progress}
-            status={progress === 100 ? 'success' : 'active'}
-            strokeColor={{
-              '0%': '#667eea',
-              '100%': '#764ba2',
-            }}
-            style={{ marginBottom: 32 }}
-          />
-
-          <Paragraph style={{ fontSize: 16, marginBottom: 48, color: '#666' }}>
-            {progressMessage}
-          </Paragraph>
-
-          <Space direction="vertical" size={24} style={{ width: '100%', maxWidth: 400, margin: '0 auto' }}>
-            {[
-              { key: 'worldBuilding', label: '生成世界观', step: generationSteps.worldBuilding },
-              { key: 'characters', label: '生成角色', step: generationSteps.characters },
-              { key: 'outline', label: '生成大纲', step: generationSteps.outline },
-            ].map(({ key, label, step }) => {
-              const status = getStepStatus(step);
-              return (
-                <div
-                  key={key}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '12px 20px',
-                    background: step === 'processing' ? '#f0f5ff' : '#fafafa',
-                    borderRadius: 8,
-                    border: `1px solid ${step === 'processing' ? '#d6e4ff' : '#f0f0f0'}`,
-                  }}
-                >
-                  <Text style={{ fontSize: 16, fontWeight: step === 'processing' ? 600 : 400 }}>
-                    {label}
-                  </Text>
-                  <span style={{ fontSize: 20, color: status.color }}>
-                    {status.icon}
-                  </span>
-                </div>
-              );
-            })}
-          </Space>
-
-          <Paragraph type="secondary" style={{ marginTop: 48 }}>
-            请耐心等待，AI正在为您精心创作...
-          </Paragraph>
-        </div>
-      </Card>
-    );
-  };
-
-  // 渲染完成页面
-  const renderComplete = () => (
-    <Card>
-      <div style={{
-        textAlign: 'center',
-        padding: isMobile ? '32px 16px' : '40px 0'
-      }}>
-        <div style={{
-          fontSize: isMobile ? 56 : 72,
-          color: '#52c41a',
-          marginBottom: isMobile ? 16 : 24
-        }}>
-          ✓
-        </div>
-        <Title
-          level={isMobile ? 3 : 2}
-          style={{
-            color: '#52c41a',
-            marginBottom: isMobile ? 8 : 16
-          }}
-        >
-          项目创建完成！
-        </Title>
-        <Paragraph style={{
-          fontSize: isMobile ? 14 : 16,
-          marginTop: isMobile ? 16 : 24,
-          marginBottom: isMobile ? 32 : 48,
-        }}>
-          《{projectTitle}》已成功创建，包含完整的世界观、角色和大纲节点
-        </Paragraph>
-        <Paragraph type="secondary" style={{
-          fontSize: isMobile ? 12 : 14,
-          marginTop: 8,
-        }}>
-          💡 提示：进入项目后，可在"大纲"页面将大纲节点展开为详细章节
-        </Paragraph>
-        
-        <Space
-          size={isMobile ? 12 : 16}
-          direction={isMobile ? 'vertical' : 'horizontal'}
-          style={{ width: isMobile ? '100%' : 'auto' }}
-        >
-          <Button
-            size="large"
-            onClick={() => navigate('/')}
-            block={isMobile}
-            style={{
-              minWidth: 120,
-              height: isMobile ? 44 : 40
-            }}
-          >
-            返回首页
-          </Button>
-          <Button
-            type="primary"
-            size="large"
-            icon={<RocketOutlined />}
-            onClick={() => navigate(`/project/${projectId}`)}
-            block={isMobile}
-            style={{
-              minWidth: 120,
-              height: isMobile ? 44 : 40
-            }}
-          >
-            进入项目
-          </Button>
-        </Space>
-      </div>
-    </Card>
-  );
-
   return (
     <div style={{
       minHeight: '100vh',
-      background: '#f5f7fa',
+      background: currentStep === 'generating' 
+        ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+        : '#f5f7fa',
     }}>
       {/* 顶部标题栏 - 固定不滚动 */}
       <div style={{
@@ -529,16 +307,17 @@ export default function ProjectWizardNew() {
         padding: isMobile ? '16px 12px' : '24px 24px',
       }}>
         {currentStep === 'form' && renderForm()}
-        {currentStep === 'generating' && renderGenerating()}
-        {currentStep === 'complete' && renderComplete()}
+        {currentStep === 'generating' && generationConfig && (
+          <AIProjectGenerator
+            config={generationConfig}
+            storagePrefix="wizard"
+            onComplete={handleComplete}
+            onBack={handleBack}
+            isMobile={isMobile}
+            resumeProjectId={resumeProjectId || undefined}
+          />
+        )}
       </div>
-
-      {/* SSE加载覆盖层 */}
-      <SSELoadingOverlay
-        loading={loading}
-        progress={progress}
-        message={progressMessage}
-      />
     </div>
   );
 }

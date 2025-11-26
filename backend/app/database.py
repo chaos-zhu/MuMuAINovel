@@ -86,6 +86,7 @@ async def get_engine(user_id: str):
                     "server_settings": {
                         "application_name": settings.app_name,
                         "jit": "off",
+                        "search_path": "public",
                     },
                     "command_timeout": 60,
                     "statement_cache_size": 500,

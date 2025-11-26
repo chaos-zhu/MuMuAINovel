@@ -9,7 +9,6 @@ import {
   Space,
   Alert,
   Divider,
-  Progress,
   Tag,
   message,
   Collapse,
@@ -22,6 +21,7 @@ import {
   CloseCircleOutlined
 } from '@ant-design/icons';
 import { ssePost } from '../utils/sseClient';
+import { SSEProgressModal } from './SSEProgressModal';
 
 const { TextArea } = Input;
 const { Panel } = Collapse;
@@ -242,22 +242,6 @@ const ChapterRegenerationModal: React.FC<ChapterRegenerationModalProps> = ({
         )
       }
     >
-      {status === 'generating' && (
-        <Alert
-          message="正在重新生成中..."
-          description={
-            <div>
-              <Progress percent={progress} status="active" />
-              <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
-                已生成 {wordCount} 字
-              </div>
-            </div>
-          }
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
-      )}
 
       {status === 'success' && (
         <Alert
@@ -395,6 +379,13 @@ const ChapterRegenerationModal: React.FC<ChapterRegenerationModalProps> = ({
         </Collapse>
       </Form>
 
+      {/* 使用统一的进度显示组件 */}
+      <SSEProgressModal
+        visible={status === 'generating'}
+        progress={progress}
+        message={`正在重新生成中... (已生成 ${wordCount} 字)`}
+        title="重新生成章节"
+      />
     </Modal>
   );
 };

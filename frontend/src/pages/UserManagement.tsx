@@ -109,6 +109,7 @@ export default function UserManagement() {
             </div>
           ),
           width: 500,
+          centered: true,
         });
       }
       
@@ -191,6 +192,7 @@ export default function UserManagement() {
           </div>
         ),
         width: 500,
+        centered: true,
       });
       
       setResetPasswordModalVisible(false);

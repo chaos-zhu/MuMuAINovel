@@ -1124,14 +1124,23 @@ async def generate_chapter_content_stream(
                 # 发送开始事件
                 yield f"data: {json.dumps({'type': 'start', 'message': '开始AI创作...'}, ensure_ascii=False)}\n\n"
                 
-                # 🔧 MCP工具增强：收集章节参考资料
+                # 🔧 MCP工具增强：收集章节参考资料（优化版）
                 mcp_reference_materials = ""
                 if enable_mcp and current_user_id:
                     try:
-                        yield f"data: {json.dumps({'type': 'progress', 'message': '🔍 尝试使用MCP工具收集参考资料...', 'progress': 28}, ensure_ascii=False)}\n\n"
+                        # 1️⃣ 静默检查工具可用性
+                        from app.services.mcp_tool_service import mcp_tool_service
+                        available_tools = await mcp_tool_service.get_user_enabled_tools(
+                            user_id=current_user_id,
+                            db_session=db_session
+                        )
                         
-                        # 构建资料收集提示词
-                        planning_prompt = f"""你正在为小说《{project.title}》创作第{current_chapter.chapter_number}章《{current_chapter.title}》。
+                        # 2️⃣ 只在有工具时才显示消息和调用
+                        if available_tools:
+                            yield f"data: {json.dumps({'type': 'progress', 'message': '🔍 使用MCP工具收集参考资料...', 'progress': 28}, ensure_ascii=False)}\n\n"
+                            
+                            # 构建资料收集提示词
+                            planning_prompt = f"""你正在为小说《{project.title}》创作第{current_chapter.chapter_number}章《{current_chapter.title}》。
 
 【章节大纲】
 {outline.content if outline else current_chapter.summary or '暂无大纲'}
@@ -1151,30 +1160,32 @@ async def generate_chapter_content_stream(
 4. 文化习俗和生活细节
 
 请根据章节内容，有针对性地查询1-2个最关键的问题。"""
-                        
-                        # 调用MCP增强的AI（非流式，最多2轮工具调用）
-                        planning_result = await user_ai_service.generate_text_with_mcp(
-                            prompt=planning_prompt,
-                            user_id=current_user_id,
-                            db_session=db_session,
-                            enable_mcp=True,
-                            max_tool_rounds=2,
-                            tool_choice="auto",
-                            provider=None,
-                            model=None
-                        )
-                        
-                        # 提取参考资料
-                        if planning_result.get("tool_calls_made", 0) > 0:
-                            tool_count = planning_result["tool_calls_made"]
-                            yield f"data: {json.dumps({'type': 'progress', 'message': f'✅ MCP工具调用成功（{tool_count}次）', 'progress': 32}, ensure_ascii=False)}\n\n"
-                            mcp_reference_materials = planning_result.get("content", "")
-                            logger.info(f"📚 MCP工具收集参考资料：{len(mcp_reference_materials)} 字符")
+                            
+                            # 调用MCP增强的AI（非流式，限制1轮避免超时）
+                            planning_result = await user_ai_service.generate_text_with_mcp(
+                                prompt=planning_prompt,
+                                user_id=current_user_id,
+                                db_session=db_session,
+                                enable_mcp=True,
+                                max_tool_rounds=1,  # ✅ 减少为1轮，避免超时
+                                tool_choice="auto",
+                                provider=None,
+                                model=None
+                            )
+                            
+                            # 3️⃣ 提取参考资料并显示结果
+                            if planning_result.get("tool_calls_made", 0) > 0:
+                                tool_count = planning_result["tool_calls_made"]
+                                yield f"data: {json.dumps({'type': 'progress', 'message': f'✅ MCP工具调用成功（{tool_count}次）', 'progress': 32}, ensure_ascii=False)}\n\n"
+                                mcp_reference_materials = planning_result.get("content", "")
+                                logger.info(f"📚 MCP工具收集参考资料：{len(mcp_reference_materials)} 字符")
+                            else:
+                                yield f"data: {json.dumps({'type': 'progress', 'message': 'ℹ️ MCP未使用工具，继续', 'progress': 32}, ensure_ascii=False)}\n\n"
                         else:
-                            yield f"data: {json.dumps({'type': 'progress', 'message': 'ℹ️ 未使用MCP工具（无可用工具或不需要）', 'progress': 32}, ensure_ascii=False)}\n\n"
+                            logger.debug(f"用户 {current_user_id} 未启用MCP工具，跳过MCP增强")
                             
                     except Exception as e:
-                        logger.warning(f"MCP工具调用失败（降级处理）: {e}")
+                        logger.warning(f"⚠️ MCP工具调用失败，降级为基础模式: {str(e)}")
                         yield f"data: {json.dumps({'type': 'progress', 'message': '⚠️ MCP工具暂时不可用，使用基础模式', 'progress': 32}, ensure_ascii=False)}\n\n"
                 
                 # 根据是否有前置内容选择不同的提示词，并应用写作风格、记忆增强和MCP参考资料

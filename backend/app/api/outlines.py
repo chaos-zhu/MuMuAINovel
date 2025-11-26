@@ -310,7 +310,7 @@ async def generate_outline(
         # 模式：全新生成
         if actual_mode == "new":
             return await _generate_new_outline(
-                request, project, db, user_ai_service
+                request, project, db, user_ai_service, user_id
             )
         
         # 模式：续写
@@ -344,7 +344,8 @@ async def _generate_new_outline(
     request: OutlineGenerateRequest,
     project: Project,
     db: AsyncSession,
-    user_ai_service: AIService
+    user_ai_service: AIService,
+    user_id: str = None
 ) -> OutlineListResponse:
     """全新生成大纲（MCP增强版）"""
     logger.info(f"全新生成大纲 - 项目: {project.id}, enable_mcp: {request.enable_mcp}")
@@ -360,14 +361,26 @@ async def _generate_new_outline(
         for char in characters
     ])
     
-    # 🔍 MCP工具增强：收集情节设计参考资料
+    # 🔍 MCP工具增强：收集情节设计参考资料（优化版）
     mcp_reference_materials = ""
     if request.enable_mcp:
         try:
-            logger.info(f"🔍 尝试使用MCP工具收集大纲设计参考资料...")
+            # 1️⃣ 静默检查工具可用性（注意：新建大纲时user_id可能不可用）
+            from app.services.mcp_tool_service import mcp_tool_service
+            # 使用传入的user_id参数
             
-            # 构建资料收集查询
-            planning_query = f"""你正在为小说《{project.title}》设计完整大纲。
+            if user_id:
+                available_tools = await mcp_tool_service.get_user_enabled_tools(
+                    user_id=user_id,
+                    db_session=db
+                )
+                
+                # 2️⃣ 只在有工具时才调用
+                if available_tools:
+                    logger.info(f"🔍 检测到可用MCP工具，收集大纲设计参考资料...")
+                    
+                    # 构建资料收集查询
+                    planning_query = f"""你正在为小说《{project.title}》设计完整大纲。
 项目信息：
 - 主题：{request.theme or project.theme}
 - 类型：{request.genre or project.genre}
@@ -389,27 +402,31 @@ async def _generate_new_outline(
 3. 符合世界观的情节元素和场景设计灵感
 
 请有针对性地查询1-2个最关键的问题。"""
-            
-            # 调用MCP增强的AI（非流式，最多2轮工具调用）
-            planning_result = await user_ai_service.generate_text_with_mcp(
-                prompt=planning_query,
-                user_id="system",  # 全新生成时可能没有用户上下文
-                db_session=db,
-                enable_mcp=True,
-                max_tool_rounds=2,
-                tool_choice="auto",
-                provider=None,
-                model=None
-            )
-            
-            # 提取参考资料
-            if planning_result.get("tool_calls_made", 0) > 0:
-                mcp_reference_materials = planning_result.get("content", "")
-                logger.info(f"📚 MCP工具收集参考资料：{len(mcp_reference_materials)} 字符")
+                    
+                    # 调用MCP增强的AI（非流式，限制1轮避免超时）
+                    planning_result = await user_ai_service.generate_text_with_mcp(
+                        prompt=planning_query,
+                        user_id=user_id,
+                        db_session=db,
+                        enable_mcp=True,
+                        max_tool_rounds=1,  # ✅ 减少为1轮，避免超时
+                        tool_choice="auto",
+                        provider=None,
+                        model=None
+                    )
+                    
+                    # 提取参考资料
+                    if planning_result.get("tool_calls_made", 0) > 0:
+                        mcp_reference_materials = planning_result.get("content", "")
+                        logger.info(f"✅ MCP工具收集参考资料：{len(mcp_reference_materials)} 字符")
+                    else:
+                        logger.info(f"ℹ️ MCP未使用工具，继续")
+                else:
+                    logger.debug(f"用户 {user_id} 未启用MCP工具，跳过MCP增强")
             else:
-                logger.info(f"ℹ️ MCP工具未进行调用，继续正常生成")
+                logger.debug("无用户上下文，跳过MCP增强")
         except Exception as e:
-            logger.warning(f"⚠️ MCP工具调用失败，继续使用常规模式: {str(e)}")
+            logger.warning(f"⚠️ MCP工具调用失败，降级为基础模式: {str(e)}")
             mcp_reference_materials = ""
     
     # 使用完整提示词（插入MCP参考资料）
@@ -659,15 +676,24 @@ async def _continue_outline(
             logger.warning(f"⚠️ 记忆上下文构建失败，继续不使用记忆: {str(e)}")
             memory_context = None
         
-        # 🔍 MCP工具增强：收集续写参考资料
+        # 🔍 MCP工具增强：收集续写参考资料（优化版）
         mcp_reference_materials = ""
         if request.enable_mcp:
             try:
-                logger.info(f"🔍 第{batch_num + 1}批：尝试使用MCP工具收集续写参考资料...")
+                # 1️⃣ 静默检查工具可用性
+                from app.services.mcp_tool_service import mcp_tool_service
+                available_tools = await mcp_tool_service.get_user_enabled_tools(
+                    user_id=user_id,
+                    db_session=db
+                )
                 
-                # 构建资料收集查询
-                latest_summary = latest_outlines[-1].content if latest_outlines else ""
-                planning_query = f"""你正在为小说《{project.title}》续写大纲。
+                # 2️⃣ 只在有工具时才调用
+                if available_tools:
+                    logger.info(f"🔍 第{batch_num + 1}批：检测到可用MCP工具，收集续写参考资料...")
+                    
+                    # 构建资料收集查询
+                    latest_summary = latest_outlines[-1].content if latest_outlines else ""
+                    planning_query = f"""你正在为小说《{project.title}》续写大纲。
 当前进度：已有{len(latest_outlines)}章，即将续写第{current_start_chapter}-{current_start_chapter + current_batch_size - 1}章
 
 项目信息：
@@ -686,27 +712,29 @@ async def _continue_outline(
 3. 符合类型特点的场景设计和剧情元素
 
 请有针对性地查询1-2个最关键的问题。"""
-                
-                # 调用MCP增强的AI（非流式，最多2轮工具调用）
-                planning_result = await user_ai_service.generate_text_with_mcp(
-                    prompt=planning_query,
-                    user_id=user_id,
-                    db_session=db,
-                    enable_mcp=True,
-                    max_tool_rounds=2,
-                    tool_choice="auto",
-                    provider=None,
-                    model=None
-                )
-                
-                # 提取参考资料
-                if planning_result.get("tool_calls_made", 0) > 0:
-                    mcp_reference_materials = planning_result.get("content", "")
-                    logger.info(f"📚 第{batch_num + 1}批MCP工具收集参考资料：{len(mcp_reference_materials)} 字符")
+                    
+                    # 调用MCP增强的AI（非流式，限制1轮避免超时）
+                    planning_result = await user_ai_service.generate_text_with_mcp(
+                        prompt=planning_query,
+                        user_id=user_id,
+                        db_session=db,
+                        enable_mcp=True,
+                        max_tool_rounds=1,  # ✅ 减少为1轮，避免超时
+                        tool_choice="auto",
+                        provider=None,
+                        model=None
+                    )
+                    
+                    # 提取参考资料
+                    if planning_result.get("tool_calls_made", 0) > 0:
+                        mcp_reference_materials = planning_result.get("content", "")
+                        logger.info(f"✅ 第{batch_num + 1}批MCP工具收集参考资料：{len(mcp_reference_materials)} 字符")
+                    else:
+                        logger.info(f"ℹ️ 第{batch_num + 1}批MCP未使用工具，继续")
                 else:
-                    logger.info(f"ℹ️ 第{batch_num + 1}批MCP工具未进行调用，继续正常生成")
+                    logger.debug(f"用户 {user_id} 未启用MCP工具，跳过第{batch_num + 1}批MCP增强")
             except Exception as e:
-                logger.warning(f"⚠️ 第{batch_num + 1}批MCP工具调用失败，继续使用常规模式: {str(e)}")
+                logger.warning(f"⚠️ 第{batch_num + 1}批MCP工具调用失败，降级为基础模式: {str(e)}")
                 mcp_reference_materials = ""
         
         # 使用标准续写提示词模板（支持记忆+MCP增强）
@@ -892,15 +920,29 @@ async def new_outline_generator(
             for char in characters
         ])
         
-        # 🔍 MCP工具增强：收集情节设计参考资料
+        # 🔍 MCP工具增强：收集情节设计参考资料（优化版）
         mcp_reference_materials = ""
         if enable_mcp:
             try:
-                yield await SSEResponse.send_progress("🔍 使用MCP工具收集参考资料...", 18)
-                logger.info(f"🔍 尝试使用MCP工具收集大纲设计参考资料...")
+                # 1️⃣ 静默检查工具可用性
+                from app.services.mcp_tool_service import mcp_tool_service
+                # 尝试从环境获取user_id（SSE流式场景下可能没有）
+                # 这里可以考虑让前端传递user_id
+                user_id_for_mcp = data.get("user_id")  # 需要前端传递
                 
-                # 构建资料收集查询
-                planning_query = f"""你正在为小说《{project.title}》设计完整大纲。
+                if user_id_for_mcp:
+                    available_tools = await mcp_tool_service.get_user_enabled_tools(
+                        user_id=user_id_for_mcp,
+                        db_session=db
+                    )
+                    
+                    # 2️⃣ 只在有工具时才显示消息和调用
+                    if available_tools:
+                        yield await SSEResponse.send_progress("🔍 使用MCP工具收集参考资料...", 18)
+                        logger.info(f"🔍 检测到可用MCP工具，收集大纲设计参考资料...")
+                        
+                        # 构建资料收集查询
+                        planning_query = f"""你正在为小说《{project.title}》设计完整大纲。
 项目信息：
 - 主题：{data.get('theme') or project.theme}
 - 类型：{data.get('genre') or project.genre}
@@ -922,28 +964,32 @@ async def new_outline_generator(
 3. 符合世界观的情节元素和场景设计灵感
 
 请有针对性地查询1-2个最关键的问题。"""
-                
-                # 调用MCP增强的AI（非流式，最多2轮工具调用）
-                planning_result = await user_ai_service.generate_text_with_mcp(
-                    prompt=planning_query,
-                    user_id="system",
-                    db_session=db,
-                    enable_mcp=True,
-                    max_tool_rounds=2,
-                    tool_choice="auto",
-                    provider=None,
-                    model=None
-                )
-                
-                # 提取参考资料
-                if planning_result.get("tool_calls_made", 0) > 0:
-                    mcp_reference_materials = planning_result.get("content", "")
-                    logger.info(f"📚 MCP工具收集参考资料：{len(mcp_reference_materials)} 字符")
-                    yield await SSEResponse.send_progress(f"📚 MCP收集到参考资料 ({len(mcp_reference_materials)}字符)", 19)
+                        
+                        # 调用MCP增强的AI（非流式，限制1轮避免超时）
+                        planning_result = await user_ai_service.generate_text_with_mcp(
+                            prompt=planning_query,
+                            user_id=user_id_for_mcp,
+                            db_session=db,
+                            enable_mcp=True,
+                            max_tool_rounds=1,  # ✅ 减少为1轮，避免超时
+                            tool_choice="auto",
+                            provider=None,
+                            model=None
+                        )
+                        
+                        # 提取参考资料
+                        if planning_result.get("tool_calls_made", 0) > 0:
+                            mcp_reference_materials = planning_result.get("content", "")
+                            logger.info(f"✅ MCP工具收集参考资料：{len(mcp_reference_materials)} 字符")
+                            yield await SSEResponse.send_progress(f"✅ MCP收集到参考资料 ({len(mcp_reference_materials)}字符)", 19)
+                        else:
+                            logger.info(f"ℹ️ MCP未使用工具，继续")
+                    else:
+                        logger.debug(f"用户 {user_id_for_mcp} 未启用MCP工具，跳过MCP增强")
                 else:
-                    logger.info(f"ℹ️ MCP工具未进行调用，继续正常生成")
+                    logger.debug("无用户上下文，跳过MCP增强")
             except Exception as e:
-                logger.warning(f"⚠️ MCP工具调用失败，继续使用常规模式: {str(e)}")
+                logger.warning(f"⚠️ MCP工具调用失败，降级为基础模式: {str(e)}")
                 mcp_reference_materials = ""
         
         # 使用完整提示词（插入MCP参考资料）
@@ -1185,20 +1231,29 @@ async def continue_outline_generator(
             except Exception as e:
                 logger.warning(f"⚠️ 记忆上下文构建失败: {str(e)}")
                 memory_context = None
-            # 🔍 MCP工具增强：收集续写参考资料
+            # 🔍 MCP工具增强：收集续写参考资料（优化版）
             mcp_reference_materials = ""
             enable_mcp = data.get("enable_mcp", True)
             if enable_mcp:
                 try:
-                    yield await SSEResponse.send_progress(
-                        f"🔍 第{str(batch_num + 1)}批：使用MCP工具收集参考资料...",
-                        batch_progress + 4
+                    # 1️⃣ 静默检查工具可用性
+                    from app.services.mcp_tool_service import mcp_tool_service
+                    available_tools = await mcp_tool_service.get_user_enabled_tools(
+                        user_id=user_id,
+                        db_session=db
                     )
-                    logger.info(f"🔍 第{batch_num + 1}批：尝试使用MCP工具收集续写参考资料...")
                     
-                    # 构建资料收集查询
-                    latest_summary = latest_outlines[-1].content if latest_outlines else ""
-                    planning_query = f"""你正在为小说《{project.title}》续写大纲。
+                    # 2️⃣ 只在有工具时才显示消息和调用
+                    if available_tools:
+                        yield await SSEResponse.send_progress(
+                            f"🔍 第{str(batch_num + 1)}批：使用MCP工具收集参考资料...",
+                            batch_progress + 4
+                        )
+                        logger.info(f"🔍 第{batch_num + 1}批：检测到可用MCP工具，收集续写参考资料...")
+                        
+                        # 构建资料收集查询
+                        latest_summary = latest_outlines[-1].content if latest_outlines else ""
+                        planning_query = f"""你正在为小说《{project.title}》续写大纲。
 当前进度：已有{len(latest_outlines)}章，即将续写第{current_start_chapter}-{current_start_chapter + current_batch_size - 1}章
 
 项目信息：
@@ -1217,31 +1272,33 @@ async def continue_outline_generator(
 3. 符合类型特点的场景设计和剧情元素
 
 请有针对性地查询1-2个最关键的问题。"""
-                    
-                    # 调用MCP增强的AI（非流式，最多2轮工具调用）
-                    planning_result = await user_ai_service.generate_text_with_mcp(
-                        prompt=planning_query,
-                        user_id=user_id,
-                        db_session=db,
-                        enable_mcp=True,
-                        max_tool_rounds=2,
-                        tool_choice="auto",
-                        provider=None,
-                        model=None
-                    )
-                    
-                    # 提取参考资料
-                    if planning_result.get("tool_calls_made", 0) > 0:
-                        mcp_reference_materials = planning_result.get("content", "")
-                        logger.info(f"📚 第{batch_num + 1}批MCP工具收集参考资料：{len(mcp_reference_materials)} 字符")
-                        yield await SSEResponse.send_progress(
-                            f"📚 第{str(batch_num + 1)}批收集到参考资料 ({len(mcp_reference_materials)}字符)",
-                            batch_progress + 4.5
+                        
+                        # 调用MCP增强的AI（非流式，限制1轮避免超时）
+                        planning_result = await user_ai_service.generate_text_with_mcp(
+                            prompt=planning_query,
+                            user_id=user_id,
+                            db_session=db,
+                            enable_mcp=True,
+                            max_tool_rounds=1,  # ✅ 减少为1轮，避免超时
+                            tool_choice="auto",
+                            provider=None,
+                            model=None
                         )
+                        
+                        # 提取参考资料
+                        if planning_result.get("tool_calls_made", 0) > 0:
+                            mcp_reference_materials = planning_result.get("content", "")
+                            logger.info(f"✅ 第{batch_num + 1}批MCP工具收集参考资料：{len(mcp_reference_materials)} 字符")
+                            yield await SSEResponse.send_progress(
+                                f"✅ 第{str(batch_num + 1)}批收集到参考资料 ({len(mcp_reference_materials)}字符)",
+                                batch_progress + 4.5
+                            )
+                        else:
+                            logger.info(f"ℹ️ 第{batch_num + 1}批MCP未使用工具，继续")
                     else:
-                        logger.info(f"ℹ️ 第{batch_num + 1}批MCP工具未进行调用，继续正常生成")
+                        logger.debug(f"用户 {user_id} 未启用MCP工具，跳过第{batch_num + 1}批MCP增强")
                 except Exception as e:
-                    logger.warning(f"⚠️ 第{batch_num + 1}批MCP工具调用失败，继续使用常规模式: {str(e)}")
+                    logger.warning(f"⚠️ 第{batch_num + 1}批MCP工具调用失败，降级为基础模式: {str(e)}")
                     mcp_reference_materials = ""
             
             

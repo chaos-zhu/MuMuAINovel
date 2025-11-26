@@ -246,6 +246,10 @@ async def world_building_generator(
         except Exception as e:
             logger.warning(f"设置默认写作风格失败: {e}，不影响项目创建")
         
+        # 更新向导步骤状态为1（世界观已完成）
+        project.wizard_step = 1
+        await db.commit()
+        
         db_committed = True
         
         # 发送最终结果
@@ -824,8 +828,9 @@ async def characters_generator(
         logger.info(f"  - 创建角色关系：{relationships_created} 条")
         logger.info(f"  - 创建组织成员：{members_created} 条")
         
-        # 更新项目的角色数量
+        # 更新项目的角色数量和向导步骤状态为2（角色已完成）
         project.character_count = len(created_characters)
+        project.wizard_step = 2
         logger.info(f"✅ 更新项目角色数量: {project.character_count}")
         
         await db.commit()
@@ -1022,7 +1027,7 @@ async def outline_generator(
         project.target_words = target_words
         project.status = "writing"
         project.wizard_status = "completed"
-        project.wizard_step = 4
+        project.wizard_step = 3 
         
         await db.commit()
         db_committed = True
@@ -1269,7 +1274,6 @@ async def regenerate_world_building_stream(
     # 从中间件注入user_id到data中
     if hasattr(request.state, 'user_id'):
         data['user_id'] = request.state.user_id
-    
     return create_sse_response(world_building_regenerate_generator(project_id, data, db, user_ai_service))
 
 

@@ -436,27 +436,54 @@ async def generate_character(
         logger.info(f"  - 用户ID：{user_id}")
         
         try:
-            # 使用支持MCP的生成方法
-            result = await user_ai_service.generate_text_with_mcp(
-                prompt=prompt,
-                user_id=user_id,
-                db_session=db,
-                enable_mcp=True,
-                max_tool_rounds=2,
-                tool_choice="auto",
-                provider=None,  # 使用AIService初始化时的配置
-                model=None      # 使用AIService初始化时的配置
-            )
-            
-            # 提取内容
-            if isinstance(result, dict):
-                ai_response = result.get('content', '')
-                logger.info(f"✅ AI响应接收完成（MCP增强），长度：{len(ai_response)} 字符")
-                if result.get('tool_calls'):
-                    logger.info(f"  - 工具调用：{len(result['tool_calls'])} 次")
+            # 🔧 MCP工具增强：静默检查并收集参考资料
+            mcp_enhanced_prompt = prompt
+            if user_id:
+                try:
+                    from app.services.mcp_tool_service import mcp_tool_service
+                    available_tools = await mcp_tool_service.get_user_enabled_tools(
+                        user_id=user_id,
+                        db_session=db
+                    )
+                    
+                    # 只在有工具时才调用
+                    if available_tools:
+                        logger.info(f"🔍 检测到可用MCP工具，尝试收集参考资料...")
+                        result = await user_ai_service.generate_text_with_mcp(
+                            prompt=prompt,
+                            user_id=user_id,
+                            db_session=db,
+                            enable_mcp=True,
+                            max_tool_rounds=1,  # 减少为1轮，避免超时
+                            tool_choice="auto",
+                            provider=None,
+                            model=None
+                        )
+                        
+                        # 提取内容
+                        if isinstance(result, dict):
+                            ai_response = result.get('content', '')
+                            logger.info(f"✅ AI响应接收完成（MCP增强），长度：{len(ai_response)} 字符")
+                            if result.get('tool_calls_made', 0) > 0:
+                                logger.info(f"  - MCP工具调用：{result['tool_calls_made']} 次")
+                        else:
+                            ai_response = result
+                            logger.info(f"✅ AI响应接收完成，长度：{len(ai_response) if ai_response else 0} 字符")
+                    else:
+                        logger.debug(f"用户 {user_id} 未启用MCP工具，使用基础模式")
+                        # 不使用MCP，直接生成
+                        result = await user_ai_service.generate_text(prompt=prompt)
+                        ai_response = result.get('content', '') if isinstance(result, dict) else result
+                        
+                except Exception as mcp_error:
+                    logger.warning(f"⚠️ MCP工具调用失败，降级为基础模式: {str(mcp_error)}")
+                    # 降级：不使用MCP
+                    result = await user_ai_service.generate_text(prompt=prompt)
+                    ai_response = result.get('content', '') if isinstance(result, dict) else result
             else:
-                ai_response = result
-                logger.info(f"✅ AI响应接收完成，长度：{len(ai_response) if ai_response else 0} 字符")
+                # 无用户ID，直接使用基础模式
+                result = await user_ai_service.generate_text(prompt=prompt)
+                ai_response = result.get('content', '') if isinstance(result, dict) else result
                 
         except Exception as ai_error:
             logger.error(f"❌ AI服务调用异常：{str(ai_error)}")
@@ -807,21 +834,47 @@ async def generate_character_stream(
             logger.info(f"🎯 开始为项目 {request.project_id} 生成角色（SSE流式）")
             
             try:
-                result = await user_ai_service.generate_text_with_mcp(
-                    prompt=prompt,
-                    user_id=user_id,
-                    db_session=db,
-                    enable_mcp=True,
-                    max_tool_rounds=2,
-                    tool_choice="auto",
-                    provider=None,
-                    model=None
-                )
-                
-                if isinstance(result, dict):
-                    ai_response = result.get('content', '')
+                # 🔧 MCP工具增强：静默检查并收集参考资料
+                if user_id:
+                    try:
+                        from app.services.mcp_tool_service import mcp_tool_service
+                        available_tools = await mcp_tool_service.get_user_enabled_tools(
+                            user_id=user_id,
+                            db_session=db
+                        )
+                        
+                        # 只在有工具时才调用
+                        if available_tools:
+                            logger.info(f"🔍 检测到可用MCP工具，尝试收集参考资料...")
+                            result = await user_ai_service.generate_text_with_mcp(
+                                prompt=prompt,
+                                user_id=user_id,
+                                db_session=db,
+                                enable_mcp=True,
+                                max_tool_rounds=1,  # 减少为1轮，避免超时
+                                tool_choice="auto",
+                                provider=None,
+                                model=None
+                            )
+                            
+                            if isinstance(result, dict):
+                                ai_response = result.get('content', '')
+                                if result.get('tool_calls_made', 0) > 0:
+                                    logger.info(f"✅ MCP工具调用成功（{result['tool_calls_made']}次）")
+                            else:
+                                ai_response = result
+                        else:
+                            logger.debug(f"用户 {user_id} 未启用MCP工具，使用基础模式")
+                            result = await user_ai_service.generate_text(prompt=prompt)
+                            ai_response = result.get('content', '') if isinstance(result, dict) else result
+                            
+                    except Exception as mcp_error:
+                        logger.warning(f"⚠️ MCP工具调用失败，降级为基础模式: {str(mcp_error)}")
+                        result = await user_ai_service.generate_text(prompt=prompt)
+                        ai_response = result.get('content', '') if isinstance(result, dict) else result
                 else:
-                    ai_response = result
+                    result = await user_ai_service.generate_text(prompt=prompt)
+                    ai_response = result.get('content', '') if isinstance(result, dict) else result
                     
             except Exception as ai_error:
                 logger.error(f"❌ AI服务调用异常：{str(ai_error)}")

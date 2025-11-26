@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-1.0.4-blue.svg)
+![Version](https://img.shields.io/badge/version-1.0.5-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109.0-green.svg)
 ![React](https://img.shields.io/badge/react-18.3.1-blue.svg)
@@ -22,7 +22,7 @@
 
 如果这个项目对你有帮助，欢迎通过以下方式支持开发：
 
-**[☕ 请我喝杯咖啡](https://zanzhupage.vercel.app/)**
+**[☕ 请我喝杯咖啡](https://mumuverse.space:1588/)**
 
 您的支持是我持续开发的动力！🙏
 
