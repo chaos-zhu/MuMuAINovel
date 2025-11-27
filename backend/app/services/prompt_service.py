@@ -207,14 +207,16 @@ class PromptService:
 4. **无特殊符号**：文本中不使用引号、方括号等特殊符号包裹内容
 5. **丰富细节**：每个字段提供充实的原创内容，避免模板化表达
 
-# 反面示例（避免这样的设定）
-❌ 不好的设定：故事设定在大崩解后的XX纪元、新世界秩序、文明重启...
-✅ 好的设定：故事设定在2024年的深圳，互联网创业浪潮下的年轻人...
+请根据输入的类型和主题，生成**规模适当、风格匹配**的世界观设定。
 
-❌ 不好的设定：升华纪元、共鸣指数、灵光纯度...（现代都市题材不要用这些）
-✅ 好的设定：通过高考分数、学历背景、家庭条件来衡量个人价值...（符合现实）
+# JSON格式示例
 
-请根据输入的类型和主题，生成**规模适当、风格匹配**的世界观设定。"""
+{{
+  "time_period": "时间背景与社会状态的详细描述（300-500字）",
+  "location": "空间环境与地理特征的详细描述（300-500字）",
+  "atmosphere": "感官体验与情感基调的详细描述（300-500字）",
+  "rules": "世界规则与社会结构的详细描述（300-500字）"
+}}"""
 
     # 批量角色生成提示词
     CHARACTERS_BATCH_GENERATION = """你是一位专业的角色设定师。请根据以下世界观和要求，生成{count}个立体丰满的角色和组织：
@@ -1019,7 +1021,8 @@ class PromptService:
                                       chapter_outline: str, style_content: str = "",
                                       target_word_count: int = 3000,
                                       memory_context: dict = None,
-                                      mcp_references: str = "") -> str:
+                                      mcp_references: str = "",
+                                      outline_mode: str = "one-to-many") -> str:
         """
         获取章节完整创作提示词
         
@@ -1028,6 +1031,7 @@ class PromptService:
             target_word_count: 目标字数，默认3000字
             memory_context: 记忆上下文（可选）
             mcp_references: MCP工具搜索的参考资料（可选）
+            outline_mode: 大纲模式 (one-to-one/one-to-many)
         """
         # 计算最大字数（目标字数+1000）
         max_word_count = target_word_count + 1000
@@ -1049,6 +1053,13 @@ class PromptService:
             mcp_text += "以下是通过MCP工具搜索到的相关参考资料，可用于丰富情节和细节：\n\n"
             mcp_text += mcp_references
             mcp_text += "\n"
+        
+        # 根据大纲模式添加创作指导
+        mode_instruction = ""
+        if outline_mode == 'one-to-one':
+            mode_instruction = "\n\n【创作模式说明】\n本章采用一对一模式：一个大纲节点对应一个章节。请充分展开大纲中的情节，注重叙事的完整性和丰满度。\n"
+        else:
+            mode_instruction = "\n\n【创作模式说明】\n本章采用细纲模式：本章是大纲节点的细化展开之一。请严格遵循上述详细规划中的剧情点、角色焦点和情感基调，确保与整体规划保持一致。\n"
         
         base_prompt = cls.format_prompt(
             cls.CHAPTER_GENERATION,
@@ -1079,7 +1090,13 @@ class PromptService:
         if insert_text:
             base_prompt = base_prompt.replace(
                 "本章信息：",
-                insert_text + "\n\n本章信息："
+                insert_text + mode_instruction + "\n\n本章信息："
+            )
+        else:
+            # 没有记忆和MCP时也要插入模式说明
+            base_prompt = base_prompt.replace(
+                "本章信息：",
+                mode_instruction + "\n\n本章信息："
             )
         
         # 如果有风格要求，应用到提示词中
@@ -1098,7 +1115,8 @@ class PromptService:
                                                    style_content: str = "",
                                                    target_word_count: int = 3000,
                                                    memory_context: dict = None,
-                                                   mcp_references: str = "") -> str:
+                                                   mcp_references: str = "",
+                                                   outline_mode: str = "one-to-many") -> str:
         """
         获取章节完整创作提示词（带前置章节上下文和记忆增强）
         
@@ -1107,6 +1125,7 @@ class PromptService:
             target_word_count: 目标字数，默认3000字
             memory_context: 记忆上下文（可选）
             mcp_references: MCP工具搜索的参考资料（可选）
+            outline_mode: 大纲模式 (one-to-one/one-to-many)
         """
         # 计算最大字数（目标字数+1000）
         max_word_count = target_word_count + 1000
@@ -1128,6 +1147,13 @@ class PromptService:
             memory_text += "以下是通过MCP工具搜索到的相关参考资料，可用于丰富情节和细节：\n\n"
             memory_text += mcp_references
         
+        # 根据大纲模式添加创作指导
+        mode_instruction = ""
+        if outline_mode == 'one-to-one':
+            mode_instruction = "\n\n【创作模式说明】\n本章采用一对一模式：一个大纲节点对应一个章节。请在承接前文的基础上，充分展开大纲中的情节，保持叙事的完整性。\n"
+        else:
+            mode_instruction = "\n\n【创作模式说明】\n本章采用细纲模式：本章是大纲节点的细化展开之一。请严格遵循上述详细规划（expansion_plan）中的剧情点、角色焦点、情感基调和叙事目标，确保与整体规划保持一致，同时自然衔接前文内容。\n"
+        
         base_prompt = cls.format_prompt(
             cls.CHAPTER_GENERATION_WITH_CONTEXT,
             title=title,
@@ -1147,6 +1173,12 @@ class PromptService:
             target_word_count=target_word_count,
             max_word_count=max_word_count,
             memory_context=memory_text
+        )
+        
+        # 插入模式说明
+        base_prompt = base_prompt.replace(
+            "本章信息：",
+            mode_instruction + "\n本章信息："
         )
         
         # 如果有风格要求，应用到提示词中

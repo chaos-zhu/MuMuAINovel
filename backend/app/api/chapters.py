@@ -28,7 +28,8 @@ from app.schemas.chapter import (
     ChapterGenerateRequest,
     BatchGenerateRequest,
     BatchGenerateResponse,
-    BatchGenerateStatusResponse
+    BatchGenerateStatusResponse,
+    ExpansionPlanUpdate
 )
 from app.schemas.regeneration import (
     ChapterRegenerateRequest,
@@ -1008,6 +1009,10 @@ async def generate_chapter_content_stream(
                     yield f"data: {json.dumps({'type': 'error', 'error': '项目不存在'}, ensure_ascii=False)}\n\n"
                     return
                 
+                # 获取项目的大纲模式
+                outline_mode = project.outline_mode if project else 'one-to-many'
+                logger.info(f"📋 项目大纲模式: {outline_mode}")
+                
                 # 获取对应的大纲
                 outline_result = await db_session.execute(
                     select(Outline)
@@ -1188,6 +1193,48 @@ async def generate_chapter_content_stream(
                         logger.warning(f"⚠️ MCP工具调用失败，降级为基础模式: {str(e)}")
                         yield f"data: {json.dumps({'type': 'progress', 'message': '⚠️ MCP工具暂时不可用，使用基础模式', 'progress': 32}, ensure_ascii=False)}\n\n"
                 
+                # 📋 根据大纲模式构建差异化的章节大纲上下文
+                chapter_outline_content = ""
+                if outline_mode == 'one-to-one':
+                    # 一对一模式：使用大纲的 content
+                    chapter_outline_content = outline.content if outline else current_chapter.summary or '暂无大纲'
+                    logger.info(f"✏️ 一对一模式：使用大纲内容作为章节指导")
+                else:
+                    # 一对多模式：优先使用 expansion_plan 的详细规划
+                    if current_chapter.expansion_plan:
+                        try:
+                            plan = json.loads(current_chapter.expansion_plan)
+                            chapter_outline_content = f"""【本章详细规划】
+剧情摘要：{plan.get('plot_summary', '无')}
+
+关键事件：
+{chr(10).join(f'- {event}' for event in plan.get('key_events', []))}
+
+角色焦点：{', '.join(plan.get('character_focus', []))}
+
+情感基调：{plan.get('emotional_tone', '未设定')}
+
+叙事目标：{plan.get('narrative_goal', '未设定')}
+
+冲突类型：{plan.get('conflict_type', '未设定')}"""
+                            
+                            # 可选：附加章节 summary
+                            if current_chapter.summary and current_chapter.summary.strip():
+                                chapter_outline_content += f"\n\n【章节补充说明】\n{current_chapter.summary}"
+                            
+                            # 可选：附加大纲的背景信息
+                            if outline:
+                                chapter_outline_content += f"\n\n【大纲节点背景】\n{outline.content}"
+                            
+                            logger.info(f"✏️ 一对多模式：使用expansion_plan详细规划（{len(chapter_outline_content)}字符）")
+                        except json.JSONDecodeError as e:
+                            logger.warning(f"⚠️ expansion_plan解析失败: {e}，回退到大纲内容")
+                            chapter_outline_content = outline.content if outline else current_chapter.summary or '暂无大纲'
+                    else:
+                        # 没有expansion_plan，使用大纲内容
+                        chapter_outline_content = outline.content if outline else current_chapter.summary or '暂无大纲'
+                        logger.warning(f"⚠️ 一对多模式但无expansion_plan，使用大纲内容")
+                
                 # 根据是否有前置内容选择不同的提示词，并应用写作风格、记忆增强和MCP参考资料
                 if previous_content:
                     prompt = prompt_service.get_chapter_generation_with_context_prompt(
@@ -1204,11 +1251,12 @@ async def generate_chapter_content_stream(
                         previous_content=previous_content,
                         chapter_number=current_chapter.chapter_number,
                         chapter_title=current_chapter.title,
-                        chapter_outline=outline.content if outline else current_chapter.summary or '暂无大纲',
+                        chapter_outline=chapter_outline_content,
                         style_content=style_content,
                         target_word_count=target_word_count,
                         memory_context=memory_context,
-                        mcp_references=mcp_reference_materials
+                        mcp_references=mcp_reference_materials,
+                        outline_mode=outline_mode
                     )
                 else:
                     prompt = prompt_service.get_chapter_generation_prompt(
@@ -1224,11 +1272,12 @@ async def generate_chapter_content_stream(
                         outlines_context=outlines_context,
                         chapter_number=current_chapter.chapter_number,
                         chapter_title=current_chapter.title,
-                        chapter_outline=outline.content if outline else current_chapter.summary or '暂无大纲',
+                        chapter_outline=chapter_outline_content,
                         style_content=style_content,
                         target_word_count=target_word_count,
                         memory_context=memory_context,
-                        mcp_references=mcp_reference_materials
+                        mcp_references=mcp_reference_materials,
+                        outline_mode=outline_mode
                     )
                 
                 if mcp_reference_materials:
@@ -1238,10 +1287,38 @@ async def generate_chapter_content_stream(
                 
                 # 流式生成内容
                 full_content = ""
+                chunk_count = 0
+                last_progress = 0
+                
                 async for chunk in user_ai_service.generate_text_stream(prompt=prompt):
                     full_content += chunk
+                    chunk_count += 1
+                    
+                    # 发送内容块
                     yield f"data: {json.dumps({'type': 'content', 'content': chunk}, ensure_ascii=False)}\n\n"
+                    
+                    # 每50个chunk发送一次进度更新（估算）
+                    if chunk_count % 50 == 0:
+                        current_word_count = len(full_content)
+                        # 根据目标字数估算进度（35%起步，最高95%，为后续保存留5%）
+                        estimated_progress = min(95, 35 + int((current_word_count / target_word_count) * 60))
+                        
+                        # 只在进度变化时发送
+                        if estimated_progress > last_progress:
+                            progress_data = {
+                                'type': 'progress',
+                                'progress': estimated_progress,
+                                'message': f'正在创作中... 已生成 {current_word_count} 字',
+                                'word_count': current_word_count,
+                                'status': 'processing'
+                            }
+                            yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
+                            last_progress = estimated_progress
+                    
                     await asyncio.sleep(0)  # 让出控制权
+                
+                # 发送保存进度
+                yield f"data: {json.dumps({'type': 'progress', 'progress': 98, 'message': '正在保存章节...', 'status': 'processing'}, ensure_ascii=False)}\n\n"
                 
                 # 更新章节内容到数据库
                 old_word_count = current_chapter.word_count or 0
@@ -1296,6 +1373,9 @@ async def generate_chapter_content_stream(
                     task_id=task_id,
                     ai_service=user_ai_service
                 )
+                
+                # 发送最终进度100%
+                yield f"data: {json.dumps({'type': 'progress', 'progress': 100, 'message': '创作完成！', 'word_count': new_word_count, 'status': 'success'}, ensure_ascii=False)}\n\n"
                 
                 # 发送完成事件（包含分析任务ID）
                 completion_data = {
@@ -2216,6 +2296,10 @@ async def generate_single_chapter_for_batch(
     if not project:
         raise Exception("项目不存在")
     
+    # 获取项目的大纲模式
+    outline_mode = project.outline_mode if project else 'one-to-many'
+    logger.info(f"📋 批量生成 - 项目大纲模式: {outline_mode}")
+    
     # 获取对应的大纲
     outline_result = await db_session.execute(
         select(Outline)
@@ -2285,6 +2369,48 @@ async def generate_single_chapter_for_batch(
         character_names=[c.name for c in characters] if characters else None
     )
     
+    # 📋 根据大纲模式构建差异化的章节大纲上下文
+    chapter_outline_content = ""
+    if outline_mode == 'one-to-one':
+        # 一对一模式：使用大纲的 content
+        chapter_outline_content = outline.content if outline else chapter.summary or '暂无大纲'
+        logger.info(f"✏️ 批量生成 - 一对一模式：使用大纲内容")
+    else:
+        # 一对多模式：优先使用 expansion_plan 的详细规划
+        if chapter.expansion_plan:
+            try:
+                plan = json.loads(chapter.expansion_plan)
+                chapter_outline_content = f"""【本章详细规划】
+剧情摘要：{plan.get('plot_summary', '无')}
+
+关键事件：
+{chr(10).join(f'- {event}' for event in plan.get('key_events', []))}
+
+角色焦点：{', '.join(plan.get('character_focus', []))}
+
+情感基调：{plan.get('emotional_tone', '未设定')}
+
+叙事目标：{plan.get('narrative_goal', '未设定')}
+
+冲突类型：{plan.get('conflict_type', '未设定')}"""
+                
+                # 可选：附加章节 summary
+                if chapter.summary and chapter.summary.strip():
+                    chapter_outline_content += f"\n\n【章节补充说明】\n{chapter.summary}"
+                
+                # 可选：附加大纲的背景信息
+                if outline:
+                    chapter_outline_content += f"\n\n【大纲节点背景】\n{outline.content}"
+                
+                logger.info(f"✏️ 批量生成 - 一对多模式：使用expansion_plan详细规划")
+            except json.JSONDecodeError as e:
+                logger.warning(f"⚠️ expansion_plan解析失败: {e}，回退到大纲内容")
+                chapter_outline_content = outline.content if outline else chapter.summary or '暂无大纲'
+        else:
+            # 没有expansion_plan，使用大纲内容
+            chapter_outline_content = outline.content if outline else chapter.summary or '暂无大纲'
+            logger.warning(f"⚠️ 批量生成 - 一对多模式但无expansion_plan，使用大纲内容")
+    
     # 生成提示词
     if previous_content:
         prompt = prompt_service.get_chapter_generation_with_context_prompt(
@@ -2301,10 +2427,11 @@ async def generate_single_chapter_for_batch(
             previous_content=previous_content,
             chapter_number=chapter.chapter_number,
             chapter_title=chapter.title,
-            chapter_outline=outline.content if outline else chapter.summary or '暂无大纲',
+            chapter_outline=chapter_outline_content,
             style_content=style_content,
             target_word_count=target_word_count,
-            memory_context=memory_context
+            memory_context=memory_context,
+            outline_mode=outline_mode
         )
     else:
         prompt = prompt_service.get_chapter_generation_prompt(
@@ -2320,10 +2447,11 @@ async def generate_single_chapter_for_batch(
             outlines_context=outlines_context,
             chapter_number=chapter.chapter_number,
             chapter_title=chapter.title,
-            chapter_outline=outline.content if outline else chapter.summary or '暂无大纲',
+            chapter_outline=chapter_outline_content,
             style_content=style_content,
             target_word_count=target_word_count,
-            memory_context=memory_context
+            memory_context=memory_context,
+            outline_mode=outline_mode
         )
     
     # 非流式生成内容
@@ -2641,5 +2769,66 @@ async def get_regeneration_tasks(
             }
             for task in tasks
         ]
+    }
+
+
+@router.put("/{chapter_id}/expansion-plan", response_model=dict, summary="更新章节规划信息")
+async def update_chapter_expansion_plan(
+    chapter_id: str,
+    expansion_plan: ExpansionPlanUpdate,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    更新章节的展开规划信息
+    
+    Args:
+        chapter_id: 章节ID
+        expansion_plan: 规划信息更新数据
+    
+    Returns:
+        更新后的章节规划信息
+    """
+    # 获取章节
+    result = await db.execute(
+        select(Chapter).where(Chapter.id == chapter_id)
+    )
+    chapter = result.scalar_one_or_none()
+    
+    if not chapter:
+        raise HTTPException(status_code=404, detail="章节不存在")
+    
+    # 验证用户权限
+    user_id = getattr(request.state, 'user_id', None)
+    await verify_project_access(chapter.project_id, user_id, db)
+    
+    # 准备更新数据(排除None值)
+    plan_data = expansion_plan.model_dump(exclude_unset=True, exclude_none=True)
+    
+    # 如果已有规划,合并更新;否则创建新规划
+    if chapter.expansion_plan:
+        try:
+            existing_plan = json.loads(chapter.expansion_plan)
+            # 合并更新
+            existing_plan.update(plan_data)
+            chapter.expansion_plan = json.dumps(existing_plan, ensure_ascii=False)
+        except json.JSONDecodeError:
+            logger.warning(f"章节 {chapter_id} 的expansion_plan格式错误,将覆盖")
+            chapter.expansion_plan = json.dumps(plan_data, ensure_ascii=False)
+    else:
+        chapter.expansion_plan = json.dumps(plan_data, ensure_ascii=False)
+    
+    await db.commit()
+    await db.refresh(chapter)
+    
+    logger.info(f"章节规划更新成功: {chapter_id}")
+    
+    # 返回更新后的规划数据
+    updated_plan = json.loads(chapter.expansion_plan) if chapter.expansion_plan else None
+    
+    return {
+        "id": chapter.id,
+        "expansion_plan": updated_plan,
+        "message": "规划信息更新成功"
     }
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Typography, Space, Divider, Badge, Tooltip } from 'antd';
-import { GithubOutlined, CopyrightOutlined, HeartFilled, ClockCircleOutlined } from '@ant-design/icons';
+import { Typography, Space, Divider, Badge, Tooltip, Button } from 'antd';
+import { GithubOutlined, CopyrightOutlined, HeartFilled, ClockCircleOutlined, GiftOutlined } from '@ant-design/icons';
 import { VERSION_INFO, getVersionString } from '../config/version';
 import { checkLatestVersion } from '../services/versionService';
 
@@ -87,6 +87,26 @@ export default function AppFooter() {
                 </Text>
               </Tooltip>
             </Badge>
+            <Divider type="vertical" style={{ margin: '0 4px', borderColor: 'rgba(255, 255, 255, 0.3)' }} />
+            <Button
+              type="primary"
+              size="small"
+              icon={<GiftOutlined />}
+              onClick={() => window.open('https://mumuverse.space:1588/', '_blank')}
+              style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                border: 'none',
+                boxShadow: '0 2px 8px rgba(102, 126, 234, 0.4)',
+                fontSize: 11,
+                height: 24,
+                padding: '0 8px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 4,
+              }}
+            >
+              赞助
+            </Button>
             <Divider type="vertical" style={{ margin: '0 4px', borderColor: 'rgba(255, 255, 255, 0.3)' }} />
             <Link
               href={VERSION_INFO.githubUrl}
@@ -189,6 +209,36 @@ export default function AppFooter() {
             >
               LinuxDO 社区
             </Link>
+
+            {/* 赞助按钮 */}
+            <Button
+              type="primary"
+              icon={<GiftOutlined style={{ fontSize: 14 }} />}
+              onClick={() => window.open('https://mumuverse.space:1588/', '_blank')}
+              style={{
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                border: 'none',
+                boxShadow: '0 4px 12px rgba(102, 126, 234, 0.5)',
+                fontSize: 13,
+                height: 32,
+                padding: '0 20px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 6,
+                fontWeight: 600,
+                transition: 'all 0.3s',
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 6px 16px rgba(102, 126, 234, 0.6)';
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = 'translateY(0)';
+                e.currentTarget.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.5)';
+              }}
+            >
+              赞助支持
+            </Button>
 
             {/* 许可证 */}
             <Link

@@ -515,6 +515,7 @@ export const wizardStreamApi = {
       target_words?: number;
       chapter_count?: number;
       character_count?: number;
+      outline_mode?: 'one-to-one' | 'one-to-many';  // 添加大纲模式参数
       provider?: string;
       model?: string;
     },

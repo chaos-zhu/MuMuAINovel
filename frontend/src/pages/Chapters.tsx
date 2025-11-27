@@ -1,11 +1,12 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { List, Button, Modal, Form, Input, Select, message, Empty, Space, Badge, Tag, Card, Tooltip, InputNumber, Alert, Radio, Descriptions, Collapse, Popconfirm, FloatButton } from 'antd';
-import { EditOutlined, FileTextOutlined, ThunderboltOutlined, LockOutlined, DownloadOutlined, SettingOutlined, FundOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, RocketOutlined, StopOutlined, InfoCircleOutlined, CaretRightOutlined, DeleteOutlined, BookOutlined } from '@ant-design/icons';
+import { EditOutlined, FileTextOutlined, ThunderboltOutlined, LockOutlined, DownloadOutlined, SettingOutlined, FundOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, RocketOutlined, StopOutlined, InfoCircleOutlined, CaretRightOutlined, DeleteOutlined, BookOutlined, FormOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import { useChapterSync } from '../store/hooks';
 import { projectApi, writingStyleApi } from '../services/api';
 import type { Chapter, ChapterUpdate, ApiError, WritingStyle, AnalysisTask, ExpansionPlanData } from '../types';
 import ChapterAnalysis from '../components/ChapterAnalysis';
+import ExpansionPlanEditor from '../components/ExpansionPlanEditor';
 import { SSELoadingOverlay } from '../components/SSELoadingOverlay';
 import { SSEProgressModal } from '../components/SSEProgressModal';
 import FloatingIndexPanel from '../components/FloatingIndexPanel';
@@ -32,6 +33,10 @@ export default function Chapters() {
   const [analysisTasksMap, setAnalysisTasksMap] = useState<Record<string, AnalysisTask>>({});
   const pollingIntervalsRef = useRef<Record<string, number>>({});
   const [isIndexPanelVisible, setIsIndexPanelVisible] = useState(false);
+  
+  // 规划编辑状态
+  const [planEditorVisible, setPlanEditorVisible] = useState(false);
+  const [editingPlanChapter, setEditingPlanChapter] = useState<Chapter | null>(null);
   
   // 单章节生成进度状态
   const [singleChapterProgress, setSingleChapterProgress] = useState(0);
@@ -559,6 +564,7 @@ export default function Chapters() {
     
     try {
       setBatchGenerating(true);
+      setBatchGenerateVisible(false); // 关闭配置对话框，避免遮挡进度弹窗
       
       const response = await fetch(`/api/chapters/project/${currentProject.id}/batch-generate`, {
         method: 'POST',
@@ -978,10 +984,61 @@ export default function Chapters() {
         const updatedProject = await projectApi.getProject(currentProject.id);
         setCurrentProject(updatedProject);
       }
-      
+  
       message.success('章节删除成功');
     } catch (error: any) {
       message.error('删除章节失败：' + (error.message || '未知错误'));
+    }
+  };
+
+  // 打开规划编辑器
+  const handleOpenPlanEditor = (chapter: Chapter) => {
+    // 检查是否有规划数据
+    if (!chapter.expansion_plan) {
+      message.warning('该章节暂无规划信息');
+      return;
+    }
+    
+    try {
+      // 尝试解析JSON，验证数据有效性
+      JSON.parse(chapter.expansion_plan);
+      setEditingPlanChapter(chapter);
+      setPlanEditorVisible(true);
+    } catch (error) {
+      console.error('规划数据格式错误:', error);
+      message.error('规划数据格式错误，无法编辑');
+    }
+  };
+  
+  // 保存规划信息
+  const handleSavePlan = async (planData: ExpansionPlanData) => {
+    if (!editingPlanChapter) return;
+    
+    try {
+      const response = await fetch(`/api/chapters/${editingPlanChapter.id}/expansion-plan`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(planData),
+      });
+      
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || '更新失败');
+      }
+      
+      // 刷新章节列表
+      await refreshChapters();
+      
+      message.success('规划信息更新成功');
+      
+      // 关闭编辑器
+      setPlanEditorVisible(false);
+      setEditingPlanChapter(null);
+    } catch (error: any) {
+      message.error('保存规划失败：' + (error.message || '未知错误'));
+      throw error;
     }
   };
  
@@ -1037,14 +1094,165 @@ export default function Chapters() {
           >
             导出为TXT
           </Button>
-          {!isMobile && <Tag color="blue">章节由大纲管理，请在大纲页面添加/删除</Tag>}
+          {!isMobile && (
+            <Tag color="blue">
+              {currentProject.outline_mode === 'one-to-one'
+                ? '传统模式：章节由大纲一对一管理，请在大纲页面操作'
+                : '细化模式：章节可在大纲页面展开'}
+            </Tag>
+          )}
         </Space>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
         {chapters.length === 0 ? (
           <Empty description="还没有章节，开始创作吧！" />
+        ) : currentProject.outline_mode === 'one-to-one' ? (
+          // one-to-one 模式：直接显示扁平列表
+          <List
+            dataSource={sortedChapters}
+            renderItem={(item) => (
+              <List.Item
+                id={`chapter-item-${item.id}`}
+                style={{
+                  padding: '16px',
+                  marginBottom: 16,
+                  background: '#fff',
+                  borderRadius: 8,
+                  border: '1px solid #f0f0f0',
+                  flexDirection: isMobile ? 'column' : 'row',
+                  alignItems: isMobile ? 'flex-start' : 'center',
+                }}
+                actions={isMobile ? undefined : [
+                  <Button
+                    type="text"
+                    icon={<EditOutlined />}
+                    onClick={() => handleOpenEditor(item.id)}
+                  >
+                    编辑内容
+                  </Button>,
+                  (() => {
+                    const task = analysisTasksMap[item.id];
+                    const isAnalyzing = task && (task.status === 'pending' || task.status === 'running');
+                    const hasContent = item.content && item.content.trim() !== '';
+                    
+                    return (
+                      <Tooltip
+                        title={
+                          !hasContent ? '请先生成章节内容' :
+                          isAnalyzing ? '分析进行中，请稍候...' :
+                          ''
+                        }
+                      >
+                        <Button
+                          type="text"
+                          icon={isAnalyzing ? <SyncOutlined spin /> : <FundOutlined />}
+                          onClick={() => handleShowAnalysis(item.id)}
+                          disabled={!hasContent || isAnalyzing}
+                          loading={isAnalyzing}
+                        >
+                          {isAnalyzing ? '分析中' : '查看分析'}
+                        </Button>
+                      </Tooltip>
+                    );
+                  })(),
+                  <Button
+                    type="text"
+                    icon={<SettingOutlined />}
+                    onClick={() => handleOpenModal(item.id)}
+                  >
+                    修改信息
+                  </Button>,
+                ]}
+              >
+                <div style={{ width: '100%' }}>
+                  <List.Item.Meta
+                    avatar={!isMobile && <FileTextOutlined style={{ fontSize: 32, color: '#1890ff' }} />}
+                    title={
+                      <div style={{
+                        display: 'flex',
+                        flexDirection: isMobile ? 'column' : 'row',
+                        alignItems: isMobile ? 'flex-start' : 'center',
+                        gap: isMobile ? 6 : 12,
+                        width: '100%'
+                      }}>
+                        <span style={{ fontSize: isMobile ? 14 : 16, fontWeight: 500, flexShrink: 0 }}>
+                          第{item.chapter_number}章：{item.title}
+                        </span>
+                        <Space wrap size={isMobile ? 4 : 8}>
+                          <Tag color={getStatusColor(item.status)}>{getStatusText(item.status)}</Tag>
+                          <Badge count={`${item.word_count || 0}字`} style={{ backgroundColor: '#52c41a' }} />
+                          {renderAnalysisStatus(item.id)}
+                          {!canGenerateChapter(item) && (
+                            <Tooltip title={getGenerateDisabledReason(item)}>
+                              <Tag icon={<LockOutlined />} color="warning">
+                                需前置章节
+                              </Tag>
+                            </Tooltip>
+                          )}
+                        </Space>
+                      </div>
+                    }
+                    description={
+                      item.content ? (
+                        <div style={{ marginTop: 8, color: 'rgba(0,0,0,0.65)', lineHeight: 1.6, fontSize: isMobile ? 12 : 14 }}>
+                          {item.content.substring(0, isMobile ? 80 : 150)}
+                          {item.content.length > (isMobile ? 80 : 150) && '...'}
+                        </div>
+                      ) : (
+                        <span style={{ color: 'rgba(0,0,0,0.45)', fontSize: isMobile ? 12 : 14 }}>暂无内容</span>
+                      )
+                    }
+                  />
+                  
+                  {isMobile && (
+                    <Space style={{ marginTop: 12, width: '100%', justifyContent: 'flex-end' }} wrap>
+                      <Button
+                        type="text"
+                        icon={<EditOutlined />}
+                        onClick={() => handleOpenEditor(item.id)}
+                        size="small"
+                        title="编辑内容"
+                      />
+                      {(() => {
+                        const task = analysisTasksMap[item.id];
+                        const isAnalyzing = task && (task.status === 'pending' || task.status === 'running');
+                        const hasContent = item.content && item.content.trim() !== '';
+                        
+                        return (
+                          <Tooltip
+                            title={
+                              !hasContent ? '请先生成章节内容' :
+                              isAnalyzing ? '分析中' :
+                              '查看分析'
+                            }
+                          >
+                            <Button
+                              type="text"
+                              icon={isAnalyzing ? <SyncOutlined spin /> : <FundOutlined />}
+                              onClick={() => handleShowAnalysis(item.id)}
+                              size="small"
+                              disabled={!hasContent || isAnalyzing}
+                              loading={isAnalyzing}
+                            />
+                          </Tooltip>
+                        );
+                      })()}
+                      <Button
+                        type="text"
+                        icon={<SettingOutlined />}
+                        onClick={() => handleOpenModal(item.id)}
+                        size="small"
+                        title="修改信息"
+                      />
+                    </Space>
+                  )}
+                </div>
+              </List.Item>
+            )}
+          />
         ) : (
+          // one-to-many 模式：按大纲分组显示
           <Collapse
             bordered={false}
             defaultActiveKey={groupedChapters.map((_, idx) => idx.toString())}
@@ -1093,6 +1301,7 @@ export default function Chapters() {
                       }}
                       actions={isMobile ? undefined : [
                   <Button
+                    type="text"
                     icon={<EditOutlined />}
                     onClick={() => handleOpenEditor(item.id)}
                   >
@@ -1112,6 +1321,7 @@ export default function Chapters() {
                         }
                       >
                         <Button
+                          type="text"
                           icon={isAnalyzing ? <SyncOutlined spin /> : <FundOutlined />}
                           onClick={() => handleShowAnalysis(item.id)}
                           disabled={!hasContent || isAnalyzing}
@@ -1129,22 +1339,25 @@ export default function Chapters() {
                   >
                     修改信息
                   </Button>,
-                  <Popconfirm
-                    title="确定删除这个章节吗？"
-                    description="删除后将无法恢复，章节内容和分析结果都将被删除。"
-                    onConfirm={() => handleDeleteChapter(item.id)}
-                    okText="确定删除"
-                    cancelText="取消"
-                    okButtonProps={{ danger: true }}
-                  >
-                    <Button
-                      type="text"
-                      danger
-                      icon={<DeleteOutlined />}
+                  // 只在 one-to-many 模式下显示删除按钮
+                  ...(currentProject.outline_mode === 'one-to-many' ? [
+                    <Popconfirm
+                      title="确定删除这个章节吗？"
+                      description="删除后将无法恢复，章节内容和分析结果都将被删除。"
+                      onConfirm={() => handleDeleteChapter(item.id)}
+                      okText="确定删除"
+                      cancelText="取消"
+                      okButtonProps={{ danger: true }}
                     >
-                      删除
-                    </Button>
-                  </Popconfirm>,
+                      <Button
+                        type="text"
+                        danger
+                        icon={<DeleteOutlined />}
+                      >
+                        删除
+                      </Button>
+                    </Popconfirm>
+                  ] : []),
                       ]}
                     >
                       <div style={{ width: '100%' }}>
@@ -1165,13 +1378,6 @@ export default function Chapters() {
                                 <Tag color={getStatusColor(item.status)}>{getStatusText(item.status)}</Tag>
                                 <Badge count={`${item.word_count || 0}字`} style={{ backgroundColor: '#52c41a' }} />
                                 {renderAnalysisStatus(item.id)}
-                                {item.expansion_plan && (
-                                  <Tooltip title="已有展开规划，点击信息图标查看详情">
-                                    <Tag icon={<CheckCircleOutlined />} color="blue">
-                                      已展开
-                                    </Tag>
-                                  </Tooltip>
-                                )}
                                 {!canGenerateChapter(item) && (
                                   <Tooltip title={getGenerateDisabledReason(item)}>
                                     <Tag icon={<LockOutlined />} color="warning">
@@ -1180,15 +1386,26 @@ export default function Chapters() {
                                   </Tooltip>
                                 )}
                                 {item.expansion_plan && (
-                                  <Tooltip title="查看展开规划详情">
-                                    <InfoCircleOutlined
-                                      style={{ color: '#1890ff', cursor: 'pointer', fontSize: 16 }}
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        showExpansionPlanModal(item);
-                                      }}
-                                    />
-                                  </Tooltip>
+                                  <Space size={4}>
+                                    <Tooltip title="查看展开详情">
+                                      <InfoCircleOutlined
+                                        style={{ color: '#1890ff', cursor: 'pointer', fontSize: 16 }}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          showExpansionPlanModal(item);
+                                        }}
+                                      />
+                                    </Tooltip>
+                                    <Tooltip title="编辑规划信息">
+                                      <FormOutlined
+                                        style={{ color: '#52c41a', cursor: 'pointer', fontSize: 16 }}
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          handleOpenPlanEditor(item);
+                                        }}
+                                      />
+                                    </Tooltip>
+                                  </Space>
                                 )}
                               </Space>
                             </div>
@@ -1245,22 +1462,25 @@ export default function Chapters() {
                               size="small"
                               title="修改信息"
                             />
-                            <Popconfirm
-                              title="确定删除？"
-                              description="删除后无法恢复"
-                              onConfirm={() => handleDeleteChapter(item.id)}
-                              okText="删除"
-                              cancelText="取消"
-                              okButtonProps={{ danger: true }}
-                            >
-                              <Button
-                                type="text"
-                                danger
-                                icon={<DeleteOutlined />}
-                                size="small"
-                                title="删除章节"
-                              />
-                            </Popconfirm>
+                            {/* 只在 one-to-many 模式下显示删除按钮 */}
+                            {currentProject.outline_mode === 'one-to-many' && (
+                              <Popconfirm
+                                title="确定删除？"
+                                description="删除后无法恢复"
+                                onConfirm={() => handleDeleteChapter(item.id)}
+                                okText="删除"
+                                cancelText="取消"
+                                okButtonProps={{ danger: true }}
+                              >
+                                <Button
+                                  type="text"
+                                  danger
+                                  icon={<DeleteOutlined />}
+                                  size="small"
+                                  title="删除章节"
+                                />
+                              </Popconfirm>
+                            )}
                           </Space>
                         )}
                       </div>
@@ -1781,6 +2001,18 @@ export default function Chapters() {
             : `批量生成进行中... (${batchProgress?.completed || 0}/${batchProgress?.total || 0})`
         }
         title="批量生成章节"
+        onCancel={() => {
+          Modal.confirm({
+            title: '确认取消',
+            content: '确定要取消批量生成吗？已生成的章节将保留。',
+            okText: '确定取消',
+            cancelText: '继续生成',
+            okButtonProps: { danger: true },
+            centered: true,
+            onOk: handleCancelBatchGenerate,
+          });
+        }}
+        cancelButtonText="取消任务"
       />
 
       <FloatButton
@@ -1797,6 +2029,31 @@ export default function Chapters() {
         groupedChapters={groupedChapters}
         onChapterSelect={handleChapterSelect}
       />
+
+      {/* 规划编辑器 */}
+      {editingPlanChapter && currentProject && (() => {
+        let parsedPlanData = null;
+        try {
+          if (editingPlanChapter.expansion_plan) {
+            parsedPlanData = JSON.parse(editingPlanChapter.expansion_plan);
+          }
+        } catch (error) {
+          console.error('解析规划数据失败:', error);
+        }
+        
+        return (
+          <ExpansionPlanEditor
+            visible={planEditorVisible}
+            planData={parsedPlanData}
+            projectId={currentProject.id}
+            onSave={handleSavePlan}
+            onCancel={() => {
+              setPlanEditorVisible(false);
+              setEditingPlanChapter(null);
+            }}
+          />
+        );
+      })()}
     </div>
   );
 }

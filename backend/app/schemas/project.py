@@ -1,6 +1,6 @@
 """项目相关的Pydantic模型"""
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Literal
 from datetime import datetime
 
 
@@ -11,6 +11,10 @@ class ProjectBase(BaseModel):
     theme: Optional[str] = Field(None, description="主题")
     genre: Optional[str] = Field(None, description="小说类型")
     target_words: Optional[int] = Field(None, description="目标字数")
+    outline_mode: Literal["one-to-one", "one-to-many"] = Field(
+        default="one-to-many",
+        description="大纲章节模式: one-to-one(传统模式,1大纲→1章节) 或 one-to-many(细化模式,1大纲→N章节)"
+    )
 
 
 class ProjectCreate(ProjectBase):
@@ -51,6 +55,7 @@ class ProjectResponse(ProjectBase):
     chapter_count: Optional[int] = None
     narrative_perspective: Optional[str] = None
     character_count: Optional[int] = None
+    outline_mode: str  # 显式声明以确保响应中包含
     created_at: datetime
     updated_at: datetime
     
@@ -73,6 +78,10 @@ class ProjectWizardRequest(BaseModel):
     narrative_perspective: str = Field(..., description="叙事视角")
     character_count: int = Field(5, ge=5, description="角色数量（至少5个）")
     target_words: Optional[int] = Field(None, description="目标字数")
+    outline_mode: Literal["one-to-one", "one-to-many"] = Field(
+        default="one-to-many",
+        description="大纲章节模式"
+    )
 
 
 class WorldBuildingResponse(BaseModel):

@@ -16,6 +16,7 @@ export interface GenerationConfig {
   target_words: number;
   chapter_count: number;
   character_count: number;
+  outline_mode?: 'one-to-one' | 'one-to-many';  // 大纲章节模式
 }
 
 interface AIProjectGeneratorProps {
@@ -183,6 +184,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
         target_words: data.target_words,
         chapter_count: data.chapter_count,
         character_count: data.character_count,
+        outline_mode: data.outline_mode || 'one-to-many',  // 传递大纲模式
       },
       {
         onProgress: (msg, prog) => {
@@ -328,6 +330,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
           target_words: data.target_words,
           chapter_count: data.chapter_count,
           character_count: data.character_count,
+          outline_mode: data.outline_mode || 'one-to-many',  // 传递大纲模式
         },
         {
           onProgress: (msg, prog) => {
@@ -504,6 +507,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
         target_words: generationData.target_words,
         chapter_count: generationData.chapter_count,
         character_count: generationData.character_count,
+        outline_mode: generationData.outline_mode || 'one-to-many',  // 传递大纲模式
       },
       {
         onProgress: (msg, prog) => {

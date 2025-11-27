@@ -54,6 +54,7 @@ export interface Project {
   status: 'planning' | 'writing' | 'revising' | 'completed';
   wizard_status?: 'incomplete' | 'completed';
   wizard_step?: number;
+  outline_mode: 'one-to-one' | 'one-to-many';  // 大纲章节模式
   world_time_period?: string;
   world_location?: string;
   world_atmosphere?: string;
@@ -71,6 +72,7 @@ export interface ProjectCreate {
   theme?: string;
   genre?: string;
   target_words?: number;
+  outline_mode?: 'one-to-one' | 'one-to-many';  // 大纲章节模式,默认one-to-many
   wizard_status?: 'incomplete' | 'completed';
   wizard_step?: number;
   world_time_period?: string;
@@ -111,6 +113,7 @@ export interface ProjectWizardRequest {
   narrative_perspective: string;
   character_count?: number;
   target_words?: number;
+  outline_mode?: 'one-to-one' | 'one-to-many';  // 大纲章节模式
   world_building?: {
     time_period: string;
     location: string;
@@ -462,6 +465,7 @@ export interface WizardBasicInfo {
   narrative_perspective: string;
   character_count?: number;
   target_words?: number;
+  outline_mode?: 'one-to-one' | 'one-to-many';  // 大纲章节模式
 }
 
 // API 错误响应类型

@@ -1,6 +1,6 @@
 import React from 'react';
-import { Modal, Spin } from 'antd';
-import { LoadingOutlined } from '@ant-design/icons';
+import { Modal, Spin, Button } from 'antd';
+import { LoadingOutlined, StopOutlined } from '@ant-design/icons';
 
 interface SSEProgressModalProps {
   visible: boolean;
@@ -9,6 +9,8 @@ interface SSEProgressModalProps {
   title?: string;
   showPercentage?: boolean;
   showIcon?: boolean;
+  onCancel?: () => void;
+  cancelButtonText?: string;
 }
 
 /**
@@ -22,6 +24,8 @@ export const SSEProgressModal: React.FC<SSEProgressModalProps> = ({
   title = 'AI生成中...',
   showPercentage = true,
   showIcon = true,
+  onCancel,
+  cancelButtonText = '取消任务',
 }) => {
   if (!visible) return null;
 
@@ -115,10 +119,28 @@ export const SSEProgressModal: React.FC<SSEProgressModalProps> = ({
         <div style={{
           textAlign: 'center',
           fontSize: 13,
-          color: '#8c8c8c'
+          color: '#8c8c8c',
+          marginBottom: onCancel ? 16 : 0
         }}>
           请勿关闭页面，生成过程需要一定时间
         </div>
+
+        {/* 取消按钮 */}
+        {onCancel && (
+          <div style={{
+            textAlign: 'center',
+            marginTop: 16
+          }}>
+            <Button
+              danger
+              size="large"
+              icon={<StopOutlined />}
+              onClick={onCancel}
+            >
+              {cancelButtonText}
+            </Button>
+          </div>
+        )}
       </div>
     </Modal>
   );

@@ -50,15 +50,17 @@ export default function Login() {
       if (response.success) {
         message.success('登录成功！');
         
-        // 检查今天是否已经显示过公告
-        const doNotShowUntil = localStorage.getItem('announcement_do_not_show_until');
-        const now = new Date().getTime();
+        // 检查是否永久隐藏公告
+        const hideForever = localStorage.getItem('announcement_hide_forever');
+        const hideToday = localStorage.getItem('announcement_hide_today');
+        const today = new Date().toDateString();
         
-        if (!doNotShowUntil || now > parseInt(doNotShowUntil)) {
-          setShowAnnouncement(true);
-        } else {
+        // 如果永久隐藏或今日已隐藏，则不显示公告
+        if (hideForever === 'true' || hideToday === today) {
           const redirect = searchParams.get('redirect') || '/';
           navigate(redirect);
+        } else {
+          setShowAnnouncement(true);
         }
       }
     } catch (error) {
@@ -203,10 +205,14 @@ export default function Login() {
   };
 
   const handleDoNotShowToday = () => {
-    // 设置到今天23:59:59不再显示
-    const tomorrow = new Date();
-    tomorrow.setHours(23, 59, 59, 999);
-    localStorage.setItem('announcement_do_not_show_until', tomorrow.getTime().toString());
+    // 设置今日不再显示
+    const today = new Date().toDateString();
+    localStorage.setItem('announcement_hide_today', today);
+  };
+
+  const handleNeverShow = () => {
+    // 设置永久不再显示
+    localStorage.setItem('announcement_hide_forever', 'true');
   };
 
   return (
@@ -215,6 +221,7 @@ export default function Login() {
         visible={showAnnouncement}
         onClose={handleAnnouncementClose}
         onDoNotShowToday={handleDoNotShowToday}
+        onNeverShow={handleNeverShow}
       />
       <div style={{
       display: 'flex',

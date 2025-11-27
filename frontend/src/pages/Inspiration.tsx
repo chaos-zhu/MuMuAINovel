@@ -8,13 +8,14 @@ import { AIProjectGenerator, type GenerationConfig } from '../components/AIProje
 const { Title, Text, Paragraph } = Typography;
 const { TextArea } = Input;
 
-type Step = 'idea' | 'title' | 'description' | 'theme' | 'genre' | 'perspective' | 'confirm' | 'generating' | 'complete';
+type Step = 'idea' | 'title' | 'description' | 'theme' | 'genre' | 'perspective' | 'outline_mode' | 'confirm' | 'generating' | 'complete';
 
 interface Message {
   type: 'ai' | 'user';
   content: string;
   options?: string[];
   isMultiSelect?: boolean;
+  optionsDisabled?: boolean; // 标记选项是否已禁用
 }
 
 interface WizardData {
@@ -23,7 +24,23 @@ interface WizardData {
   theme: string;
   genre: string[];
   narrative_perspective: string;
+  outline_mode: 'one-to-one' | 'one-to-many';
 }
+
+// 缓存数据接口
+interface CacheData {
+  messages: Message[];
+  currentStep: Step;
+  wizardData: Partial<WizardData>;
+  initialIdea: string;
+  selectedOptions: string[];
+  timestamp: number;
+}
+
+// 缓存键
+const CACHE_KEY = 'inspiration_conversation_cache';
+// 缓存有效期：24小时
+const CACHE_EXPIRY = 24 * 60 * 60 * 1000;
 
 const Inspiration: React.FC = () => {
   const navigate = useNavigate();
@@ -55,6 +72,112 @@ const Inspiration: React.FC = () => {
     step: 'title' | 'description' | 'theme' | 'genre';
     context: Partial<WizardData>;
   } | null>(null);
+
+  // 标记是否已经加载缓存
+  const [cacheLoaded, setCacheLoaded] = useState(false);
+
+  // ==================== 缓存管理函数 ====================
+  
+  // 保存到缓存
+  const saveToCache = () => {
+    try {
+      // 只在对话阶段保存，生成阶段不保存
+      if (currentStep === 'generating' || currentStep === 'complete') {
+        return;
+      }
+      
+      // 只有用户有输入时才保存（至少两条消息：AI问候+用户回复）
+      if (messages.length <= 1) {
+        return;
+      }
+
+      const cacheData: CacheData = {
+        messages,
+        currentStep,
+        wizardData,
+        initialIdea,
+        selectedOptions,
+        timestamp: Date.now()
+      };
+      
+      localStorage.setItem(CACHE_KEY, JSON.stringify(cacheData));
+      console.log('💾 对话已自动保存');
+    } catch (error) {
+      console.error('保存缓存失败:', error);
+    }
+  };
+
+  // 从缓存恢复
+  const restoreFromCache = (): boolean => {
+    try {
+      const cached = localStorage.getItem(CACHE_KEY);
+      if (!cached) {
+        return false;
+      }
+
+      const cacheData: CacheData = JSON.parse(cached);
+      const age = Date.now() - cacheData.timestamp;
+
+      // 检查缓存是否过期
+      if (age > CACHE_EXPIRY) {
+        console.log('⏰ 缓存已过期，清除');
+        clearCache();
+        return false;
+      }
+
+      // 必须有有效的对话数据
+      if (!cacheData.messages || cacheData.messages.length <= 1) {
+        return false;
+      }
+
+      // 恢复所有状态
+      setMessages(cacheData.messages);
+      setCurrentStep(cacheData.currentStep);
+      setWizardData(cacheData.wizardData);
+      setInitialIdea(cacheData.initialIdea);
+      setSelectedOptions(cacheData.selectedOptions);
+
+      console.log('✅ 已恢复上次的对话进度');
+      message.success('已恢复上次的对话进度', 2);
+      return true;
+    } catch (error) {
+      console.error('恢复缓存失败:', error);
+      clearCache();
+      return false;
+    }
+  };
+
+  // 清除缓存
+  const clearCache = () => {
+    try {
+      localStorage.removeItem(CACHE_KEY);
+      console.log('🗑️ 缓存已清除');
+    } catch (error) {
+      console.error('清除缓存失败:', error);
+    }
+  };
+
+  // ==================== 组件挂载时恢复缓存 ====================
+  
+  useEffect(() => {
+    if (!cacheLoaded) {
+      restoreFromCache();
+      setCacheLoaded(true);
+    }
+  }, []);
+
+  // ==================== 自动保存：状态变化时保存 ====================
+  
+  useEffect(() => {
+    // 防抖保存
+    const timer = setTimeout(() => {
+      if (cacheLoaded) {
+        saveToCache();
+      }
+    }, 500);
+
+    return () => clearTimeout(timer);
+  }, [messages, currentStep, wizardData, initialIdea, selectedOptions, cacheLoaded]);
 
   // 自动滚动到底部
   const scrollToBottom = () => {
@@ -116,7 +239,7 @@ const Inspiration: React.FC = () => {
   };
 
   // 步骤顺序
-  const stepOrder: Step[] = ['idea', 'title', 'description', 'theme', 'genre', 'perspective', 'confirm'];
+  const stepOrder: Step[] = ['idea', 'title', 'description', 'theme', 'genre', 'perspective', 'outline_mode', 'confirm'];
 
   const handleSendMessage = async () => {
     if (!inputValue.trim()) {
@@ -191,6 +314,7 @@ const Inspiration: React.FC = () => {
       return;
     }
     
+    // 对于多选类型，不立即禁用选项
     if (currentStep === 'genre') {
       const newSelected = selectedOptions.includes(option)
         ? selectedOptions.filter(o => o !== option)
@@ -199,6 +323,19 @@ const Inspiration: React.FC = () => {
       return;
     }
     
+    // 立即禁用当前消息的选项（单选场景）
+    setMessages(prev => {
+      const newMessages = [...prev];
+      const lastAiMessageIndex = newMessages.map((m, i) => m.type === 'ai' && m.options ? i : -1).filter(i => i >= 0).pop();
+      if (lastAiMessageIndex !== undefined && lastAiMessageIndex >= 0) {
+        newMessages[lastAiMessageIndex] = {
+          ...newMessages[lastAiMessageIndex],
+          optionsDisabled: true
+        };
+      }
+      return newMessages;
+    });
+    
     if (currentStep === 'perspective') {
       const userMessage: Message = {
         type: 'user',
@@ -206,9 +343,46 @@ const Inspiration: React.FC = () => {
       };
       setMessages(prev => [...prev, userMessage]);
       
-      const updatedData = { ...wizardData, narrative_perspective: option, genre: wizardData.genre || [] } as WizardData;
+      const updatedData = { ...wizardData, narrative_perspective: option };
       setWizardData(updatedData);
       
+      // 询问大纲模式
+      const aiMessage: Message = {
+        type: 'ai',
+        content: `很好！现在请选择你想要的大纲模式：
+
+📋 **一对一模式**：传统模式，一个大纲对应一个章节，适合结构清晰、章节独立的小说。
+
+📚 **一对多模式**：细化模式，一个大纲可以展开成多个章节，适合需要详细展开情节的小说。
+
+请选择：`,
+        options: ['📋 一对一模式', '📚 一对多模式']
+      };
+      setMessages(prev => [...prev, aiMessage]);
+      setCurrentStep('outline_mode');
+      return;
+    }
+    
+    if (currentStep === 'outline_mode') {
+      const userMessage: Message = {
+        type: 'user',
+        content: option,
+      };
+      setMessages(prev => [...prev, userMessage]);
+      
+      // 将选项转换为实际的模式值
+      const modeValue: 'one-to-one' | 'one-to-many' =
+        option === '📋 一对一模式' ? 'one-to-one' : 'one-to-many';
+      
+      const updatedData = {
+        ...wizardData,
+        outline_mode: modeValue,
+        genre: wizardData.genre || []
+      } as WizardData;
+      setWizardData(updatedData);
+      
+      // 显示摘要
+      const modeText = modeValue === 'one-to-one' ? '一对一模式' : '一对多模式';
       const summary = `
 太棒了！你的小说设定已完成，请确认：
 
@@ -217,6 +391,7 @@ const Inspiration: React.FC = () => {
 🎯 主题：${updatedData.theme}
 🏷️ 类型：${updatedData.genre.join('、')}
 👁️ 视角：${updatedData.narrative_perspective}
+📋 大纲模式：${modeText}
 
 请选择下一步操作：
       `.trim();
@@ -245,6 +420,9 @@ const Inspiration: React.FC = () => {
         };
         setMessages(prev => [...prev, aiMessage]);
         
+        // 清除缓存（对话完成，进入生成阶段）
+        clearCache();
+        
         // 开始生成项目
         const data = wizardData as WizardData;
         const config: GenerationConfig = {
@@ -256,6 +434,7 @@ const Inspiration: React.FC = () => {
           target_words: 100000,
           chapter_count: 3,
           character_count: 5,
+          outline_mode: data.outline_mode,
         };
         setGenerationConfig(config);
         setCurrentStep('generating');
@@ -308,6 +487,11 @@ const Inspiration: React.FC = () => {
         updatedData.genre = [input];
       } else if (currentStep === 'perspective') {
         updatedData.narrative_perspective = input;
+      } else if (currentStep === 'outline_mode') {
+        // 大纲模式不支持自定义输入
+        message.warning('请从选项中选择一个大纲模式');
+        setLoading(false);
+        return;
       }
       
       setWizardData(updatedData);
@@ -326,6 +510,19 @@ const Inspiration: React.FC = () => {
       return;
     }
 
+    // 禁用类型选择的选项
+    setMessages(prev => {
+      const newMessages = [...prev];
+      const lastAiMessageIndex = newMessages.map((m, i) => m.type === 'ai' && m.options ? i : -1).filter(i => i >= 0).pop();
+      if (lastAiMessageIndex !== undefined && lastAiMessageIndex >= 0) {
+        newMessages[lastAiMessageIndex] = {
+          ...newMessages[lastAiMessageIndex],
+          optionsDisabled: true
+        };
+      }
+      return newMessages;
+    });
+
     const userMessage: Message = {
       type: 'user',
       content: selectedOptions.join('、'),
@@ -340,7 +537,7 @@ const Inspiration: React.FC = () => {
     try {
       const aiMessage: Message = {
         type: 'ai',
-        content: '很好！最后一步，请选择小说的叙事视角：',
+        content: '很好！接下来，请选择小说的叙事视角：',
         options: ['第一人称', '第三人称', '全知视角']
       };
       setMessages(prev => [...prev, aiMessage]);
@@ -458,6 +655,9 @@ const Inspiration: React.FC = () => {
   };
 
   const handleRestart = () => {
+    // 清除缓存
+    clearCache();
+    
     setCurrentStep('idea');
     setMessages([
       {
@@ -478,11 +678,14 @@ const Inspiration: React.FC = () => {
   // 生成完成回调
   const handleComplete = (projectId: string) => {
     console.log('灵感模式项目创建完成:', projectId);
+    // 确保清除缓存
+    clearCache();
     setCurrentStep('complete');
   };
 
   // 返回对话界面
   const handleBackToChat = () => {
+    clearCache();
     setCurrentStep('idea');
     setGenerationConfig(null);
     handleRestart();
@@ -543,29 +746,36 @@ const Inspiration: React.FC = () => {
                     {msg.options.map((option, optIndex) => (
                       <Card
                         key={optIndex}
-                        hoverable
+                        hoverable={!msg.optionsDisabled}
                         size="small"
-                        onClick={() => handleSelectOption(option)}
+                        onClick={() => !msg.optionsDisabled && handleSelectOption(option)}
                         style={{
-                          cursor: 'pointer',
+                          cursor: msg.optionsDisabled ? 'not-allowed' : 'pointer',
                           border: msg.isMultiSelect && selectedOptions.includes(option)
                             ? '2px solid #1890ff'
                             : '1px solid #d9d9d9',
-                          background: msg.isMultiSelect && selectedOptions.includes(option)
+                          background: msg.optionsDisabled
+                            ? '#f5f5f5'
+                            : msg.isMultiSelect && selectedOptions.includes(option)
                             ? '#e6f7ff'
                             : '#fff',
+                          opacity: msg.optionsDisabled ? 0.6 : 1,
                           animation: 'floatIn 0.6s ease-out',
                           animationDelay: `${optIndex * 0.1}s`,
                           animationFillMode: 'both',
                           transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
                         }}
                         onMouseEnter={(e) => {
-                          e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)';
-                          e.currentTarget.style.boxShadow = '0 4px 12px rgba(24,144,255,0.2)';
+                          if (!msg.optionsDisabled) {
+                            e.currentTarget.style.transform = 'translateY(-2px) scale(1.02)';
+                            e.currentTarget.style.boxShadow = '0 4px 12px rgba(24,144,255,0.2)';
+                          }
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.transform = 'translateY(0) scale(1)';
-                          e.currentTarget.style.boxShadow = 'none';
+                          if (!msg.optionsDisabled) {
+                            e.currentTarget.style.transform = 'translateY(0) scale(1)';
+                            e.currentTarget.style.boxShadow = 'none';
+                          }
                         }}
                       >
                         {option}
@@ -733,7 +943,7 @@ const Inspiration: React.FC = () => {
 
         {(currentStep === 'idea' || currentStep === 'title' || currentStep === 'description' ||
           currentStep === 'theme' || currentStep === 'genre' || currentStep === 'perspective' ||
-          currentStep === 'confirm') && renderChat()}
+          currentStep === 'outline_mode' || currentStep === 'confirm') && renderChat()}
         {(currentStep === 'generating' || currentStep === 'complete') && generationConfig && (
           <AIProjectGenerator
             config={generationConfig}

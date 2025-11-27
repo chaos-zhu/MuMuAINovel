@@ -41,19 +41,20 @@ export default function AuthCallback() {
         const redirect = sessionStorage.getItem('login_redirect') || '/';
         sessionStorage.removeItem('login_redirect');
         
-        // 检查今天是否已经显示过公告
-        const doNotShowUntil = localStorage.getItem('announcement_do_not_show_until');
-        const now = new Date().getTime();
+        // 检查是否永久隐藏公告或今日已隐藏
+        const hideForever = localStorage.getItem('announcement_hide_forever');
+        const hideToday = localStorage.getItem('announcement_hide_today');
+        const today = new Date().toDateString();
         
-        if (!doNotShowUntil || now > parseInt(doNotShowUntil)) {
-          // 延迟一下再显示公告，让用户看到成功提示
-          setTimeout(() => {
-            setShowAnnouncement(true);
-          }, 1000);
-        } else {
+        if (hideForever === 'true' || hideToday === today) {
           // 延迟一下再跳转，让用户看到成功提示
           setTimeout(() => {
             navigate(redirect);
+          }, 1000);
+        } else {
+          // 延迟一下再显示公告，让用户看到成功提示
+          setTimeout(() => {
+            setShowAnnouncement(true);
           }, 1000);
         }
       } catch (error) {
@@ -117,10 +118,14 @@ export default function AuthCallback() {
   };
 
   const handleDoNotShowToday = () => {
-    // 设置到今天23:59:59不再显示
-    const tomorrow = new Date();
-    tomorrow.setHours(23, 59, 59, 999);
-    localStorage.setItem('announcement_do_not_show_until', tomorrow.getTime().toString());
+    // 设置今日不再显示
+    const today = new Date().toDateString();
+    localStorage.setItem('announcement_hide_today', today);
+  };
+
+  const handleNeverShow = () => {
+    // 设置永久不再显示
+    localStorage.setItem('announcement_hide_forever', 'true');
   };
 
   const handleSetPassword = async () => {
@@ -147,16 +152,17 @@ export default function AuthCallback() {
       const redirect = sessionStorage.getItem('login_redirect') || '/';
       sessionStorage.removeItem('login_redirect');
       
-      const doNotShowUntil = localStorage.getItem('announcement_do_not_show_until');
-      const now = new Date().getTime();
+      const hideForever = localStorage.getItem('announcement_hide_forever');
+      const hideToday = localStorage.getItem('announcement_hide_today');
+      const today = new Date().toDateString();
       
-      if (!doNotShowUntil || now > parseInt(doNotShowUntil)) {
+      if (hideForever === 'true' || hideToday === today) {
         setTimeout(() => {
-          setShowAnnouncement(true);
+          navigate(redirect);
         }, 500);
       } else {
         setTimeout(() => {
-          navigate(redirect);
+          setShowAnnouncement(true);
         }, 500);
       }
     } catch (error) {
@@ -173,16 +179,17 @@ export default function AuthCallback() {
     const redirect = sessionStorage.getItem('login_redirect') || '/';
     sessionStorage.removeItem('login_redirect');
     
-    const doNotShowUntil = localStorage.getItem('announcement_do_not_show_until');
-    const now = new Date().getTime();
+    const hideForever = localStorage.getItem('announcement_hide_forever');
+    const hideToday = localStorage.getItem('announcement_hide_today');
+    const today = new Date().toDateString();
     
-    if (!doNotShowUntil || now > parseInt(doNotShowUntil)) {
+    if (hideForever === 'true' || hideToday === today) {
       setTimeout(() => {
-        setShowAnnouncement(true);
+        navigate(redirect);
       }, 500);
     } else {
       setTimeout(() => {
-        navigate(redirect);
+        setShowAnnouncement(true);
       }, 500);
     }
   };
@@ -193,6 +200,7 @@ export default function AuthCallback() {
         visible={showAnnouncement}
         onClose={handleAnnouncementClose}
         onDoNotShowToday={handleDoNotShowToday}
+        onNeverShow={handleNeverShow}
       />
       
       <Modal

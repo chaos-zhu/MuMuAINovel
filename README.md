@@ -351,6 +351,7 @@ MuMuAINovel/
 - 提交 [Issue](https://github.com/xiamuceer-j/MuMuAINovel/issues)
 - Linux DO [讨论](https://linux.do/t/topic/1106333)
 - 加入QQ群 [QQ群](frontend/public/qq.jpg)
+- 加入WX群 [WX群](frontend/public/WX.jpg)
 
 ---
 

@@ -354,9 +354,8 @@ async def export_project_chapters(
         txt_content.append("\n" + "=" * 80 + "\n\n")
         
         for chapter in chapters:
-            # 处理子章节序号显示
-            chapter_display = f"{chapter.chapter_number}-{chapter.sub_index}" if chapter.sub_index and chapter.sub_index > 1 else str(chapter.chapter_number)
-            txt_content.append(f"第 {chapter_display} 章  {chapter.title}")
+            # 只显示主章节号，不显示子索引
+            txt_content.append(f"第 {chapter.chapter_number} 章  {chapter.title}")
             txt_content.append("-" * 80)
             txt_content.append("")  # 空行
             

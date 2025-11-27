@@ -1377,7 +1377,14 @@ export default function Outline() {
         justifyContent: 'space-between',
         alignItems: isMobile ? 'stretch' : 'center'
       }}>
-        <h2 style={{ margin: 0, fontSize: isMobile ? 18 : 24 }}>故事大纲</h2>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <h2 style={{ margin: 0, fontSize: isMobile ? 18 : 24 }}>故事大纲</h2>
+          {currentProject?.outline_mode && (
+            <Tag color={currentProject.outline_mode === 'one-to-one' ? 'blue' : 'green'} style={{ width: 'fit-content' }}>
+              {currentProject.outline_mode === 'one-to-one' ? '传统模式 (1→1)' : '细化模式 (1→N)'}
+            </Tag>
+          )}
+        </div>
         <Space size="small" wrap={isMobile}>
           <Button
             type="primary"
@@ -1388,7 +1395,7 @@ export default function Outline() {
           >
             {isMobile ? 'AI生成/续写' : 'AI生成/续写大纲'}
           </Button>
-          {outlines.length > 0 && (
+          {outlines.length > 0 && currentProject?.outline_mode === 'one-to-many' && (
             <Tooltip title="将所有大纲展开为多章，实现从大纲到章节的一对多关系">
               <Button
                 icon={<AppstoreAddOutlined />}
@@ -1421,16 +1428,18 @@ export default function Outline() {
                   alignItems: isMobile ? 'flex-start' : 'center'
                 }}
                 actions={isMobile ? undefined : [
-                  <Tooltip title="展开为多章">
-                    <Button
-                      type="text"
-                      icon={<BranchesOutlined />}
-                      onClick={() => handleExpandOutline(item.id, item.title)}
-                      loading={isExpanding}
-                    >
-                      展开
-                    </Button>
-                  </Tooltip>,
+                  ...(currentProject?.outline_mode === 'one-to-many' ? [
+                    <Tooltip title="展开为多章">
+                      <Button
+                        type="text"
+                        icon={<BranchesOutlined />}
+                        onClick={() => handleExpandOutline(item.id, item.title)}
+                        loading={isExpanding}
+                      >
+                        展开
+                      </Button>
+                    </Tooltip>
+                  ] : []), // 一对一模式：不显示任何展开/创建按钮
                   <Button
                     type="text"
                     icon={<EditOutlined />}
@@ -1458,11 +1467,13 @@ export default function Outline() {
                           第{item.order_index || '?'}卷
                         </span>
                         <span>{item.title}</span>
-                        {/* ✅ 新增：展开状态标识 */}
-                        {outlineExpandStatus[item.id] ? (
-                          <Tag color="success" icon={<CheckCircleOutlined />}>已展开</Tag>
-                        ) : (
-                          <Tag color="default">未展开</Tag>
+                        {/* ✅ 新增：展开状态标识 - 仅在一对多模式显示 */}
+                        {currentProject?.outline_mode === 'one-to-many' && (
+                          outlineExpandStatus[item.id] ? (
+                            <Tag color="success" icon={<CheckCircleOutlined />}>已展开</Tag>
+                          ) : (
+                            <Tag color="default">未展开</Tag>
+                          )
                         )}
                       </Space>
                     }
@@ -1482,15 +1493,19 @@ export default function Outline() {
                         onClick={() => handleOpenEditModal(item.id)}
                         size="small"
                       />
-                      <Tooltip title="展开为多章">
-                        <Button
-                          type="text"
-                          icon={<BranchesOutlined />}
-                          onClick={() => handleExpandOutline(item.id, item.title)}
-                          loading={isExpanding}
-                          size="small"
-                        />
-                      </Tooltip>
+                      {/* 一对多模式：显示展开按钮 */}
+                      {currentProject?.outline_mode === 'one-to-many' && (
+                        <Tooltip title="展开为多章">
+                          <Button
+                            type="text"
+                            icon={<BranchesOutlined />}
+                            onClick={() => handleExpandOutline(item.id, item.title)}
+                            loading={isExpanding}
+                            size="small"
+                          />
+                        </Tooltip>
+                      )}
+                      {/* 一对一模式：不显示任何展开/创建按钮 */}
                       <Popconfirm
                         title="确定删除这条大纲吗？"
                         onConfirm={() => handleDeleteOutline(item.id)}

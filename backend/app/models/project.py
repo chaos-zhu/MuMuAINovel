@@ -1,5 +1,5 @@
 """项目数据模型"""
-from sqlalchemy import Column, String, Text, DateTime, Integer
+from sqlalchemy import Column, String, Text, DateTime, Integer, CheckConstraint
 from sqlalchemy.sql import func
 from app.database import Base
 import uuid
@@ -20,6 +20,7 @@ class Project(Base):
     status = Column(String(20), default="planning", comment="创作状态")
     wizard_status = Column(String(20), default="incomplete", comment="向导完成状态: incomplete/completed")
     wizard_step = Column(Integer, default=0, comment="向导当前步骤: 0-4")
+    outline_mode = Column(String(20), nullable=False, default="one-to-many", comment="大纲章节模式: one-to-one(传统模式) 或 one-to-many(细化模式)")
     
     # 世界构建字段
     world_time_period = Column(Text, comment="时间背景")
@@ -34,6 +35,13 @@ class Project(Base):
     
     created_at = Column(DateTime, server_default=func.now(), comment="创建时间")
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), comment="更新时间")
+    
+    __table_args__ = (
+        CheckConstraint(
+            "outline_mode IN ('one-to-one', 'one-to-many')",
+            name='check_outline_mode'
+        ),
+    )
     
     def __repr__(self):
         return f"<Project(id={self.id}, title={self.title})>"

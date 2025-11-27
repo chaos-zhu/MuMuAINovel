@@ -801,7 +801,12 @@ export default function ProjectList() {
                                 borderRadius: 8
                               }}>
                                 <div style={{ fontSize: 20, fontWeight: 'bold', color: '#1890ff' }}>
-                                  {(project.current_words / 1000).toFixed(1)}K
+                                  {project.current_words >= 1000000
+                                    ? (project.current_words / 1000000).toFixed(1) + 'M'
+                                    : project.current_words >= 1000
+                                    ? (project.current_words / 1000).toFixed(1) + 'K'
+                                    : project.current_words
+                                  }
                                 </div>
                                 <Text type="secondary" style={{ fontSize: 12 }}>已写字数</Text>
                               </div>
@@ -814,7 +819,14 @@ export default function ProjectList() {
                                 borderRadius: 8
                               }}>
                                 <div style={{ fontSize: 20, fontWeight: 'bold', color: '#52c41a' }}>
-                                  {project.target_words ? (project.target_words / 1000).toFixed(0) + 'K' : '--'}
+                                  {project.target_words
+                                    ? (project.target_words >= 1000000
+                                      ? (project.target_words / 1000000).toFixed(1) + 'M'
+                                      : project.target_words >= 1000
+                                      ? (project.target_words / 1000).toFixed(1) + 'K'
+                                      : project.target_words)
+                                    : '--'
+                                  }
                                 </div>
                                 <Text type="secondary" style={{ fontSize: 12 }}>目标字数</Text>
                               </div>

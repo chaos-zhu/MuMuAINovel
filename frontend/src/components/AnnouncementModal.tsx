@@ -5,19 +5,27 @@ interface AnnouncementModalProps {
   visible: boolean;
   onClose: () => void;
   onDoNotShowToday: () => void;
+  onNeverShow: () => void;
 }
 
-export default function AnnouncementModal({ visible, onClose, onDoNotShowToday }: AnnouncementModalProps) {
-  const [imageError, setImageError] = useState(false);
+export default function AnnouncementModal({ visible, onClose, onDoNotShowToday, onNeverShow }: AnnouncementModalProps) {
+  const [qqImageError, setQqImageError] = useState(false);
+  const [wxImageError, setWxImageError] = useState(false);
 
   useEffect(() => {
     if (visible) {
-      setImageError(false);
+      setQqImageError(false);
+      setWxImageError(false);
     }
   }, [visible]);
 
   const handleDoNotShowToday = () => {
     onDoNotShowToday();
+    onClose();
+  };
+
+  const handleNeverShow = () => {
+    onNeverShow();
     onClose();
   };
 
@@ -28,15 +36,15 @@ export default function AnnouncementModal({ visible, onClose, onDoNotShowToday }
       onCancel={onClose}
       footer={
         <Space style={{ width: '100%', justifyContent: 'center' }}>
-          <Button onClick={onClose} size="large">
-            知道了
+          <Button onClick={handleDoNotShowToday} size="large">
+            今日内不再展示
           </Button>
-          <Button type="primary" onClick={handleDoNotShowToday} size="large">
-            今天内不再提示
+          <Button type="primary" onClick={handleNeverShow} size="large">
+            永不再展示
           </Button>
         </Space>
       }
-      width={600}
+      width={800}
       centered
       styles={{
         body: {
@@ -65,44 +73,120 @@ export default function AnnouncementModal({ visible, onClose, onDoNotShowToday }
             <li>📚 分享创作经验和灵感</li>
           </ul>
           <p style={{ fontWeight: 600, color: '#333', marginBottom: '16px' }}>
-            扫描下方二维码加入QQ交流群：
+            扫描下方二维码加入交流群：
           </p>
         </div>
         
-        {!imageError ? (
+        <div style={{
+          display: 'flex',
+          justifyContent: 'center',
+          alignItems: 'flex-start',
+          gap: '24px',
+          padding: '20px',
+          background: '#f5f5f5',
+          borderRadius: '8px',
+          flexWrap: 'wrap',
+        }}>
+          {/* QQ 二维码 */}
           <div style={{
             display: 'flex',
-            justifyContent: 'center',
+            flexDirection: 'column',
             alignItems: 'center',
-            padding: '20px',
-            background: '#f5f5f5',
-            borderRadius: '8px',
+            minWidth: '280px',
           }}>
-            <img
-              src="/qq.jpg"
-              alt="QQ交流群二维码"
-              style={{
-                maxWidth: '100%',
-                maxHeight: '360px',
-                borderRadius: '8px',
-                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-              }}
-              onError={() => setImageError(true)}
-            />
-          </div>
-        ) : (
-          <div style={{
-            padding: '40px',
-            background: '#f5f5f5',
-            borderRadius: '8px',
-            color: '#999',
-          }}>
-            <p>二维码加载失败</p>
-            <p style={{ fontSize: '12px', marginTop: '8px' }}>
-              请确保 qq.jpg 文件位于 frontend/public/ 目录下
+            <p style={{ fontWeight: 600, color: '#333', marginBottom: '12px', fontSize: '15px' }}>
+              QQ交流群
             </p>
+            {!qqImageError ? (
+              <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                background: '#fff',
+                borderRadius: '8px',
+                padding: '8px',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+              }}>
+                <img
+                  src="/qq.jpg"
+                  alt="QQ交流群二维码"
+                  style={{
+                    maxWidth: '280px',
+                    maxHeight: '280px',
+                    width: 'auto',
+                    height: 'auto',
+                    display: 'block',
+                    objectFit: 'contain',
+                  }}
+                  onError={() => setQqImageError(true)}
+                />
+              </div>
+            ) : (
+              <div style={{
+                width: '280px',
+                height: '280px',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                background: '#fff',
+                borderRadius: '8px',
+                color: '#999',
+              }}>
+                <p>二维码加载失败</p>
+              </div>
+            )}
           </div>
-        )}
+
+          {/* 微信二维码 */}
+          <div style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            minWidth: '280px',
+          }}>
+            <p style={{ fontWeight: 600, color: '#333', marginBottom: '12px', fontSize: '15px' }}>
+              微信交流群
+            </p>
+            {!wxImageError ? (
+              <div style={{
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                background: '#fff',
+                borderRadius: '8px',
+                padding: '8px',
+                boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+              }}>
+                <img
+                  src="/WX.png"
+                  alt="微信交流群二维码"
+                  style={{
+                    maxWidth: '280px',
+                    maxHeight: '280px',
+                    width: 'auto',
+                    height: 'auto',
+                    display: 'block',
+                    objectFit: 'contain',
+                  }}
+                  onError={() => setWxImageError(true)}
+                />
+              </div>
+            ) : (
+              <div style={{
+                width: '280px',
+                height: '280px',
+                display: 'flex',
+                justifyContent: 'center',
+                alignItems: 'center',
+                background: '#fff',
+                borderRadius: '8px',
+                color: '#999',
+              }}>
+                <p>二维码加载失败</p>
+              </div>
+            )}
+          </div>
+        </div>
         
         <div style={{
           marginTop: '20px',
@@ -113,7 +197,7 @@ export default function AnnouncementModal({ visible, onClose, onDoNotShowToday }
           fontSize: '14px',
           color: '#ad6800',
         }}>
-          💡 提示：点击"今天内不再提示"可在今天内不再显示此公告
+          💡 提示：选择"今日内不再展示"当天不再显示，选择"永不再展示"将永久隐藏此公告
         </div>
       </div>
     </Modal>

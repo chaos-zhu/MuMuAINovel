@@ -47,6 +47,7 @@ async def world_building_generator(
         target_words = data.get("target_words")
         chapter_count = data.get("chapter_count")
         character_count = data.get("character_count")
+        outline_mode = data.get("outline_mode", "one-to-many")  # 大纲模式，默认一对多
         provider = data.get("provider")
         model = data.get("model")
         enable_mcp = data.get("enable_mcp", True)  # 默认启用MCP
@@ -215,6 +216,7 @@ async def world_building_generator(
             target_words=target_words,
             chapter_count=chapter_count,
             character_count=character_count,
+            outline_mode=outline_mode,  # 设置大纲模式
             wizard_status="incomplete",
             wizard_step=1,
             status="planning"
@@ -1017,39 +1019,82 @@ async def outline_generator(
         
         logger.info(f"✅ 成功创建{len(created_outlines)}个大纲节点")
         
-        # 向导流程中不展开大纲，避免等待时间过长
-        # 用户可以在大纲页面手动展开需要的大纲节点
-        yield await SSEResponse.send_progress("跳过大纲展开，加快创建速度...", 85)
+        # 根据项目的大纲模式决定是否自动创建章节
+        created_chapters = []
+        if project.outline_mode == 'one-to-one':
+            # 一对一模式：自动为每个大纲创建对应的章节
+            yield await SSEResponse.send_progress("一对一模式：自动创建章节...", 50)
+            
+            for outline in created_outlines:
+                chapter = Chapter(
+                    project_id=project_id,
+                    title=outline.title,
+                    content="",  # 空内容，等待用户生成
+                    outline_id=None,  # 一对一模式下不关联outline_id
+                    chapter_number=outline.order_index,  # 使用chapter_number而不是order_index
+                    status="pending"
+                )
+                db.add(chapter)
+                created_chapters.append(chapter)
+            
+            await db.flush()
+            for chapter in created_chapters:
+                await db.refresh(chapter)
+            
+            logger.info(f"✅ 一对一模式：自动创建了{len(created_chapters)}个章节")
+            yield await SSEResponse.send_progress(f"已自动创建{len(created_chapters)}个章节", 85)
+        else:
+            # 一对多模式：跳过自动创建，用户可手动展开
+            yield await SSEResponse.send_progress("细化模式：跳过自动创建章节", 85)
+            logger.info(f"📝 细化模式：跳过章节创建，用户可在大纲页面手动展开")
         
         # 更新项目信息
-        project.chapter_count = 0  # 向导阶段不创建章节
+        project.chapter_count = len(created_chapters)  # 记录实际创建的章节数
         project.narrative_perspective = narrative_perspective
         project.target_words = target_words
         project.status = "writing"
         project.wizard_status = "completed"
-        project.wizard_step = 3 
+        project.wizard_step = 3
         
         await db.commit()
         db_committed = True
         
         logger.info(f"📊 向导大纲生成完成：")
         logger.info(f"  - 创建大纲节点：{len(created_outlines)} 个")
-        logger.info(f"  - 提示：可在大纲页面手动展开为章节")
+        logger.info(f"  - 创建章节：{len(created_chapters)} 个")
+        logger.info(f"  - 大纲模式：{project.outline_mode}")
+        
+        # 构建结果消息
+        if project.outline_mode == 'one-to-one':
+            result_message = f"成功生成{len(created_outlines)}个大纲节点并自动创建{len(created_chapters)}个章节（传统模式）"
+            result_note = "已自动创建章节，可直接生成内容"
+        else:
+            result_message = f"成功生成{len(created_outlines)}个大纲节点（细化模式，可在大纲页面手动展开）"
+            result_note = "可在大纲页面展开为多个章节"
         
         # 发送结果
         yield await SSEResponse.send_result({
-            "message": f"成功生成{len(created_outlines)}个大纲节点（未展开章节，可在大纲页面手动展开）",
+            "message": result_message,
             "outline_count": len(created_outlines),
-            "chapter_count": 0,
+            "chapter_count": len(created_chapters),
+            "outline_mode": project.outline_mode,
             "outlines": [
                 {
                     "id": outline.id,
                     "order_index": outline.order_index,
                     "title": outline.title,
                     "content": outline.content[:100] + "..." if len(outline.content) > 100 else outline.content,
-                    "note": "可在大纲页面展开为章节"
+                    "note": result_note
                 } for outline in created_outlines
-            ]
+            ],
+            "chapters": [
+                {
+                    "id": chapter.id,
+                    "chapter_number": chapter.chapter_number,
+                    "title": chapter.title,
+                    "status": chapter.status
+                } for chapter in created_chapters
+            ] if created_chapters else []
         })
         
         yield await SSEResponse.send_progress("完成!", 100, "success")

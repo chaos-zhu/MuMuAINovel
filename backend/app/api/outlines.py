@@ -236,18 +236,29 @@ async def delete_outline(
     
     # 验证用户权限
     user_id = getattr(request.state, 'user_id', None)
-    await verify_project_access(outline.project_id, user_id, db)
+    project = await verify_project_access(outline.project_id, user_id, db)
     
     project_id = outline.project_id
     deleted_order = outline.order_index
     
-    # 删除该大纲对应的所有章节（通过outline_id关联）
-    delete_result = await db.execute(
-        delete(Chapter).where(Chapter.outline_id == outline_id)
-    )
-    deleted_chapters_count = delete_result.rowcount
-    
-    logger.info(f"删除大纲 {outline_id}，同时删除了 {deleted_chapters_count} 个关联章节")
+    # 根据项目模式删除对应的章节
+    if project.outline_mode == 'one-to-one':
+        # one-to-one模式：通过chapter_number删除对应章节
+        delete_result = await db.execute(
+            delete(Chapter).where(
+                Chapter.project_id == project_id,
+                Chapter.chapter_number == outline.order_index
+            )
+        )
+        deleted_chapters_count = delete_result.rowcount
+        logger.info(f"一对一模式：删除大纲 {outline_id}（序号{outline.order_index}），同时删除了第{outline.order_index}章（{deleted_chapters_count}个章节）")
+    else:
+        # one-to-many模式：通过outline_id删除关联章节
+        delete_result = await db.execute(
+            delete(Chapter).where(Chapter.outline_id == outline_id)
+        )
+        deleted_chapters_count = delete_result.rowcount
+        logger.info(f"一对多模式：删除大纲 {outline_id}，同时删除了 {deleted_chapters_count} 个关联章节")
     
     # 删除大纲
     await db.delete(outline)
@@ -263,6 +274,21 @@ async def delete_outline(
     
     for o in subsequent_outlines:
         o.order_index -= 1
+    
+    # 如果是one-to-one模式，还需要重新排序后续章节的chapter_number
+    if project.outline_mode == 'one-to-one':
+        chapters_result = await db.execute(
+            select(Chapter).where(
+                Chapter.project_id == project_id,
+                Chapter.chapter_number > deleted_order
+            ).order_by(Chapter.chapter_number)
+        )
+        subsequent_chapters = chapters_result.scalars().all()
+        
+        for ch in subsequent_chapters:
+            ch.chapter_number -= 1
+        
+        logger.info(f"一对一模式：重新排序了 {len(subsequent_chapters)} 个后续章节")
     
     await db.commit()
     
@@ -852,7 +878,17 @@ async def _save_outlines(
     db: AsyncSession,
     start_index: int = 1
 ) -> List[Outline]:
-    """保存大纲到数据库（不自动创建章节）"""
+    """
+    保存大纲到数据库
+    
+    如果项目为one-to-one模式，同时自动创建对应的章节
+    """
+    # 获取项目信息以确定outline_mode
+    project_result = await db.execute(
+        select(Project).where(Project.id == project_id)
+    )
+    project = project_result.scalar_one_or_none()
+    
     outlines = []
     
     for idx, chapter_data in enumerate(outline_data):
@@ -878,6 +914,28 @@ async def _save_outlines(
         )
         db.add(outline)
         outlines.append(outline)
+    
+    # 如果是one-to-one模式，自动创建章节
+    if project and project.outline_mode == 'one-to-one':
+        await db.flush()  # 确保大纲有ID
+        
+        for outline in outlines:
+            await db.refresh(outline)
+            
+            # 为每个大纲创建对应的章节
+            chapter = Chapter(
+                project_id=project_id,
+                title=outline.title,
+                summary=outline.content,
+                chapter_number=outline.order_index,
+                sub_index=1,
+                outline_id=None,  # one-to-one模式不关联outline_id
+                status='pending',
+                content=""
+            )
+            db.add(chapter)
+        
+        logger.info(f"一对一模式：为{len(outlines)}个大纲自动创建了对应的章节")
     
     return outlines
 
@@ -1646,6 +1704,104 @@ async def expand_outline_generator(
         yield await SSEResponse.send_error(f"展开失败: {str(e)}")
 
 
+@router.post("/{outline_id}/create-single-chapter", summary="一对一创建章节(传统模式)")
+async def create_single_chapter_from_outline(
+    outline_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    传统模式：一个大纲对应创建一个章节
+    
+    适用场景：
+    - 项目的outline_mode为'one-to-one'
+    - 直接将大纲内容作为章节摘要
+    - 不调用AI，不展开
+    
+    流程：
+    1. 验证项目模式为one-to-one
+    2. 检查该大纲是否已创建章节
+    3. 创建章节记录（outline_id=NULL，chapter_number=outline.order_index）
+    
+    返回：创建的章节信息
+    """
+    # 验证用户权限
+    user_id = getattr(request.state, 'user_id', None)
+    
+    # 获取大纲
+    result = await db.execute(
+        select(Outline).where(Outline.id == outline_id)
+    )
+    outline = result.scalar_one_or_none()
+    
+    if not outline:
+        raise HTTPException(status_code=404, detail="大纲不存在")
+    
+    # 验证项目权限并获取项目信息
+    project = await verify_project_access(outline.project_id, user_id, db)
+    
+    # 验证项目模式
+    if project.outline_mode != 'one-to-one':
+        raise HTTPException(
+            status_code=400,
+            detail=f"当前项目为{project.outline_mode}模式，不支持一对一创建。请使用展开功能。"
+        )
+    
+    # 检查该大纲对应的章节是否已存在
+    existing_chapter_result = await db.execute(
+        select(Chapter).where(
+            Chapter.project_id == outline.project_id,
+            Chapter.chapter_number == outline.order_index,
+            Chapter.sub_index == 1
+        )
+    )
+    existing_chapter = existing_chapter_result.scalar_one_or_none()
+    
+    if existing_chapter:
+        raise HTTPException(
+            status_code=400,
+            detail=f"第{outline.order_index}章已存在，不能重复创建"
+        )
+    
+    try:
+        # 创建章节（outline_id=NULL表示一对一模式）
+        new_chapter = Chapter(
+            project_id=outline.project_id,
+            title=outline.title,
+            summary=outline.content,  # 使用大纲内容作为摘要
+            chapter_number=outline.order_index,
+            sub_index=1,  # 一对一模式固定为1
+            outline_id=None,  # 传统模式不关联outline_id
+            status='pending'
+        )
+        
+        db.add(new_chapter)
+        await db.commit()
+        await db.refresh(new_chapter)
+        
+        logger.info(f"一对一模式：为大纲 {outline.title} 创建章节 {new_chapter.chapter_number}")
+        
+        return {
+            "message": "章节创建成功",
+            "chapter": {
+                "id": new_chapter.id,
+                "project_id": new_chapter.project_id,
+                "title": new_chapter.title,
+                "summary": new_chapter.summary,
+                "chapter_number": new_chapter.chapter_number,
+                "sub_index": new_chapter.sub_index,
+                "outline_id": new_chapter.outline_id,
+                "status": new_chapter.status,
+                "created_at": new_chapter.created_at.isoformat() if new_chapter.created_at else None
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"一对一创建章节失败: {str(e)}", exc_info=True)
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"创建章节失败: {str(e)}")
+
+
 @router.post("/{outline_id}/expand", response_model=OutlineExpansionResponse, summary="展开单个大纲为多章")
 async def expand_outline_to_chapters(
     outline_id: str,
@@ -1681,8 +1837,15 @@ async def expand_outline_to_chapters(
     if not outline:
         raise HTTPException(status_code=404, detail="大纲不存在")
     
-    # 验证项目权限
-    await verify_project_access(outline.project_id, user_id, db)
+    # 验证项目权限并获取项目信息
+    project = await verify_project_access(outline.project_id, user_id, db)
+    
+    # 验证项目模式
+    if project.outline_mode != 'one-to-many':
+        raise HTTPException(
+            status_code=400,
+            detail=f"当前项目为{project.outline_mode}模式，不支持展开功能。请使用一对一创建。"
+        )
     
     try:
         # 创建展开服务实例

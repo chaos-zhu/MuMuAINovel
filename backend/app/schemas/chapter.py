@@ -1,6 +1,6 @@
 """章节相关的Pydantic模型"""
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from datetime import datetime
 
 
@@ -119,3 +119,47 @@ class BatchGenerateStatusResponse(BaseModel):
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
     error_message: Optional[str] = None
+
+
+class SceneData(BaseModel):
+    """场景数据模型"""
+    location: str = Field(..., description="场景地点")
+    characters: List[str] = Field(..., description="参与角色列表")
+    purpose: str = Field(..., description="场景目的")
+
+
+class ExpansionPlanUpdate(BaseModel):
+    """章节规划更新模型"""
+    key_events: Optional[List[str]] = Field(None, description="关键事件列表")
+    character_focus: Optional[List[str]] = Field(None, description="涉及角色列表")
+    emotional_tone: Optional[str] = Field(None, description="情感基调")
+    narrative_goal: Optional[str] = Field(None, description="叙事目标")
+    conflict_type: Optional[str] = Field(None, description="冲突类型")
+    estimated_words: Optional[int] = Field(None, description="预估字数", ge=500, le=10000)
+    scenes: Optional[List[SceneData]] = Field(None, description="场景列表")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "key_events": ["主角遇到挑战", "关键决策时刻"],
+                "character_focus": ["张三", "李四"],
+                "emotional_tone": "紧张激烈",
+                "narrative_goal": "推进主线剧情",
+                "conflict_type": "内心冲突",
+                "estimated_words": 3000,
+                "scenes": [
+                    {
+                        "location": "城市广场",
+                        "characters": ["张三", "李四"],
+                        "purpose": "初次相遇"
+                    }
+                ]
+            }
+        }
+
+
+class ExpansionPlanResponse(BaseModel):
+    """章节规划响应模型"""
+    id: str = Field(..., description="章节ID")
+    expansion_plan: Optional[Dict[str, Any]] = Field(None, description="规划数据")
+    message: str = Field(..., description="响应消息")

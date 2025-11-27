@@ -2,10 +2,10 @@ import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Form, Input, InputNumber, Select, Button, Card,
-  Row, Col, Typography, Space, message
+  Row, Col, Typography, Space, message, Radio
 } from 'antd';
 import {
-  RocketOutlined, ArrowLeftOutlined
+  RocketOutlined, ArrowLeftOutlined, CheckCircleOutlined
 } from '@ant-design/icons';
 import { AIProjectGenerator, type GenerationConfig } from '../components/AIProjectGenerator';
 import type { WizardBasicInfo } from '../types';
@@ -83,6 +83,7 @@ export default function ProjectWizardNew() {
       target_words: values.target_words || 100000,
       chapter_count: 3, // 默认生成3章大纲
       character_count: values.character_count || 5,
+      outline_mode: values.outline_mode || 'one-to-many', // 添加大纲模式
     };
     
     setGenerationConfig(config);
@@ -120,6 +121,7 @@ export default function ProjectWizardNew() {
           narrative_perspective: '第三人称',
           character_count: 5,
           target_words: 100000,
+          outline_mode: 'one-to-many', // 默认为细化模式
         }}
       >
         <Form.Item
@@ -179,6 +181,71 @@ export default function ProjectWizardNew() {
             <Select.Option value="言情">言情</Select.Option>
             <Select.Option value="修仙">修仙</Select.Option>
           </Select>
+        </Form.Item>
+
+        <Form.Item
+          label="大纲章节模式"
+          name="outline_mode"
+          rules={[{ required: true, message: '请选择大纲章节模式' }]}
+          tooltip="创建后不可更改，请根据创作习惯选择"
+        >
+          <Radio.Group size="large">
+            <Row gutter={16}>
+              <Col xs={24} sm={12}>
+                <Card
+                  hoverable
+                  style={{
+                    borderColor: form.getFieldValue('outline_mode') === 'one-to-one' ? '#1890ff' : '#d9d9d9',
+                    borderWidth: 2,
+                    height: '100%',
+                  }}
+                  onClick={() => form.setFieldValue('outline_mode', 'one-to-one')}
+                >
+                  <Radio value="one-to-one" style={{ width: '100%' }}>
+                    <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                      <div style={{ fontSize: 16, fontWeight: 'bold' }}>
+                        <CheckCircleOutlined style={{ marginRight: 8, color: '#52c41a' }} />
+                        传统模式 (1→1)
+                      </div>
+                      <div style={{ fontSize: 12, color: '#666' }}>
+                        一个大纲对应一个章节，简单直接
+                      </div>
+                      <div style={{ fontSize: 11, color: '#999' }}>
+                        💡 适合：简单剧情、快速创作、短篇小说
+                      </div>
+                    </Space>
+                  </Radio>
+                </Card>
+              </Col>
+              
+              <Col xs={24} sm={12}>
+                <Card
+                  hoverable
+                  style={{
+                    borderColor: form.getFieldValue('outline_mode') === 'one-to-many' ? '#1890ff' : '#d9d9d9',
+                    borderWidth: 2,
+                    height: '100%',
+                  }}
+                  onClick={() => form.setFieldValue('outline_mode', 'one-to-many')}
+                >
+                  <Radio value="one-to-many" style={{ width: '100%' }}>
+                    <Space direction="vertical" size={4} style={{ width: '100%' }}>
+                      <div style={{ fontSize: 16, fontWeight: 'bold' }}>
+                        <CheckCircleOutlined style={{ marginRight: 8, color: '#52c41a' }} />
+                        细化模式 (1→N) 推荐
+                      </div>
+                      <div style={{ fontSize: 12, color: '#666' }}>
+                        一个大纲可展开为多个章节，灵活控制
+                      </div>
+                      <div style={{ fontSize: 11, color: '#999' }}>
+                        💡 适合：复杂剧情、长篇创作、需要细化控制
+                      </div>
+                    </Space>
+                  </Radio>
+                </Card>
+              </Col>
+            </Row>
+          </Radio.Group>
         </Form.Item>
 
         <Row gutter={16}>
