@@ -311,7 +311,7 @@ async def _init_global_writing_styles(user_id: str):
         async with AsyncSessionLocal() as session:
             # 检查是否已存在全局预设风格
             result = await session.execute(
-                select(WritingStyle).where(WritingStyle.project_id.is_(None))
+                select(WritingStyle).where(WritingStyle.user_id.is_(None))
             )
             existing = result.scalars().first()
             
@@ -326,7 +326,7 @@ async def _init_global_writing_styles(user_id: str):
             
             for index, (preset_id, preset_data) in enumerate(presets.items(), start=1):
                 style = WritingStyle(
-                    project_id=None,  # NULL 表示全局预设
+                    user_id=None,  # NULL 表示全局预设
                     name=preset_data["name"],
                     style_type="preset",
                     preset_id=preset_id,

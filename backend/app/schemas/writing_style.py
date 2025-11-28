@@ -13,9 +13,13 @@ class WritingStyleBase(BaseModel):
     prompt_content: str = Field(..., description="风格提示词内容")
 
 
-class WritingStyleCreate(WritingStyleBase):
-    """创建写作风格（仅用于创建项目自定义风格）"""
-    project_id: str = Field(..., description="所属项目ID")
+class WritingStyleCreate(BaseModel):
+    """创建写作风格（仅用于创建用户自定义风格）"""
+    name: str = Field(..., description="风格名称")
+    style_type: Optional[str] = Field(None, description="风格类型：preset/custom")
+    preset_id: Optional[str] = Field(None, description="预设风格ID")
+    description: Optional[str] = Field(None, description="风格描述")
+    prompt_content: str = Field(..., description="风格提示词内容")
 
 
 class WritingStyleUpdate(BaseModel):
@@ -33,7 +37,7 @@ class SetDefaultStyleRequest(BaseModel):
 class WritingStyleResponse(BaseModel):
     """写作风格响应"""
     id: int
-    project_id: Optional[str] = None  # NULL 表示全局预设风格
+    user_id: Optional[str] = None  # NULL 表示全局预设风格
     name: str
     style_type: str
     preset_id: Optional[str] = None

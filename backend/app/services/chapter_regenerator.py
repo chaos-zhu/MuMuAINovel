@@ -23,7 +23,8 @@ class ChapterRegenerator:
         chapter: Chapter,
         analysis: Optional[PlotAnalysis],
         regenerate_request: ChapterRegenerateRequest,
-        project_context: Dict[str, Any]
+        project_context: Dict[str, Any],
+        style_content: str = ""
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         根据反馈重新生成章节（流式）
@@ -55,7 +56,8 @@ class ChapterRegenerator:
                 chapter=chapter,
                 modification_instructions=modification_instructions,
                 project_context=project_context,
-                regenerate_request=regenerate_request
+                regenerate_request=regenerate_request,
+                style_content=style_content
             )
             
             logger.info(f"🎯 提示词构建完成，开始AI生成")
@@ -161,7 +163,8 @@ class ChapterRegenerator:
         chapter: Chapter,
         modification_instructions: str,
         project_context: Dict[str, Any],
-        regenerate_request: ChapterRegenerateRequest
+        regenerate_request: ChapterRegenerateRequest,
+        style_content: str = ""
     ) -> str:
         """构建完整的重新生成提示词"""
         
@@ -238,6 +241,17 @@ class ChapterRegenerator:
 ---
 """)
         
+        # 写作风格要求（如果提供）
+        if style_content:
+            prompt_parts.append(f"""## 🎨 写作风格要求
+
+{style_content}
+
+请在重新创作时严格遵循上述写作风格。
+
+---
+""")
+        
         # 创作要求
         prompt_parts.append(f"""## ✨ 创作要求
 
@@ -246,6 +260,7 @@ class ChapterRegenerator:
 3. **提升质量**：在节奏、情感、描写等方面明显优于原版
 4. **保留精华**：保持原章节中优秀的部分和关键情节
 5. **字数控制**：目标字数约{regenerate_request.target_word_count}字（可适当浮动±20%）
+{f'6. **风格一致**：严格按照上述写作风格进行创作' if style_content else ''}
 
 ---
 

@@ -437,7 +437,11 @@ export const writingStyleApi = {
   getPresetStyles: () =>
     api.get<unknown, PresetStyle[]>('/writing-styles/presets/list'),
   
-  // 获取项目的所有风格
+  // 获取用户的所有风格（新接口）
+  getUserStyles: () =>
+    api.get<unknown, WritingStyleListResponse>('/writing-styles/user'),
+  
+  // 获取项目的所有风格（保留向后兼容）
   getProjectStyles: (projectId: string) =>
     api.get<unknown, WritingStyleListResponse>(`/writing-styles/project/${projectId}`),
   

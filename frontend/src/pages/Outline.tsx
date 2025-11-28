@@ -1464,7 +1464,10 @@ export default function Outline() {
                     title={
                       <Space size="small" style={{ fontSize: isMobile ? 14 : 16, flexWrap: 'wrap' }}>
                         <span style={{ color: '#1890ff', fontWeight: 'bold' }}>
-                          第{item.order_index || '?'}卷
+                          {currentProject?.outline_mode === 'one-to-one'
+                            ? `第${item.order_index || '?'}章`
+                            : `第${item.order_index || '?'}卷`
+                          }
                         </span>
                         <span>{item.title}</span>
                         {/* ✅ 新增：展开状态标识 - 仅在一对多模式显示 */}

@@ -406,7 +406,7 @@ export interface ApiResponse<T> {
 // 写作风格类型定义
 export interface WritingStyle {
   id: number;
-  project_id: string;
+  user_id: string | null;  // NULL 表示全局预设风格
   name: string;
   style_type: 'preset' | 'custom';
   preset_id?: string;
@@ -419,13 +419,11 @@ export interface WritingStyle {
 }
 
 export interface WritingStyleCreate {
-  project_id: string;
   name: string;
-  style_type: 'preset' | 'custom';
+  style_type?: 'preset' | 'custom';
   preset_id?: string;
   description?: string;
   prompt_content: string;
-  is_default?: boolean;
 }
 
 export interface WritingStyleUpdate {

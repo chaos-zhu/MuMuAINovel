@@ -229,7 +229,7 @@ async def world_building_generator(
         try:
             result = await db.execute(
                 select(WritingStyle).where(
-                    WritingStyle.project_id.is_(None),
+                    WritingStyle.user_id.is_(None),
                     WritingStyle.order_index == 1
                 ).limit(1)
             )
