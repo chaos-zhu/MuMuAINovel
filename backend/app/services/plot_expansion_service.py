@@ -9,6 +9,7 @@ from app.models.project import Project
 from app.models.character import Character
 from app.models.chapter import Chapter
 from app.services.ai_service import AIService
+from app.services.prompt_service import prompt_service, PromptService
 from app.logger import get_logger
 
 logger = get_logger(__name__)
@@ -107,15 +108,27 @@ class PlotExpansionService:
         # 获取大纲上下文（前后大纲）
         context_info = await self._get_outline_context(outline, project.id, db)
         
-        # 构建分析提示词
-        prompt = self._build_expansion_prompt(
-            outline=outline,
-            project=project,
-            characters_info=characters_info,
+        # 获取自定义提示词模板
+        template = await PromptService.get_template("PLOT_EXPANSION_SINGLE_BATCH", project.user_id, db)
+        # 格式化提示词
+        prompt = PromptService.format_prompt(
+            template,
+            project_title=project.title,
+            project_genre=project.genre or '通用',
+            project_theme=project.theme or '未设定',
+            project_narrative_perspective=project.narrative_perspective or '第三人称',
+            project_world_time_period=project.world_time_period or '未设定',
+            project_world_location=project.world_location or '未设定',
+            project_world_atmosphere=project.world_atmosphere or '未设定',
+            characters_info=characters_info or '暂无角色',
+            outline_order_index=outline.order_index,
+            outline_title=outline.title,
+            outline_content=outline.content,
             context_info=context_info,
+            strategy_instruction=expansion_strategy,
             target_chapter_count=target_chapter_count,
-            expansion_strategy=expansion_strategy,
-            enable_scene_analysis=enable_scene_analysis
+            scene_instruction="",  # 暂时为空
+            scene_field=""  # 暂时为空
         )
         
         # 调用AI生成章节规划
@@ -182,17 +195,43 @@ class PlotExpansionService:
                 await progress_callback(batch_num + 1, total_batches, current_start_index, current_batch_size)
             
             # 构建当前批次的提示词（包含已生成章节的上下文）
-            prompt = self._build_batch_expansion_prompt(
-                outline=outline,
-                project=project,
-                characters_info=characters_info,
+            previous_context = ""
+            if all_chapter_plans:
+                previous_summaries = []
+                for ch in all_chapter_plans[-3:]:  # 只显示最近3章
+                    previous_summaries.append(
+                        f"第{ch['sub_index']}节《{ch['title']}》: {ch['plot_summary'][:100]}..."
+                    )
+                previous_context = f"""
+    【已生成章节概要】（接续生成，注意衔接）
+    {chr(10).join(previous_summaries)}
+    
+    ⚠️ 当前是第{current_start_index}-{current_start_index + current_batch_size - 1}节（共{target_chapter_count}节中的一部分）
+    """
+            # 获取自定义提示词模板
+            template = await PromptService.get_template("PLOT_EXPANSION_MULTI_BATCH", project.user_id, db)
+            # 格式化提示词
+            prompt = PromptService.format_prompt(
+                template,
+                project_title=project.title,
+                project_genre=project.genre or '通用',
+                project_theme=project.theme or '未设定',
+                project_narrative_perspective=project.narrative_perspective or '第三人称',
+                project_world_time_period=project.world_time_period or '未设定',
+                project_world_location=project.world_location or '未设定',
+                project_world_atmosphere=project.world_atmosphere or '未设定',
+                characters_info=characters_info or '暂无角色',
+                outline_order_index=outline.order_index,
+                outline_title=outline.title,
+                outline_content=outline.content,
                 context_info=context_info,
-                target_chapter_count=current_batch_size,
-                expansion_strategy=expansion_strategy,
-                enable_scene_analysis=enable_scene_analysis,
+                previous_context=previous_context,
+                strategy_instruction=expansion_strategy,
                 start_index=current_start_index,
-                previous_chapters=all_chapter_plans,
-                total_chapters=target_chapter_count
+                end_index=current_start_index + current_batch_size - 1,
+                target_chapter_count=current_batch_size,
+                scene_instruction="", # 暂时为空
+                scene_field="" # 暂时为空
             )
             
             # 调用AI生成当前批次
@@ -452,258 +491,6 @@ class PlotExpansionService:
         
         return context if context else "（无前后文）"
     
-    def _build_expansion_prompt(
-        self,
-        outline: Outline,
-        project: Project,
-        characters_info: str,
-        context_info: str,
-        target_chapter_count: int,
-        expansion_strategy: str,
-        enable_scene_analysis: bool
-    ) -> str:
-        """构建大纲展开提示词"""
-        
-        strategy_desc = {
-            "balanced": "均衡展开：每章剧情量相当，节奏平稳",
-            "climax": "高潮重点：重点章节剧情丰富，其他章节简洁过渡",
-            "detail": "细节丰富：每章都深入描写，场景和情感细腻"
-        }
-        
-        strategy_instruction = strategy_desc.get(expansion_strategy, strategy_desc["balanced"])
-        
-        # 场景字段（避免f-string中的反斜杠）
-        scene_field = ',\n    "main_scenes": ["场景1", "场景2"]' if enable_scene_analysis else ''
-        
-        scene_instruction = ""
-        if enable_scene_analysis:
-            scene_instruction = """
-5. 场景分析（每章需包含）：
-   - 主要场景地点
-   - 场景氛围
-   - 关键道具/环境元素
-"""
-        
-        prompt = f"""你是专业的小说情节架构师。请分析以下大纲节点，将其展开为 {target_chapter_count} 个章节的详细规划。
-
-【项目信息】
-小说名称：{project.title}
-类型：{project.genre or '通用'}
-主题：{project.theme or '未设定'}
-叙事视角：{project.narrative_perspective or '第三人称'}
-
-【世界观背景】
-时间背景：{project.world_time_period or '未设定'}
-地理位置：{project.world_location or '未设定'}
-氛围基调：{project.world_atmosphere or '未设定'}
-
-【角色信息】
-{characters_info or '暂无角色'}
-
-【当前大纲节点 - 展开对象】
-序号：第 {outline.order_index} 节
-标题：{outline.title}
-内容：{outline.content}
-
-【上下文参考】
-{context_info}
-
-【展开策略】
-{strategy_instruction}
-
-【⚠️ 重要约束 - 必须严格遵守】
-1. **内容边界约束**：
-   - ✅ 只能展开【当前大纲节点】中明确描述的内容
-   - ❌ 绝对不能推进到后续大纲的内容（如果有【后一节】信息）
-   - ❌ 不要让剧情快速推进，要深化而非跨越
-   
-2. **展开原则**：
-   - 将当前大纲的单一事件拆解为多个细节丰富的章节
-   - 深入挖掘情感、心理、环境、对话等细节
-   - 放慢叙事节奏，让读者充分体验当前阶段的剧情
-   - 每个章节都应该是当前大纲内容的不同侧面或阶段
-   
-3. **如何避免剧情越界**：
-   - 如果当前大纲描述"主角遇到困境"，展开时应详写困境的发现、分析、情感冲击等
-   - 不要直接写到"解决困境"，除非原大纲明确包含解决过程
-   - 如果看到【后一节】的内容，那些是禁区，绝不提前展开
-
-【任务要求】
-1. 深度分析该大纲的剧情容量和叙事节奏
-2. 识别关键剧情点、冲突点和情感转折点（仅限当前大纲范围内）
-3. 将大纲拆解为 {target_chapter_count} 个章节，每章需包含：
-   - sub_index: 子章节序号（1, 2, 3...）
-   - title: 章节标题（体现该章核心冲突或情感）
-   - plot_summary: 剧情摘要（200-300字，详细描述该章发生的事件，仅限当前大纲内容）
-   - key_events: 关键事件列表（3-5个关键剧情点，必须在当前大纲范围内）
-   - character_focus: 角色焦点（主要涉及的角色名称）
-   - emotional_tone: 情感基调（如：紧张、温馨、悲伤、激动等）
-   - narrative_goal: 叙事目标（该章要达成的叙事效果）
-   - conflict_type: 冲突类型（如：内心挣扎、人际冲突、环境挑战等）
-   - estimated_words: 预计字数（建议2000-5000字）
-{scene_instruction}
-4. 确保章节间：
-   - 衔接自然流畅
-   - 剧情递进合理（但不超出当前大纲边界）
-   - 节奏张弛有度
-   - 每章都有明确的叙事价值
-   - 最后一章结束时，剧情发展程度应恰好完成当前大纲描述的内容，不多不少
-
-【输出格式】
-请严格按照以下JSON数组格式输出，不要添加任何其他文字：
-[
-  {{
-    "sub_index": 1,
-    "title": "章节标题",
-    "plot_summary": "该章详细剧情摘要...",
-    "key_events": ["关键事件1", "关键事件2", "关键事件3"],
-    "character_focus": ["角色A", "角色B"],
-    "emotional_tone": "情感基调",
-    "narrative_goal": "叙事目标",
-    "conflict_type": "冲突类型",
-    "estimated_words": 3000{scene_field}
-  }}
-]
-
-请开始分析并生成章节规划：
-"""
-        return prompt
-    
-    def _build_batch_expansion_prompt(
-        self,
-        outline: Outline,
-        project: Project,
-        characters_info: str,
-        context_info: str,
-        target_chapter_count: int,
-        expansion_strategy: str,
-        enable_scene_analysis: bool,
-        start_index: int,
-        previous_chapters: List[Dict[str, Any]],
-        total_chapters: int
-    ) -> str:
-        """构建分批展开提示词"""
-        
-        strategy_desc = {
-            "balanced": "均衡展开：每章剧情量相当，节奏平稳",
-            "climax": "高潮重点：重点章节剧情丰富，其他章节简洁过渡",
-            "detail": "细节丰富：每章都深入描写，场景和情感细腻"
-        }
-        
-        strategy_instruction = strategy_desc.get(expansion_strategy, strategy_desc["balanced"])
-        
-        # 场景字段
-        scene_field = ',\n    "main_scenes": ["场景1", "场景2"]' if enable_scene_analysis else ''
-        
-        scene_instruction = ""
-        if enable_scene_analysis:
-            scene_instruction = """
-5. 场景分析（每章需包含）：
-   - 主要场景地点
-   - 场景氛围
-   - 关键道具/环境元素
-"""
-        
-        # 构建已生成章节的摘要
-        previous_context = ""
-        if previous_chapters:
-            previous_summaries = []
-            for ch in previous_chapters[-3:]:  # 只显示最近3章
-                previous_summaries.append(
-                    f"第{ch['sub_index']}节《{ch['title']}》: {ch['plot_summary'][:100]}..."
-                )
-            previous_context = f"""
-【已生成章节概要】（接续生成，注意衔接）
-{chr(10).join(previous_summaries)}
-
-⚠️ 当前是第{start_index}-{start_index + target_chapter_count - 1}节（共{total_chapters}节中的一部分）
-"""
-        
-        prompt = f"""你是专业的小说情节架构师。请继续分析以下大纲节点，将其展开为第{start_index}-{start_index + target_chapter_count - 1}节（共{target_chapter_count}个章节）的详细规划。
-
-【项目信息】
-小说名称：{project.title}
-类型：{project.genre or '通用'}
-主题：{project.theme or '未设定'}
-叙事视角：{project.narrative_perspective or '第三人称'}
-
-【世界观背景】
-时间背景：{project.world_time_period or '未设定'}
-地理位置：{project.world_location or '未设定'}
-氛围基调：{project.world_atmosphere or '未设定'}
-
-【角色信息】
-{characters_info or '暂无角色'}
-
-【当前大纲节点 - 展开对象】
-序号：第 {outline.order_index} 节
-标题：{outline.title}
-内容：{outline.content}
-
-【上下文参考】
-{context_info}
-{previous_context}
-
-【展开策略】
-{strategy_instruction}
-
-【⚠️ 重要约束 - 必须严格遵守】
-1. **内容边界约束**：
-   - ✅ 只能展开【当前大纲节点】中明确描述的内容
-   - ❌ 绝对不能推进到后续大纲的内容（如果有【后一节】信息）
-   - ❌ 不要让剧情快速推进，要深化而非跨越
-   
-2. **分批连续性约束**：
-   - 这是第{start_index}-{start_index + target_chapter_count - 1}节，是整个展开的一部分
-   - 必须与前面已生成的章节自然衔接
-   - 从第{start_index}节开始编号（sub_index从{start_index}开始）
-   - 继续深化当前大纲的内容，保持叙事连贯性
-   
-3. **展开原则**：
-   - 将当前大纲的单一事件拆解为多个细节丰富的章节
-   - 深入挖掘情感、心理、环境、对话等细节
-   - 放慢叙事节奏，让读者充分体验当前阶段的剧情
-   - 每个章节都应该是当前大纲内容的不同侧面或阶段
-
-【任务要求】
-1. 深度分析该大纲的剧情容量和叙事节奏
-2. 识别关键剧情点、冲突点和情感转折点（仅限当前大纲范围内）
-3. 生成第{start_index}-{start_index + target_chapter_count - 1}节的章节规划，每章需包含：
-   - sub_index: 子章节序号（从{start_index}开始）
-   - title: 章节标题（体现该章核心冲突或情感）
-   - plot_summary: 剧情摘要（200-300字，详细描述该章发生的事件）
-   - key_events: 关键事件列表（3-5个关键剧情点）
-   - character_focus: 角色焦点（主要涉及的角色名称）
-   - emotional_tone: 情感基调（如：紧张、温馨、悲伤、激动等）
-   - narrative_goal: 叙事目标（该章要达成的叙事效果）
-   - conflict_type: 冲突类型（如：内心挣扎、人际冲突、环境挑战等）
-   - estimated_words: 预计字数（建议2000-5000字）
-{scene_instruction}
-4. 确保章节间：
-   - 与前面章节衔接自然流畅
-   - 剧情递进合理（但不超出当前大纲边界）
-   - 节奏张弛有度
-   - 每章都有明确的叙事价值
-
-【输出格式】
-请严格按照以下JSON数组格式输出，不要添加任何其他文字：
-[
-  {{
-    "sub_index": {start_index},
-    "title": "章节标题",
-    "plot_summary": "该章详细剧情摘要...",
-    "key_events": ["关键事件1", "关键事件2", "关键事件3"],
-    "character_focus": ["角色A", "角色B"],
-    "emotional_tone": "情感基调",
-    "narrative_goal": "叙事目标",
-    "conflict_type": "冲突类型",
-    "estimated_words": 3000{scene_field}
-  }}
-]
-
-请开始分析并生成第{start_index}-{start_index + target_chapter_count - 1}节的章节规划：
-"""
-        return prompt
     
     def _parse_expansion_response(
         self,

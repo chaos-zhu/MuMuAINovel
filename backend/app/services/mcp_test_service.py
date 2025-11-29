@@ -13,6 +13,7 @@ from app.models.settings import Settings as UserSettings
 from app.mcp.registry import mcp_registry
 from app.services.ai_service import create_user_ai_service
 from app.schemas.mcp_plugin import MCPTestResult
+from app.services.prompt_service import prompt_service
 from app.logger import get_logger
 from app.user_manager import User
 
@@ -168,26 +169,11 @@ class MCPTestService:
             logger.debug(f"📋 OpenAI工具列表: {[t['function']['name'] for t in openai_tools]}")
             
             # 调用AI选择工具
-            prompt = f"""你是MCP插件测试助手，需要测试插件 '{plugin.plugin_name}' 的功能。
-
-⚠️ 重要规则：生成参数时，必须严格使用工具 schema 中定义的原始参数名称，不要转换为 snake_case 或其他格式。
-例如：如果 schema 中是 'nextThoughtNeeded'，就必须使用 'nextThoughtNeeded'，不能改成 'next_thought_needed'。
-
-请选择一个合适的工具进行测试，优先选择搜索、查询类工具。
-生成真实有效的测试参数（例如搜索"人工智能最新进展"而不是"test"）。
-
-现在开始测试这个插件。"""
-
-            system_prompt = """你是专业的API测试工具。当给定工具列表时，选择一个工具并使用合适的参数调用它。
-
-⚠️ 关键规则：调用工具时，必须严格使用 schema 中定义的原始参数名，不要自行转换命名风格。
-- 如果参数名是 camelCase（如 nextThoughtNeeded），就使用 camelCase
-- 如果参数名是 snake_case（如 next_thought），就使用 snake_case
-- 保持与 schema 中定义的完全一致，包括大小写和命名风格"""
+            prompts = prompt_service.get_mcp_tool_test_prompts(plugin.plugin_name)
             
             ai_response = await ai_service.generate_text(
-                prompt=prompt,
-                system_prompt=system_prompt,
+                prompt=prompts["user"],
+                system_prompt=prompts["system"],
                 tools=openai_tools,
                 tool_choice="required"
             )

@@ -25,7 +25,7 @@ from app.schemas.outline import (
     CreateChaptersFromPlansResponse
 )
 from app.services.ai_service import AIService
-from app.services.prompt_service import prompt_service
+from app.services.prompt_service import prompt_service, PromptService
 from app.services.memory_service import memory_service
 from app.services.plot_expansion_service import PlotExpansionService
 from app.logger import get_logger
@@ -477,8 +477,10 @@ async def _generate_new_outline(
             logger.warning(f"⚠️ MCP工具调用失败，降级为基础模式: {str(e)}")
             mcp_reference_materials = ""
     
-    # 使用完整提示词（插入MCP参考资料）
-    prompt = prompt_service.get_complete_outline_prompt(
+    # 使用完整提示词（插入MCP参考资料，支持自定义）
+    template = await PromptService.get_template("COMPLETE_OUTLINE_GENERATION", user_id, db)
+    prompt = PromptService.format_prompt(
+        template,
         title=project.title,
         theme=request.theme or project.theme or "未设定",
         genre=request.genre or project.genre or "通用",
@@ -797,8 +799,10 @@ async def _continue_outline(
                 logger.warning(f"⚠️ 第{batch_num + 1}批MCP工具调用失败，降级为基础模式: {str(e)}")
                 mcp_reference_materials = ""
         
-        # 使用标准续写提示词模板（支持记忆+MCP增强）
-        prompt = prompt_service.get_outline_continue_prompt(
+        # 使用标准续写提示词模板（支持记忆+MCP增强+自定义）
+        template = await PromptService.get_template("OUTLINE_CONTINUE_GENERATION", user_id, db)
+        prompt = PromptService.format_prompt(
+            template,
             title=project.title,
             theme=request.theme or project.theme or "未设定",
             genre=request.genre or project.genre or "通用",
@@ -814,6 +818,7 @@ async def _continue_outline(
             recent_plot=recent_plot,
             plot_stage_instruction=stage_instruction,
             start_chapter=current_start_chapter,
+            end_chapter=current_start_chapter + current_batch_size - 1,
             story_direction=request.story_direction or "自然延续",
             requirements=request.requirements or "",
             memory_context=memory_context,
@@ -1084,9 +1089,11 @@ async def new_outline_generator(
                 logger.warning(f"⚠️ MCP工具调用失败，降级为基础模式: {str(e)}")
                 mcp_reference_materials = ""
         
-        # 使用完整提示词（插入MCP参考资料）
+        # 使用完整提示词（插入MCP参考资料，支持自定义）
         yield await SSEResponse.send_progress("准备AI提示词...", 20)
-        prompt = prompt_service.get_complete_outline_prompt(
+        template = await PromptService.get_template("COMPLETE_OUTLINE_GENERATION", user_id_for_mcp, db)
+        prompt = PromptService.format_prompt(
+            template,
             title=project.title,
             theme=data.get("theme") or project.theme or "未设定",
             genre=data.get("genre") or project.genre or "通用",
@@ -1412,8 +1419,10 @@ async def continue_outline_generator(
                 batch_progress + 5
             )
             
-            # 使用标准续写提示词模板（支持记忆+MCP增强）
-            prompt = prompt_service.get_outline_continue_prompt(
+            # 使用标准续写提示词模板（支持记忆+MCP增强+自定义）
+            template = await PromptService.get_template("OUTLINE_CONTINUE_GENERATION", user_id, db)
+            prompt = PromptService.format_prompt(
+                template,
                 title=project.title,
                 theme=data.get("theme") or project.theme or "未设定",
                 genre=data.get("genre") or project.genre or "通用",
@@ -1429,6 +1438,7 @@ async def continue_outline_generator(
                 recent_plot=recent_plot,
                 plot_stage_instruction=stage_instruction,
                 start_chapter=current_start_chapter,
+                end_chapter=current_start_chapter + current_batch_size - 1,
                 story_direction=data.get("story_direction", "自然延续"),
                 requirements=data.get("requirements", ""),
                 memory_context=memory_context,

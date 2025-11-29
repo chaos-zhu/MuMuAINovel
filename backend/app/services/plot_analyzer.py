@@ -1,6 +1,8 @@
 """剧情分析服务 - 自动分析章节的钩子、伏笔、冲突等元素"""
 from typing import Dict, Any, List, Optional
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.ai_service import AIService
+from app.services.prompt_service import prompt_service, PromptService
 from app.logger import get_logger
 import json
 import re
@@ -10,169 +12,6 @@ logger = get_logger(__name__)
 
 class PlotAnalyzer:
     """剧情分析器 - 使用AI分析章节内容"""
-    
-    # AI分析提示词模板
-    ANALYSIS_PROMPT = """你是一位专业的小说编辑和剧情分析师。请深度分析以下章节内容:
-
-**章节信息:**
-- 章节: 第{chapter_number}章
-- 标题: {title}
-- 字数: {word_count}字
-
-**章节内容:**
-{content}
-
----
-
-**分析任务:**
-请从专业编辑的角度,全面分析这一章节:
-
-### 1. 剧情钩子 (Hooks) - 吸引读者的元素
-识别能够吸引读者继续阅读的关键元素:
-- **悬念钩子**: 未解之谜、疑问、谜团
-- **情感钩子**: 引发共鸣的情感点、触动心弦的时刻
-- **冲突钩子**: 矛盾对抗、紧张局势
-- **认知钩子**: 颠覆认知的信息、惊人真相
-
-每个钩子需要:
-- 类型分类
-- 具体内容描述
-- 强度评分(1-10)
-- 出现位置(开头/中段/结尾)
-- **关键词**: 【必填】从章节原文中逐字复制一段关键文本(8-25字)，必须是原文中真实存在的连续文字，用于在文本中精确定位。不要概括或改写，必须原样复制！
-
-### 2. 伏笔分析 (Foreshadowing)
-- **埋下的新伏笔**: 描述内容、预期作用、隐藏程度(1-10)
-- **回收的旧伏笔**: 呼应哪一章、回收效果评分
-- **伏笔质量**: 巧妙性和合理性评估
-- **关键词**: 【必填】从章节原文中逐字复制一段关键文本(8-25字)，必须是原文中真实存在的连续文字，用于在文本中精确定位。不要概括或改写，必须原样复制！
-
-### 3. 冲突分析 (Conflict)
-- 冲突类型: 人与人/人与己/人与环境/人与社会
-- 冲突各方及其立场
-- 冲突强度评分(1-10)
-- 冲突解决进度(0-100%)
-
-### 4. 情感曲线 (Emotional Arc)
-- 主导情绪: 紧张/温馨/悲伤/激昂/平静等
-- 情感强度(1-10)
-- 情绪变化轨迹描述
-
-### 5. 角色状态追踪 (Character Development)
-对每个出场角色分析:
-- 心理状态变化(前→后)
-- 关系变化
-- 关键行动和决策
-- 成长或退步
-
-### 6. 关键情节点 (Plot Points)
-列出3-5个核心情节点:
-- 情节内容
-- 类型(revelation/conflict/resolution/transition)
-- 重要性(0.0-1.0)
-- 对故事的影响
-- **关键词**: 【必填】从章节原文中逐字复制一段关键文本(8-25字)，必须是原文中真实存在的连续文字，用于在文本中精确定位。不要概括或改写，必须原样复制！
-
-### 7. 场景与节奏
-- 主要场景
-- 叙事节奏(快/中/慢)
-- 对话与描写的比例
-
-### 8. 质量评分
-- 节奏把控: 1-10分
-- 吸引力: 1-10分  
-- 连贯性: 1-10分
-- 整体质量: 1-10分
-
-### 9. 改进建议
-提供3-5条具体的改进建议
-
----
-
-**输出格式(纯JSON,不要markdown标记):**
-
-{{
-  "hooks": [
-    {{
-      "type": "悬念",
-      "content": "具体描述",
-      "strength": 8,
-      "position": "中段",
-      "keyword": "必须从原文逐字复制的文本片段"
-    }}
-  ],
-  "foreshadows": [
-    {{
-      "content": "伏笔内容",
-      "type": "planted",
-      "strength": 7,
-      "subtlety": 8,
-      "reference_chapter": null,
-      "keyword": "必须从原文逐字复制的文本片段"
-    }}
-  ],
-  "conflict": {{
-    "types": ["人与人", "人与己"],
-    "parties": ["主角-复仇", "反派-维护现状"],
-    "level": 8,
-    "description": "冲突描述",
-    "resolution_progress": 0.3
-  }},
-  "emotional_arc": {{
-    "primary_emotion": "紧张",
-    "intensity": 8,
-    "curve": "平静→紧张→高潮→释放",
-    "secondary_emotions": ["期待", "焦虑"]
-  }},
-  "character_states": [
-    {{
-      "character_name": "张三",
-      "state_before": "犹豫",
-      "state_after": "坚定",
-      "psychological_change": "心理变化描述",
-      "key_event": "触发事件",
-      "relationship_changes": {{"李四": "关系改善"}}
-    }}
-  ],
-  "plot_points": [
-    {{
-      "content": "情节点描述",
-      "type": "revelation",
-      "importance": 0.9,
-      "impact": "推动故事发展",
-      "keyword": "必须从原文逐字复制的文本片段"
-    }}
-  ],
-  "scenes": [
-    {{
-      "location": "地点",
-      "atmosphere": "氛围",
-      "duration": "时长估计"
-    }}
-  ],
-  "pacing": "varied",
-  "dialogue_ratio": 0.4,
-  "description_ratio": 0.3,
-  "scores": {{
-    "pacing": 8,
-    "engagement": 9,
-    "coherence": 8,
-    "overall": 8.5
-  }},
-  "plot_stage": "发展",
-  "suggestions": [
-    "具体建议1",
-    "具体建议2"
-  ]
-}}
-
-**重要提示:**
-1. 每个钩子、伏笔、情节点的keyword字段是必填的，不能为空
-2. keyword必须是从章节原文中逐字复制的文本，长度8-25字
-3. keyword用于在前端标注文本位置，所以必须能在原文中精确找到
-4. 不要使用概括性语句或改写后的文字作为keyword
-
-只返回JSON,不要其他说明。"""
     
     def __init__(self, ai_service: AIService):
         """
@@ -189,7 +28,9 @@ class PlotAnalyzer:
         chapter_number: int,
         title: str,
         content: str,
-        word_count: int
+        word_count: int,
+        user_id: str = None,
+        db: AsyncSession = None
     ) -> Optional[Dict[str, Any]]:
         """
         分析单章内容
@@ -199,6 +40,8 @@ class PlotAnalyzer:
             title: 章节标题
             content: 章节内容
             word_count: 字数
+            user_id: 用户ID（用于获取自定义提示词）
+            db: 数据库会话（用于查询自定义提示词）
         
         Returns:
             分析结果字典,失败返回None
@@ -209,8 +52,11 @@ class PlotAnalyzer:
             # 如果内容过长,截取前8000字(避免超token)
             analysis_content = content[:8000] if len(content) > 8000 else content
             
-            # 构建提示词
-            prompt = self.ANALYSIS_PROMPT.format(
+            # 获取自定义提示词模板
+            template = await PromptService.get_template("PLOT_ANALYSIS", user_id, db)
+            # 格式化提示词
+            prompt = PromptService.format_prompt(
+                template,
                 chapter_number=chapter_number,
                 title=title,
                 word_count=word_count,

@@ -19,7 +19,7 @@ from app.schemas.character import (
     CharacterGenerateRequest
 )
 from app.services.ai_service import AIService
-from app.services.prompt_service import prompt_service
+from app.services.prompt_service import prompt_service, PromptService
 from app.logger import get_logger
 from app.api.settings import get_user_ai_service
 
@@ -419,8 +419,11 @@ async def generate_character(
 - 其他要求：{request.requirements or '无'}
 """
         
-        # 使用统一的提示词服务
-        prompt = prompt_service.get_single_character_prompt(
+        # 获取自定义提示词模板
+        template = await PromptService.get_template("SINGLE_CHARACTER", user_id, db)
+        # 格式化提示词
+        prompt = PromptService.format_prompt(
+            template,
             project_context=project_context,
             user_input=user_input
         )
@@ -825,7 +828,11 @@ async def generate_character_stream(
             
             yield await SSEResponse.send_progress("构建AI提示词...", 20)
             
-            prompt = prompt_service.get_single_character_prompt(
+            # 获取自定义提示词模板
+            template = await PromptService.get_template("SINGLE_CHARACTER", user_id, db)
+            # 格式化提示词
+            prompt = PromptService.format_prompt(
+                template,
                 project_context=project_context,
                 user_input=user_input
             )

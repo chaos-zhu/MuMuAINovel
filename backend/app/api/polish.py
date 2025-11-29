@@ -1,12 +1,12 @@
 """AI去味API - 核心特色功能"""
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_db
 from app.models.generation_history import GenerationHistory
 from app.schemas.polish import PolishRequest, PolishResponse
 from app.services.ai_service import AIService
-from app.services.prompt_service import prompt_service
+from app.services.prompt_service import prompt_service, PromptService
 from app.logger import get_logger
 from app.api.settings import get_user_ai_service
 
@@ -17,6 +17,7 @@ logger = get_logger(__name__)
 @router.post("", response_model=PolishResponse, summary="AI去味")
 async def polish_text(
     request: PolishRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_db),
     user_ai_service: AIService = Depends(get_user_ai_service)
 ):
@@ -32,15 +33,21 @@ async def polish_text(
     这是本项目的核心特色功能！
     """
     try:
-        # 构建AI去味提示词
-        prompt = prompt_service.get_denoising_prompt(
+        # 获取用户ID
+        user_id = getattr(http_request.state, 'user_id', None)
+        
+        # 获取自定义提示词模板
+        template = await PromptService.get_template("DENOISING", user_id, db)
+        # 格式化提示词
+        prompt = PromptService.format_prompt(
+            template,
             original_text=request.original_text
         )
         
         logger.info(f"开始AI去味处理，原文长度: {len(request.original_text)}")
         
         # 调用AI进行去味处理
-        polished_text = await ai_service.generate_text(
+        polished_text = await user_ai_service.generate_text(
             prompt=prompt,
             provider=request.provider,
             model=request.model,
@@ -85,6 +92,7 @@ async def polish_batch(
     project_id: int = None,
     provider: str = None,
     model: str = None,
+    http_request: Request = None,
     db: AsyncSession = Depends(get_db),
     user_ai_service: AIService = Depends(get_user_ai_service)
 ):
@@ -94,12 +102,18 @@ async def polish_batch(
     适用于一次性处理多个章节或段落
     """
     try:
+        # 获取用户ID
+        user_id = getattr(http_request.state, 'user_id', None) if http_request else None
+        
         results = []
         
         for idx, text in enumerate(texts):
             logger.info(f"处理第 {idx+1}/{len(texts)} 个文本")
             
-            prompt = prompt_service.get_denoising_prompt(original_text=text)
+            # 获取自定义提示词模板
+            template = await PromptService.get_template("DENOISING", user_id, db)
+            # 格式化提示词
+            prompt = PromptService.format_prompt(template, original_text=text)
             
             polished_text = await user_ai_service.generate_text(
                 prompt=prompt,

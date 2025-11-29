@@ -16,7 +16,7 @@ from app.models.writing_style import WritingStyle
 from app.models.project_default_style import ProjectDefaultStyle
 from app.services.ai_service import AIService
 from app.services.mcp_tool_service import MCPToolService
-from app.services.prompt_service import prompt_service
+from app.services.prompt_service import prompt_service, PromptService
 from app.services.plot_expansion_service import PlotExpansionService
 from app.logger import get_logger
 from app.utils.sse_response import SSEResponse, create_sse_response
@@ -57,12 +57,14 @@ async def world_building_generator(
             yield await SSEResponse.send_error("title、description、theme 和 genre 是必需的参数", 400)
             return
         
-        # 获取基础提示词
+        # 获取基础提示词（支持自定义）
         yield await SSEResponse.send_progress("准备AI提示词...", 15)
-        base_prompt = prompt_service.get_world_building_prompt(
+        template = await PromptService.get_template("WORLD_BUILDING", user_id, db)
+        base_prompt = PromptService.format_prompt(
+            template,
             title=title,
             theme=theme,
-            genre=genre
+            genre=genre or "通用类型"
         )
         
         # MCP工具增强：收集参考资料
@@ -455,8 +457,11 @@ async def characters_generator(
                         else:
                             batch_requirements += "\n主要是配角(supporting)和反派(antagonist)"
                     
+                    # 获取自定义提示词模板
+                    template = await PromptService.get_template("CHARACTERS_BATCH", user_id, db)
                     # 构建基础提示词
-                    base_prompt = prompt_service.get_characters_batch_prompt(
+                    base_prompt = PromptService.format_prompt(
+                        template,
                         count=current_batch_size,  # 传递精确数量
                         time_period=world_context.get("time_period", ""),
                         location=world_context.get("location", ""),
@@ -921,6 +926,7 @@ async def outline_generator(
         requirements = data.get("requirements", "")
         provider = data.get("provider")
         model = data.get("model")
+        user_id = data.get("user_id")  # 从中间件注入
         
         # 获取项目信息
         yield await SSEResponse.send_progress("加载项目信息...", 10)
@@ -954,7 +960,10 @@ async def outline_generator(
         outline_requirements += "4. 不要试图完结故事，这只是开始部分\n"
         outline_requirements += "5. 不要在JSON字符串值中使用中文引号（""''），请使用【】或《》标记\n"
         
-        outline_prompt = prompt_service.get_complete_outline_prompt(
+        # 获取自定义提示词模板
+        template = await PromptService.get_template("COMPLETE_OUTLINE_GENERATION", user_id, db)
+        outline_prompt = PromptService.format_prompt(
+            template,
             title=project.title,
             theme=project.theme or "未设定",
             genre=project.genre or "通用",
@@ -966,6 +975,7 @@ async def outline_generator(
             atmosphere=project.world_atmosphere or "未设定",
             rules=project.world_rules or "未设定",
             characters_info=characters_info or "暂无角色信息",
+            mcp_references="",
             requirements=outline_requirements
         )
         
@@ -1150,9 +1160,11 @@ async def world_building_regenerate_generator(
         enable_mcp = data.get("enable_mcp", True)
         user_id = data.get("user_id")
         
-        # 获取基础提示词
+        # 获取基础提示词（支持自定义）
         yield await SSEResponse.send_progress("准备AI提示词...", 15)
-        base_prompt = prompt_service.get_world_building_prompt(
+        template = await PromptService.get_template("WORLD_BUILDING", user_id, db)
+        base_prompt = PromptService.format_prompt(
+            template,
             title=project.title,
             theme=project.theme or "未设定",
             genre=project.genre or "通用"

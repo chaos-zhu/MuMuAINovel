@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Button, Empty, Modal, message, Spin, Row, Col, Statistic, Space, Tag, Progress, Typography, Tooltip, Badge, Alert, Upload, Checkbox, Divider, Switch, Dropdown, Form, Input, InputNumber } from 'antd';
-import { EditOutlined, DeleteOutlined, BookOutlined, RocketOutlined, CalendarOutlined, FileTextOutlined, TrophyOutlined, FireOutlined, SettingOutlined, InfoCircleOutlined, CloseOutlined, UploadOutlined, DownloadOutlined, ApiOutlined, MoreOutlined, BulbOutlined, LoadingOutlined } from '@ant-design/icons';
+import { EditOutlined, DeleteOutlined, BookOutlined, RocketOutlined, CalendarOutlined, FileTextOutlined, TrophyOutlined, FireOutlined, SettingOutlined, InfoCircleOutlined, CloseOutlined, UploadOutlined, DownloadOutlined, ApiOutlined, MoreOutlined, BulbOutlined, LoadingOutlined, FileSearchOutlined } from '@ant-design/icons';
 import { projectApi } from '../services/api';
 import { useStore } from '../store';
 import { useProjectSync } from '../store/hooks';
@@ -439,6 +439,12 @@ export default function ProjectList() {
                               type: 'divider'
                             },
                             {
+                              key: 'prompt-templates',
+                              label: '提示词管理',
+                              icon: <FileSearchOutlined />,
+                              onClick: () => navigate('/prompt-templates')
+                            },
+                            {
                               key: 'mcp',
                               label: 'MCP插件',
                               icon: <ApiOutlined />,
@@ -545,6 +551,12 @@ export default function ProjectList() {
                         },
                         {
                           type: 'divider'
+                        },
+                        {
+                          key: 'prompt-templates',
+                          label: '提示词管理',
+                          icon: <FileSearchOutlined />,
+                          onClick: () => navigate('/prompt-templates')
                         },
                         {
                           key: 'mcp',
