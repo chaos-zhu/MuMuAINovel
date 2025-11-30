@@ -37,7 +37,7 @@ async def polish_text(
         user_id = getattr(http_request.state, 'user_id', None)
         
         # 获取自定义提示词模板
-        template = await PromptService.get_template("DENOISING", user_id, db)
+        template = await PromptService.get_template("AI_DENOISING", user_id, db)
         # 格式化提示词
         prompt = PromptService.format_prompt(
             template,
@@ -111,7 +111,7 @@ async def polish_batch(
             logger.info(f"处理第 {idx+1}/{len(texts)} 个文本")
             
             # 获取自定义提示词模板
-            template = await PromptService.get_template("DENOISING", user_id, db)
+            template = await PromptService.get_template("AI_DENOISING", user_id, db)
             # 格式化提示词
             prompt = PromptService.format_prompt(template, original_text=text)
             

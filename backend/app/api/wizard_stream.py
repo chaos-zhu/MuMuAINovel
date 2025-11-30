@@ -458,7 +458,7 @@ async def characters_generator(
                             batch_requirements += "\n主要是配角(supporting)和反派(antagonist)"
                     
                     # 获取自定义提示词模板
-                    template = await PromptService.get_template("CHARACTERS_BATCH", user_id, db)
+                    template = await PromptService.get_template("CHARACTERS_BATCH_GENERATION", user_id, db)
                     # 构建基础提示词
                     base_prompt = PromptService.format_prompt(
                         template,

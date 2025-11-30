@@ -178,7 +178,7 @@ class ChapterRegenerator:
     ) -> str:
         """构建完整的重新生成提示词"""
         # 获取自定义提示词模板
-        template = await PromptService.get_template("CHAPTER_REGENERATION", user_id, db)
+        template = await PromptService.get_template("CHAPTER_REGENERATION_SYSTEM", user_id, db)
         # 格式化提示词
         return PromptService.format_prompt(
             template,

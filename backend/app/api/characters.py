@@ -420,7 +420,7 @@ async def generate_character(
 """
         
         # 获取自定义提示词模板
-        template = await PromptService.get_template("SINGLE_CHARACTER", user_id, db)
+        template = await PromptService.get_template("SINGLE_CHARACTER_GENERATION", user_id, db)
         # 格式化提示词
         prompt = PromptService.format_prompt(
             template,
@@ -829,7 +829,7 @@ async def generate_character_stream(
             yield await SSEResponse.send_progress("构建AI提示词...", 20)
             
             # 获取自定义提示词模板
-            template = await PromptService.get_template("SINGLE_CHARACTER", user_id, db)
+            template = await PromptService.get_template("SINGLE_CHARACTER_GENERATION", user_id, db)
             # 格式化提示词
             prompt = PromptService.format_prompt(
                 template,

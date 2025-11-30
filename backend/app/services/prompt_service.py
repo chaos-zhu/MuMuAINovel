@@ -2081,7 +2081,26 @@ class PromptService:
         
         # 2. 降级到系统默认模板
         logger.info(f"⚪ 使用系统默认提示词: user_id={user_id}, template_key={template_key} (未找到自定义模板)")
-        return getattr(cls, template_key, None)
+        
+        # 特殊处理灵感模式的提示词（存储在INSPIRATION_PROMPTS字典中）
+        if template_key.startswith("INSPIRATION_"):
+            # 提取步骤名称（如 INSPIRATION_TITLE -> title）
+            step = template_key.replace("INSPIRATION_", "").lower()
+            inspiration_prompt = cls.INSPIRATION_PROMPTS.get(step)
+            if inspiration_prompt:
+                # 返回JSON格式的提示词
+                return json.dumps(inspiration_prompt, ensure_ascii=False)
+            # 如果是INSPIRATION_QUICK_COMPLETE
+            if template_key == "INSPIRATION_QUICK_COMPLETE":
+                return cls.INSPIRATION_QUICK_COMPLETE
+        
+        # 其他模板直接从类属性获取
+        template_content = getattr(cls, template_key, None)
+        
+        if template_content is None:
+            logger.warning(f"⚠️ 未找到系统默认模板: {template_key}")
+        
+        return template_content
     
     @classmethod
     def get_all_system_templates(cls) -> list:
