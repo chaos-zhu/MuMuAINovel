@@ -168,8 +168,12 @@ class MCPTestService:
             logger.info(f"📋 转换后的OpenAI工具数量: {len(openai_tools)}")
             logger.debug(f"📋 OpenAI工具列表: {[t['function']['name'] for t in openai_tools]}")
             
-            # 调用AI选择工具
-            prompts = prompt_service.get_mcp_tool_test_prompts(plugin.plugin_name)
+            # 调用AI选择工具（使用自定义模板系统）
+            prompts = await prompt_service.get_mcp_tool_test_prompts(
+                plugin_name=plugin.plugin_name,
+                user_id=user.user_id,
+                db=db_session
+            )
             
             ai_response = await ai_service.generate_text(
                 prompt=prompts["user"],

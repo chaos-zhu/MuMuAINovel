@@ -2709,7 +2709,9 @@ async def regenerate_chapter_stream(
                     analysis=analysis,
                     regenerate_request=regenerate_request,
                     project_context=project_context,
-                    style_content=style_content
+                    style_content=style_content,
+                    user_id=user_id,
+                    db=db_session
                 ):
                     # 处理不同类型的事件
                     if event['type'] == 'chunk':
@@ -2854,11 +2856,11 @@ async def update_chapter_expansion_plan(
     db: AsyncSession = Depends(get_db)
 ):
     """
-    更新章节的展开规划信息
+    更新章节的展开规划信息和情节概要
     
     Args:
         chapter_id: 章节ID
-        expansion_plan: 规划信息更新数据
+        expansion_plan: 规划信息更新数据(包含summary和expansion_plan字段)
     
     Returns:
         更新后的章节规划信息
@@ -2879,18 +2881,27 @@ async def update_chapter_expansion_plan(
     # 准备更新数据(排除None值)
     plan_data = expansion_plan.model_dump(exclude_unset=True, exclude_none=True)
     
-    # 如果已有规划,合并更新;否则创建新规划
-    if chapter.expansion_plan:
-        try:
-            existing_plan = json.loads(chapter.expansion_plan)
-            # 合并更新
-            existing_plan.update(plan_data)
-            chapter.expansion_plan = json.dumps(existing_plan, ensure_ascii=False)
-        except json.JSONDecodeError:
-            logger.warning(f"章节 {chapter_id} 的expansion_plan格式错误,将覆盖")
+    # 分离summary和expansion_plan数据
+    summary_value = plan_data.pop('summary', None)
+    
+    # 更新summary字段(如果提供)
+    if summary_value is not None:
+        chapter.summary = summary_value
+        logger.info(f"更新章节概要: {chapter_id}")
+    
+    # 更新expansion_plan字段(如果有其他字段)
+    if plan_data:
+        if chapter.expansion_plan:
+            try:
+                existing_plan = json.loads(chapter.expansion_plan)
+                # 合并更新
+                existing_plan.update(plan_data)
+                chapter.expansion_plan = json.dumps(existing_plan, ensure_ascii=False)
+            except json.JSONDecodeError:
+                logger.warning(f"章节 {chapter_id} 的expansion_plan格式错误,将覆盖")
+                chapter.expansion_plan = json.dumps(plan_data, ensure_ascii=False)
+        else:
             chapter.expansion_plan = json.dumps(plan_data, ensure_ascii=False)
-    else:
-        chapter.expansion_plan = json.dumps(plan_data, ensure_ascii=False)
     
     await db.commit()
     await db.refresh(chapter)
@@ -2902,6 +2913,7 @@ async def update_chapter_expansion_plan(
     
     return {
         "id": chapter.id,
+        "summary": chapter.summary,
         "expansion_plan": updated_plan,
         "message": "规划信息更新成功"
     }

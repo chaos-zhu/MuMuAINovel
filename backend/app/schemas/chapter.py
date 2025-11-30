@@ -130,6 +130,7 @@ class SceneData(BaseModel):
 
 class ExpansionPlanUpdate(BaseModel):
     """章节规划更新模型"""
+    summary: Optional[str] = Field(None, description="章节情节概要")
     key_events: Optional[List[str]] = Field(None, description="关键事件列表")
     character_focus: Optional[List[str]] = Field(None, description="涉及角色列表")
     emotional_tone: Optional[str] = Field(None, description="情感基调")

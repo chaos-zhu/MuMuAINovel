@@ -1,4 +1,4 @@
-import { Modal, Form, Input, InputNumber, Select, Tag, Space, Button, message } from 'antd';
+import { Modal, Form, Input, InputNumber, Select, Tag, Space, Button, message, Divider } from 'antd';
 import { PlusOutlined } from '@ant-design/icons';
 import { useState, useEffect } from 'react';
 import type { ExpansionPlanData, Character } from '../types';
@@ -9,14 +9,16 @@ const { TextArea } = Input;
 interface ExpansionPlanEditorProps {
   visible: boolean;
   planData: ExpansionPlanData | null;
+  chapterSummary: string | null;
   projectId: string;
-  onSave: (data: ExpansionPlanData) => Promise<void>;
+  onSave: (data: ExpansionPlanData & { summary?: string }) => Promise<void>;
   onCancel: () => void;
 }
 
 export default function ExpansionPlanEditor({
   visible,
   planData,
+  chapterSummary,
   projectId,
   onSave,
   onCancel
@@ -69,24 +71,29 @@ export default function ExpansionPlanEditor({
     }
   };
 
-  // 当planData变化时更新状态
+  // 当planData或chapterSummary变化时更新状态
   useEffect(() => {
-    if (planData) {
-      setKeyEvents(planData.key_events || []);
-      setCharacters(planData.character_focus || []);
-      form.setFieldsValue({
-        emotional_tone: planData.emotional_tone,
-        narrative_goal: planData.narrative_goal,
-        conflict_type: planData.conflict_type,
-        estimated_words: planData.estimated_words
-      });
-    } else {
-      // 重置状态
-      setKeyEvents([]);
-      setCharacters([]);
-      form.resetFields();
+    if (visible) {
+      if (planData) {
+        setKeyEvents(planData.key_events || []);
+        setCharacters(planData.character_focus || []);
+        form.setFieldsValue({
+          summary: chapterSummary || '',
+          emotional_tone: planData.emotional_tone,
+          narrative_goal: planData.narrative_goal,
+          conflict_type: planData.conflict_type,
+          estimated_words: planData.estimated_words
+        });
+      } else {
+        // 重置状态
+        setKeyEvents([]);
+        setCharacters([]);
+        form.setFieldsValue({
+          summary: chapterSummary || ''
+        });
+      }
     }
-  }, [planData, form, visible]);
+  }, [planData, chapterSummary, form, visible]);
 
   const handleAddKeyEvent = () => {
     if (keyEventInput.trim()) {
@@ -120,7 +127,8 @@ export default function ExpansionPlanEditor({
         return;
       }
       
-      const updatedPlan: ExpansionPlanData = {
+      const updatedPlan: ExpansionPlanData & { summary?: string } = {
+        summary: values.summary,
         key_events: keyEvents,
         character_focus: characters,
         emotional_tone: values.emotional_tone,
@@ -173,8 +181,24 @@ export default function ExpansionPlanEditor({
           estimated_words: 3000
         }}
       >
+        {/* 情节概要 */}
+        <Form.Item
+          label="情节概要"
+          name="summary"
+          tooltip="简要描述本章的主要情节和故事走向"
+        >
+          <TextArea
+            rows={3}
+            placeholder="简要描述本章的主要情节，例如：主角遇到意外事件，开始了一段新的冒险..."
+            maxLength={500}
+            showCount
+          />
+        </Form.Item>
+
+        <Divider orientation="left">详细规划</Divider>
+
         {/* 关键事件 */}
-        <Form.Item 
+        <Form.Item
           label="关键事件"
           tooltip="至少添加一个关键事件"
           required

@@ -2045,6 +2045,7 @@ export default function Chapters() {
           <ExpansionPlanEditor
             visible={planEditorVisible}
             planData={parsedPlanData}
+            chapterSummary={editingPlanChapter.summary || null}
             projectId={currentProject.id}
             onSave={handleSavePlan}
             onCancel={() => {

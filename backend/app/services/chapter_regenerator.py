@@ -67,7 +67,7 @@ class ChapterRegenerator:
                 user_id=user_id,
                 db=db
             )
-            
+
             logger.info(f"🎯 提示词构建完成，开始AI生成")
             yield {'type': 'progress', 'progress': 15, 'message': '开始AI生成内容...'}
             
@@ -177,11 +177,9 @@ class ChapterRegenerator:
         db: AsyncSession = None
     ) -> str:
         """构建完整的重新生成提示词"""
-        # 获取自定义提示词模板
-        template = await PromptService.get_template("CHAPTER_REGENERATION_SYSTEM", user_id, db)
-        # 格式化提示词
-        return PromptService.format_prompt(
-            template,
+        # 使用PromptService的get_chapter_regeneration_prompt方法
+        # 该方法会处理自定义模板加载和完整提示词构建
+        return await PromptService.get_chapter_regeneration_prompt(
             chapter_number=chapter.chapter_number,
             title=chapter.title,
             word_count=chapter.word_count,
@@ -189,7 +187,9 @@ class ChapterRegenerator:
             modification_instructions=modification_instructions,
             project_context=project_context,
             style_content=style_content,
-            target_word_count=regenerate_request.target_word_count
+            target_word_count=regenerate_request.target_word_count,
+            user_id=user_id,
+            db=db
         )
     
     def calculate_content_diff(

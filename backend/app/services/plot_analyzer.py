@@ -53,7 +53,12 @@ class PlotAnalyzer:
             analysis_content = content[:8000] if len(content) > 8000 else content
             
             # 获取自定义提示词模板
-            template = await PromptService.get_template("PLOT_ANALYSIS", user_id, db)
+            if user_id and db:
+                template = await PromptService.get_template("PLOT_ANALYSIS", user_id, db)
+            else:
+                # 降级到系统默认模板
+                template = PromptService.PLOT_ANALYSIS
+            
             # 格式化提示词
             prompt = PromptService.format_prompt(
                 template,
