@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-1.0.5-blue.svg)
+![Version](https://img.shields.io/badge/version-1.0.9-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109.0-green.svg)
 ![React](https://img.shields.io/badge/react-18.3.1-blue.svg)
@@ -351,7 +351,7 @@ MuMuAINovel/
 - 提交 [Issue](https://github.com/xiamuceer-j/MuMuAINovel/issues)
 - Linux DO [讨论](https://linux.do/t/topic/1106333)
 - 加入QQ群 [QQ群](frontend/public/qq.jpg)
-- 加入WX群 [WX群](frontend/public/WX.jpg)
+- 加入WX群 [WX群](frontend/public/WX.png)
 
 ---
 

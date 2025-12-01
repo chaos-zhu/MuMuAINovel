@@ -27,6 +27,8 @@ export default function Chapters() {
   const [writingStyles, setWritingStyles] = useState<WritingStyle[]>([]);
   const [selectedStyleId, setSelectedStyleId] = useState<number | undefined>();
   const [targetWordCount, setTargetWordCount] = useState<number>(3000);
+  const [availableModels, setAvailableModels] = useState<Array<{value: string, label: string}>>([]);
+  const [selectedModel, setSelectedModel] = useState<string | undefined>();
   const [analysisVisible, setAnalysisVisible] = useState(false);
   const [analysisChapterId, setAnalysisChapterId] = useState<string | null>(null);
   // 分析任务状态管理
@@ -187,6 +189,37 @@ export default function Chapters() {
     }
   };
 
+  const loadAvailableModels = async () => {
+    try {
+      // 从设置API获取用户配置的模型列表
+      const settingsResponse = await fetch('/api/settings');
+      if (settingsResponse.ok) {
+        const settings = await settingsResponse.json();
+        const { api_key, api_base_url, api_provider } = settings;
+        
+        if (api_key && api_base_url) {
+          try {
+            const modelsResponse = await fetch(
+              `/api/settings/models?api_key=${encodeURIComponent(api_key)}&api_base_url=${encodeURIComponent(api_base_url)}&provider=${api_provider}`
+            );
+            if (modelsResponse.ok) {
+              const data = await modelsResponse.json();
+              if (data.models && data.models.length > 0) {
+                setAvailableModels(data.models);
+                // 设置默认模型为当前配置的模型
+                setSelectedModel(settings.llm_model);
+              }
+            }
+          } catch (error) {
+            console.log('获取模型列表失败，将使用默认模型');
+          }
+        }
+      }
+    } catch (error) {
+      console.error('加载可用模型失败:', error);
+    }
+  };
+
   // 检查并恢复批量生成任务
   const checkAndRestoreBatchTask = async () => {
     if (!currentProject?.id) return;
@@ -270,6 +303,10 @@ export default function Chapters() {
     
     try {
       await updateChapter(editingId, values);
+      
+      // 刷新章节列表以获取完整的章节数据（包括outline_title等联查字段）
+      await refreshChapters();
+      
       message.success('章节更新成功');
       setIsModalOpen(false);
       form.resetFields();
@@ -288,6 +325,8 @@ export default function Chapters() {
       });
       setEditingId(id);
       setIsEditorOpen(true);
+      // 打开编辑窗口时加载模型列表
+      loadAvailableModels();
     }
   };
 
@@ -335,7 +374,8 @@ export default function Chapters() {
           // 进度回调
           setSingleChapterProgress(progressValue);
           setSingleChapterProgressMessage(progressMsg);
-        }
+        },
+        selectedModel  // 传递选中的模型
       );
       
       message.success('AI创作成功，正在分析章节内容...');
@@ -1517,9 +1557,21 @@ export default function Chapters() {
           <Form.Item
             label="章节标题"
             name="title"
-            tooltip="章节标题由大纲管理，建议在大纲页面统一修改"
+            tooltip={
+              currentProject.outline_mode === 'one-to-one'
+                ? "章节标题由大纲管理，建议在大纲页面统一修改"
+                : "一对多模式下可以修改章节标题"
+            }
+            rules={
+              currentProject.outline_mode === 'one-to-many'
+                ? [{ required: true, message: '请输入章节标题' }]
+                : undefined
+            }
           >
-            <Input placeholder="输入章节标题" disabled />
+            <Input
+              placeholder="输入章节标题"
+              disabled={currentProject.outline_mode === 'one-to-one'}
+            />
           </Form.Item>
 
           <Form.Item
@@ -1663,6 +1715,32 @@ export default function Chapters() {
             />
             <div style={{ color: '#666', fontSize: 12, marginTop: 4 }}>
               建议范围：500-10000字，默认3000字
+            </div>
+          </Form.Item>
+
+          <Form.Item
+            label="AI模型"
+            tooltip="选择用于生成章节内容的AI模型，不选择则使用默认模型"
+          >
+            <Select
+              placeholder="使用默认模型"
+              value={selectedModel}
+              onChange={setSelectedModel}
+              size="large"
+              allowClear
+              disabled={isGenerating}
+              style={{ width: '100%' }}
+              showSearch
+              optionFilterProp="label"
+            >
+              {availableModels.map(model => (
+                <Select.Option key={model.value} value={model.value} label={model.label}>
+                  {model.label}
+                </Select.Option>
+              ))}
+            </Select>
+            <div style={{ color: '#666', fontSize: 12, marginTop: 4 }}>
+              不同模型有不同的特点和定价，请根据需要选择
             </div>
           </Form.Item>
 

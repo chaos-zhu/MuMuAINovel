@@ -953,6 +953,7 @@ async def generate_chapter_content_stream(
     style_id = generate_request.style_id
     target_word_count = generate_request.target_word_count or 3000
     enable_mcp = generate_request.enable_mcp if hasattr(generate_request, 'enable_mcp') else True
+    custom_model = generate_request.model if hasattr(generate_request, 'model') else None
     # 预先验证章节存在性（使用临时会话）
     async for temp_db in get_db(request):
         try:
@@ -1310,12 +1311,20 @@ async def generate_chapter_content_stream(
                 
                 logger.info(f"开始AI流式创作章节 {chapter_id}")
                 
+                # 准备生成参数
+                generate_kwargs = {"prompt": prompt}
+                if custom_model:
+                    logger.info(f"  使用自定义模型: {custom_model}")
+                    generate_kwargs["model"] = custom_model
+                    # 注意：这里使用用户配置的AI服务，模型参数会覆盖默认模型
+                    # 如果需要切换provider，需要在前端传递provider参数
+                
                 # 流式生成内容
                 full_content = ""
                 chunk_count = 0
                 last_progress = 0
                 
-                async for chunk in user_ai_service.generate_text_stream(prompt=prompt):
+                async for chunk in user_ai_service.generate_text_stream(**generate_kwargs):
                     full_content += chunk
                     chunk_count += 1
                     
@@ -2494,7 +2503,10 @@ async def generate_single_chapter_for_batch(
     
     # 非流式生成内容
     full_content = ""
-    async for chunk in ai_service.generate_text_stream(prompt=prompt):
+    async for chunk in ai_service.generate_text_stream(
+        prompt=prompt,
+        model=None  # 批量生成时使用用户默认模型，后续可扩展
+    ):
         full_content += chunk
     
     # 更新章节内容到数据库（使用锁保护）
