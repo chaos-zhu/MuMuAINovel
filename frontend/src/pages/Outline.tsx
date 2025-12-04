@@ -165,6 +165,12 @@ export default function Outline() {
     try {
       setIsGenerating(true);
       
+      // 添加详细的调试日志
+      console.log('=== 大纲生成调试信息 ===');
+      console.log('1. Form values 原始数据:', values);
+      console.log('2. values.model:', values.model);
+      console.log('3. values.provider:', values.provider);
+      
       // 关闭生成表单Modal
       Modal.destroyAll();
       
@@ -174,7 +180,7 @@ export default function Outline() {
       setSSEModalVisible(true);
       
       // 准备请求数据
-      const requestData = {
+      const requestData: any = {
         project_id: currentProject.id,
         genre: currentProject.genre || '通用',
         theme: values.theme || currentProject.theme || '',
@@ -184,10 +190,25 @@ export default function Outline() {
         requirements: values.requirements,
         mode: values.mode || 'auto',
         story_direction: values.story_direction,
-        plot_stage: values.plot_stage || 'development',
-        provider: values.provider,
-        model: values.model
+        plot_stage: values.plot_stage || 'development'
       };
+      
+      // 只有在用户选择了模型时才添加model参数
+      if (values.model) {
+        requestData.model = values.model;
+        console.log('4. 添加model到请求:', values.model);
+      } else {
+        console.log('4. values.model为空，不添加到请求');
+      }
+      
+      // 添加provider参数（如果有）
+      if (values.provider) {
+        requestData.provider = values.provider;
+        console.log('5. 添加provider到请求:', values.provider);
+      }
+      
+      console.log('6. 最终请求数据:', JSON.stringify(requestData, null, 2));
+      console.log('=========================');
       
       // 使用SSE客户端
       const apiUrl = `/api/outlines/generate-stream`;
@@ -224,9 +245,34 @@ export default function Outline() {
     }
   };
 
-  const showGenerateModal = () => {
+  const showGenerateModal = async () => {
     const hasOutlines = outlines.length > 0;
     const initialMode = hasOutlines ? 'continue' : 'new';
+    
+    // 直接加载可用模型列表
+    const settingsResponse = await fetch('/api/settings');
+    const settings = await settingsResponse.json();
+    const { api_key, api_base_url, api_provider } = settings;
+    
+    let loadedModels: Array<{value: string, label: string}> = [];
+    let defaultModel: string | undefined = undefined;
+    
+    if (api_key && api_base_url) {
+      try {
+        const modelsResponse = await fetch(
+          `/api/settings/models?api_key=${encodeURIComponent(api_key)}&api_base_url=${encodeURIComponent(api_base_url)}&provider=${api_provider}`
+        );
+        if (modelsResponse.ok) {
+          const data = await modelsResponse.json();
+          if (data.models && data.models.length > 0) {
+            loadedModels = data.models;
+            defaultModel = settings.llm_model;
+          }
+        }
+      } catch (error) {
+        console.log('获取模型列表失败，将使用默认模型');
+      }
+    }
     
     Modal.confirm({
       title: hasOutlines ? (
@@ -249,6 +295,7 @@ export default function Outline() {
             plot_stage: 'development',
             keep_existing: true,
             theme: currentProject.theme || '',
+            model: defaultModel, // 添加默认模型
           }}
         >
           {hasOutlines && (
@@ -360,6 +407,32 @@ export default function Outline() {
               );
             }}
           </Form.Item>
+          
+          {/* 自定义模型选择 - 移到外层，所有模式都显示 */}
+          {loadedModels.length > 0 && (
+            <Form.Item
+              label="AI模型"
+              name="model"
+              tooltip="选择用于生成的AI模型，不选则使用系统默认模型"
+            >
+              <Select
+                placeholder={defaultModel ? `默认: ${loadedModels.find(m => m.value === defaultModel)?.label || defaultModel}` : "使用默认模型"}
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                options={loadedModels}
+                onChange={(value) => {
+                  console.log('用户在下拉框中选择了模型:', value);
+                  // 手动同步到Form
+                  generateForm.setFieldsValue({ model: value });
+                  console.log('已同步到Form，当前Form值:', generateForm.getFieldsValue());
+                }}
+              />
+              <div style={{ color: '#666', fontSize: 12, marginTop: 4 }}>
+                {defaultModel ? `当前默认模型: ${loadedModels.find(m => m.value === defaultModel)?.label || defaultModel}` : '未配置默认模型'}
+              </div>
+            </Form.Item>
+          )}
         </Form>
       ),
       okText: hasOutlines ? '开始续写' : '开始生成',

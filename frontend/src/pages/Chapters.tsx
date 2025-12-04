@@ -29,6 +29,7 @@ export default function Chapters() {
   const [targetWordCount, setTargetWordCount] = useState<number>(3000);
   const [availableModels, setAvailableModels] = useState<Array<{value: string, label: string}>>([]);
   const [selectedModel, setSelectedModel] = useState<string | undefined>();
+  const [batchSelectedModel, setBatchSelectedModel] = useState<string | undefined>(); // 批量生成的模型选择
   const [analysisVisible, setAnalysisVisible] = useState(false);
   const [analysisChapterId, setAnalysisChapterId] = useState<string | null>(null);
   // 分析任务状态管理
@@ -48,6 +49,7 @@ export default function Chapters() {
   const [batchGenerateVisible, setBatchGenerateVisible] = useState(false);
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchTaskId, setBatchTaskId] = useState<string | null>(null);
+  const [batchForm] = Form.useForm();
   const [batchProgress, setBatchProgress] = useState<{
     status: string;
     total: number;
@@ -208,6 +210,7 @@ export default function Chapters() {
                 setAvailableModels(data.models);
                 // 设置默认模型为当前配置的模型
                 setSelectedModel(settings.llm_model);
+                return settings.llm_model; // 返回模型名称
               }
             }
           } catch (error) {
@@ -218,6 +221,7 @@ export default function Chapters() {
     } catch (error) {
       console.error('加载可用模型失败:', error);
     }
+    return null;
   };
 
   // 检查并恢复批量生成任务
@@ -590,12 +594,22 @@ export default function Chapters() {
     enableAnalysis: boolean;
     styleId?: number;
     targetWordCount?: number;
+    model?: string;
   }) => {
     if (!currentProject?.id) return;
+    
+    // 调试日志
+    console.log('[批量生成] 表单values:', values);
+    console.log('[批量生成] batchSelectedModel状态:', batchSelectedModel);
     
     // 使用批量生成对话框中选择的风格和字数，如果没有选择则使用默认值
     const styleId = values.styleId || selectedStyleId;
     const wordCount = values.targetWordCount || targetWordCount;
+    
+    // 使用批量生成专用的模型状态
+    const model = batchSelectedModel;
+    
+    console.log('[批量生成] 最终使用的model:', model);
     
     if (!styleId) {
       message.error('请选择写作风格');
@@ -606,18 +620,30 @@ export default function Chapters() {
       setBatchGenerating(true);
       setBatchGenerateVisible(false); // 关闭配置对话框，避免遮挡进度弹窗
       
+      const requestBody: any = {
+        start_chapter_number: values.startChapterNumber,
+        count: values.count,
+        enable_analysis: values.enableAnalysis,
+        style_id: styleId,
+        target_word_count: wordCount,
+      };
+      
+      // 如果有模型参数，添加到请求体中
+      if (model) {
+        requestBody.model = model;
+        console.log('[批量生成] 请求体包含model:', model);
+      } else {
+        console.log('[批量生成] 请求体不包含model，使用后端默认模型');
+      }
+      
+      console.log('[批量生成] 完整请求体:', JSON.stringify(requestBody, null, 2));
+      
       const response = await fetch(`/api/chapters/project/${currentProject.id}/batch-generate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          start_chapter_number: values.startChapterNumber,
-          count: values.count,
-          enable_analysis: values.enableAnalysis,
-          style_id: styleId,
-          target_word_count: wordCount,
-        }),
+        body: JSON.stringify(requestBody),
       });
       
       if (!response.ok) {
@@ -725,7 +751,7 @@ export default function Chapters() {
   };
 
   // 打开批量生成对话框
-  const handleOpenBatchGenerate = () => {
+  const handleOpenBatchGenerate = async () => {
     // 找到第一个未生成的章节
     const firstIncompleteChapter = sortedChapters.find(
       ch => !ch.content || ch.content.trim() === ''
@@ -742,6 +768,24 @@ export default function Chapters() {
       message.warning(reason);
       return;
     }
+    
+    // 打开对话框时加载模型列表，等待完成
+    const defaultModel = await loadAvailableModels();
+    
+    console.log('[打开批量生成] defaultModel:', defaultModel);
+    console.log('[打开批量生成] selectedStyleId:', selectedStyleId);
+    
+    // 设置批量生成的模型选择状态
+    setBatchSelectedModel(defaultModel || undefined);
+    
+    // 重置表单并设置初始值
+    batchForm.setFieldsValue({
+      startChapterNumber: firstIncompleteChapter.chapter_number,
+      count: 5,
+      enableAnalysis: false,
+      styleId: selectedStyleId,
+      targetWordCount: 3000,
+    });
     
     setBatchGenerateVisible(true);
   };
@@ -1723,7 +1767,7 @@ export default function Chapters() {
             tooltip="选择用于生成章节内容的AI模型，不选择则使用默认模型"
           >
             <Select
-              placeholder="使用默认模型"
+              placeholder={selectedModel ? `默认: ${availableModels.find(m => m.value === selectedModel)?.label || selectedModel}` : "使用默认模型"}
               value={selectedModel}
               onChange={setSelectedModel}
               size="large"
@@ -1736,11 +1780,12 @@ export default function Chapters() {
               {availableModels.map(model => (
                 <Select.Option key={model.value} value={model.value} label={model.label}>
                   {model.label}
+                  {model.value === selectedModel && ' (默认)'}
                 </Select.Option>
               ))}
             </Select>
             <div style={{ color: '#666', fontSize: 12, marginTop: 4 }}>
-              不同模型有不同的特点和定价，请根据需要选择
+              {selectedModel ? `当前默认模型: ${availableModels.find(m => m.value === selectedModel)?.label || selectedModel}` : '加载模型列表中...'}
             </div>
           </Form.Item>
 
@@ -1889,6 +1934,7 @@ export default function Chapters() {
       >
         {!batchGenerating ? (
           <Form
+            form={batchForm}
             layout="vertical"
             onFinish={handleBatchGenerate}
             initialValues={{
@@ -1897,6 +1943,7 @@ export default function Chapters() {
               enableAnalysis: false,
               styleId: selectedStyleId,
               targetWordCount: 3000,
+              model: selectedModel,
             }}
           >
             <Alert
@@ -1986,6 +2033,31 @@ export default function Chapters() {
               </Form.Item>
               <div style={{ color: '#666', fontSize: 12, marginTop: 4 }}>
                 建议范围：500-10000字，默认3000字
+              </div>
+            </Form.Item>
+
+            <Form.Item
+              label="AI模型"
+              tooltip="批量生成时所有章节使用相同模型，不选择则使用默认模型"
+            >
+              <Select
+                placeholder={batchSelectedModel ? `默认: ${availableModels.find(m => m.value === batchSelectedModel)?.label || batchSelectedModel}` : "使用默认模型"}
+                value={batchSelectedModel}
+                onChange={setBatchSelectedModel}
+                size="large"
+                allowClear
+                showSearch
+                optionFilterProp="label"
+              >
+                {availableModels.map(model => (
+                  <Select.Option key={model.value} value={model.value} label={model.label}>
+                    {model.label}
+                    {model.value === batchSelectedModel && ' (默认)'}
+                  </Select.Option>
+                ))}
+              </Select>
+              <div style={{ color: '#666', fontSize: 12, marginTop: 4 }}>
+                {batchSelectedModel ? `当前默认模型: ${availableModels.find(m => m.value === batchSelectedModel)?.label || batchSelectedModel}` : '加载模型列表中...'}
               </div>
             </Form.Item>
 

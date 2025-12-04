@@ -1973,12 +1973,13 @@ async def batch_generate_chapters_in_order(
     
     logger.info(f"📦 创建批量生成任务: {batch_id}, 章节: 第{start_number}-{end_number}章, 预估耗时: {estimated_time}分钟")
     
-    # 启动后台批量生成任务
+    # 启动后台批量生成任务，传递model参数
     background_tasks.add_task(
         execute_batch_generation_in_order,
         batch_id=batch_id,
         user_id=user_id,
-        ai_service=user_ai_service
+        ai_service=user_ai_service,
+        custom_model=batch_request.model
     )
     
     return BatchGenerateResponse(
@@ -2105,7 +2106,8 @@ async def cancel_batch_generation(
 async def execute_batch_generation_in_order(
     batch_id: str,
     user_id: str,
-    ai_service: AIService
+    ai_service: AIService,
+    custom_model: Optional[str] = None
 ):
     """
     按顺序执行批量生成任务（后台任务）
@@ -2194,7 +2196,7 @@ async def execute_batch_generation_in_order(
                     if not can_generate:
                         raise Exception(f"前置条件不满足: {error_msg}")
                     
-                    # 生成章节内容（复用现有流式生成逻辑的核心部分）
+                    # 生成章节内容（复用现有流式生成逻辑的核心部分），传递model参数
                     await generate_single_chapter_for_batch(
                         db_session=db_session,
                         chapter=chapter,
@@ -2202,7 +2204,8 @@ async def execute_batch_generation_in_order(
                         style_id=task.style_id,
                         target_word_count=task.target_word_count,
                         ai_service=ai_service,
-                        write_lock=write_lock
+                        write_lock=write_lock,
+                        custom_model=custom_model
                     )
                     
                     logger.info(f"✅ 章节生成完成: 第{chapter.chapter_number}章")
@@ -2316,7 +2319,8 @@ async def generate_single_chapter_for_batch(
     style_id: Optional[int],
     target_word_count: int,
     ai_service: AIService,
-    write_lock: Lock
+    write_lock: Lock,
+    custom_model: Optional[str] = None
 ):
     """
     为批量生成执行单个章节的生成（非流式）
@@ -2503,10 +2507,14 @@ async def generate_single_chapter_for_batch(
     
     # 非流式生成内容
     full_content = ""
-    async for chunk in ai_service.generate_text_stream(
-        prompt=prompt,
-        model=None  # 批量生成时使用用户默认模型，后续可扩展
-    ):
+    # 准备生成参数
+    generate_kwargs = {"prompt": prompt}
+    # 如果传入了自定义模型，使用指定的模型
+    if custom_model:
+        generate_kwargs["model"] = custom_model
+        logger.info(f"  批量生成使用自定义模型: {custom_model}")
+    
+    async for chunk in ai_service.generate_text_stream(**generate_kwargs):
         full_content += chunk
     
     # 更新章节内容到数据库（使用锁保护）

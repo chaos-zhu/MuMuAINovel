@@ -1111,10 +1111,19 @@ async def new_outline_generator(
         
         # 调用AI
         yield await SSEResponse.send_progress("🤖 正在调用AI生成...", 30)
+        
+        # 添加调试日志
+        model_param = data.get("model")
+        provider_param = data.get("provider")
+        logger.info(f"=== 大纲生成AI调用参数 ===")
+        logger.info(f"  provider参数: {provider_param}")
+        logger.info(f"  model参数: {model_param}")
+        logger.info(f"  完整data: {data}")
+        
         ai_response = await user_ai_service.generate_text(
             prompt=prompt,
-            provider=data.get("provider"),
-            model=data.get("model")
+            provider=provider_param,
+            model=model_param
         )
         
         yield await SSEResponse.send_progress("✅ AI生成完成，正在解析...", 70)
@@ -1446,10 +1455,16 @@ async def continue_outline_generator(
             )
             
             # 调用AI生成当前批次
+            model_param = data.get("model")
+            provider_param = data.get("provider")
+            logger.info(f"=== 续写批次{batch_num + 1} AI调用参数 ===")
+            logger.info(f"  provider参数: {provider_param}")
+            logger.info(f"  model参数: {model_param}")
+            
             ai_response = await user_ai_service.generate_text(
                 prompt=prompt,
-                provider=data.get("provider"),
-                model=data.get("model")
+                provider=provider_param,
+                model=model_param
             )
             
             yield await SSEResponse.send_progress(
