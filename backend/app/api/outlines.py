@@ -75,14 +75,30 @@ async def create_outline(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    """创建新的章节大纲（不自动创建章节，需通过展开功能生成章节）"""
+    """创建新的章节大纲（one-to-one模式会自动创建对应章节）"""
     # 验证用户权限
     user_id = getattr(request.state, 'user_id', None)
-    await verify_project_access(outline.project_id, user_id, db)
+    project = await verify_project_access(outline.project_id, user_id, db)
     
     # 创建大纲
     db_outline = Outline(**outline.model_dump())
     db.add(db_outline)
+    await db.flush()  # 确保大纲有ID
+    
+    # 如果是one-to-one模式，自动创建对应的章节
+    if project.outline_mode == 'one-to-one':
+        chapter = Chapter(
+            project_id=outline.project_id,
+            title=db_outline.title,
+            summary=db_outline.content,
+            chapter_number=db_outline.order_index,
+            sub_index=1,
+            outline_id=None,  # one-to-one模式不关联outline_id
+            status='pending',
+            content=""
+        )
+        db.add(chapter)
+        logger.info(f"一对一模式：为手动创建的大纲 {db_outline.title} (序号{db_outline.order_index}) 自动创建了对应章节")
     
     await db.commit()
     await db.refresh(db_outline)

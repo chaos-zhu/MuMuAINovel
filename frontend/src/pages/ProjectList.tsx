@@ -8,6 +8,7 @@ import { useProjectSync } from '../store/hooks';
 import type { ReactNode } from 'react';
 import { cardStyles, cardHoverHandlers, gridConfig } from '../components/CardStyles';
 import UserMenu from '../components/UserMenu';
+import ChangelogFloatingButton from '../components/ChangelogFloatingButton';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -1232,6 +1233,7 @@ export default function ProjectList() {
         </Form>
       </Modal>
 
+      <ChangelogFloatingButton />
     </div>
   );
 }

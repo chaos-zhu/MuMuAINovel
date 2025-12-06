@@ -104,8 +104,8 @@ async def create_chapter(
     user_id = getattr(request.state, 'user_id', None)
     project = await verify_project_access(chapter.project_id, user_id, db)
     
-    # 计算字数
-    word_count = len(chapter.content)
+    # 计算字数(处理content可能为None的情况)
+    word_count = len(chapter.content) if chapter.content else 0
     
     db_chapter = Chapter(
         **chapter.model_dump(),
@@ -300,9 +300,9 @@ async def update_chapter(
     for field, value in update_data.items():
         setattr(chapter, field, value)
     
-    # 如果内容更新了，重新计算字数
-    if "content" in update_data and chapter.content:
-        new_word_count = len(chapter.content)
+    # 如果内容更新了，重新计算字数（包括清空内容的情况）
+    if "content" in update_data:
+        new_word_count = len(chapter.content) if chapter.content else 0
         chapter.word_count = new_word_count
         
         # 更新项目字数
@@ -312,6 +312,47 @@ async def update_chapter(
         project = result.scalar_one_or_none()
         if project:
             project.current_words = project.current_words - old_word_count + new_word_count
+        
+        # 如果内容被清空，清理相关数据
+        if not chapter.content or chapter.content.strip() == "":
+            chapter.status = "draft"
+            
+            # 清理分析任务
+            analysis_tasks_result = await db.execute(
+                select(AnalysisTask).where(AnalysisTask.chapter_id == chapter_id)
+            )
+            analysis_tasks = analysis_tasks_result.scalars().all()
+            for task in analysis_tasks:
+                await db.delete(task)
+            
+            # 清理分析结果
+            plot_analysis_result = await db.execute(
+                select(PlotAnalysis).where(PlotAnalysis.chapter_id == chapter_id)
+            )
+            plot_analyses = plot_analysis_result.scalars().all()
+            for analysis in plot_analyses:
+                await db.delete(analysis)
+            
+            # 清理故事记忆（关系数据库）
+            story_memories_result = await db.execute(
+                select(StoryMemory).where(StoryMemory.chapter_id == chapter_id)
+            )
+            story_memories = story_memories_result.scalars().all()
+            for memory in story_memories:
+                await db.delete(memory)
+            
+            # 清理向量数据库中的记忆数据
+            try:
+                await memory_service.delete_chapter_memories(
+                    user_id=user_id,
+                    project_id=chapter.project_id,
+                    chapter_id=chapter_id
+                )
+                logger.info(f"✅ 已清理章节 {chapter_id[:8]} 的向量记忆数据")
+            except Exception as e:
+                logger.warning(f"⚠️ 清理向量记忆数据失败: {str(e)}")
+            
+            logger.info(f"🗑️ 章节 {chapter_id[:8]} 内容已清空，已清理分析和记忆数据")
     
     await db.commit()
     await db.refresh(chapter)
@@ -954,6 +995,7 @@ async def generate_chapter_content_stream(
     target_word_count = generate_request.target_word_count or 3000
     enable_mcp = generate_request.enable_mcp if hasattr(generate_request, 'enable_mcp') else True
     custom_model = generate_request.model if hasattr(generate_request, 'model') else None
+    temp_narrative_perspective = generate_request.narrative_perspective if hasattr(generate_request, 'narrative_perspective') else None
     # 预先验证章节存在性（使用临时会话）
     async for temp_db in get_db(request):
         try:
@@ -1195,6 +1237,14 @@ async def generate_chapter_content_stream(
                         logger.warning(f"⚠️ MCP工具调用失败，降级为基础模式: {str(e)}")
                         yield f"data: {json.dumps({'type': 'progress', 'message': '⚠️ MCP工具暂时不可用，使用基础模式', 'progress': 32}, ensure_ascii=False)}\n\n"
                 
+                # 🎭 确定使用的叙事人称（临时指定 > 项目默认 > 系统默认）
+                chapter_perspective = (
+                    temp_narrative_perspective or
+                    project.narrative_perspective or
+                    '第三人称'
+                )
+                logger.info(f"📝 使用叙事人称: {chapter_perspective}")
+                
                 # 📋 根据大纲模式构建差异化的章节大纲上下文
                 chapter_outline_content = ""
                 if outline_mode == 'one-to-one':
@@ -1245,7 +1295,7 @@ async def generate_chapter_content_stream(
                         title=project.title,
                         theme=project.theme or '',
                         genre=project.genre or '',
-                        narrative_perspective=project.narrative_perspective or '第三人称',
+                        narrative_perspective=chapter_perspective,
                         time_period=project.world_time_period or '未设定',
                         location=project.world_location or '未设定',
                         atmosphere=project.world_atmosphere or '未设定',
@@ -1278,7 +1328,7 @@ async def generate_chapter_content_stream(
                         title=project.title,
                         theme=project.theme or '',
                         genre=project.genre or '',
-                        narrative_perspective=project.narrative_perspective or '第三人称',
+                        narrative_perspective=chapter_perspective,
                         time_period=project.world_time_period or '未设定',
                         location=project.world_location or '未设定',
                         atmosphere=project.world_atmosphere or '未设定',

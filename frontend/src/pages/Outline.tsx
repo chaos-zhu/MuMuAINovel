@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Button, List, Modal, Form, Input, message, Empty, Space, Popconfirm, Card, Select, Radio, Tag, InputNumber, Tooltip, Tabs } from 'antd';
-import { EditOutlined, DeleteOutlined, ThunderboltOutlined, BranchesOutlined, AppstoreAddOutlined, CheckCircleOutlined, ExclamationCircleOutlined } from '@ant-design/icons';
+import { EditOutlined, DeleteOutlined, ThunderboltOutlined, BranchesOutlined, AppstoreAddOutlined, CheckCircleOutlined, ExclamationCircleOutlined, PlusOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import { useOutlineSync } from '../store/hooks';
 import { cardStyles } from '../components/CardStyles';
@@ -18,6 +18,7 @@ export default function Outline() {
   const [generateForm] = Form.useForm();
   const [expansionForm] = Form.useForm();
   const [batchExpansionForm] = Form.useForm();
+  const [manualCreateForm] = Form.useForm();
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [isExpanding, setIsExpanding] = useState(false);
   
@@ -441,6 +442,110 @@ export default function Outline() {
         const values = await generateForm.validateFields();
         await handleGenerate(values);
       },
+    });
+  };
+
+  // 手动创建大纲
+  const showManualCreateOutlineModal = () => {
+    const nextOrderIndex = outlines.length > 0
+      ? Math.max(...outlines.map(o => o.order_index)) + 1
+      : 1;
+    
+    Modal.confirm({
+      title: '手动创建大纲',
+      width: 600,
+      centered: true,
+      content: (
+        <Form
+          form={manualCreateForm}
+          layout="vertical"
+          initialValues={{ order_index: nextOrderIndex }}
+          style={{ marginTop: 16 }}
+        >
+          <Form.Item
+            label="大纲序号"
+            name="order_index"
+            rules={[{ required: true, message: '请输入序号' }]}
+            tooltip={currentProject?.outline_mode === 'one-to-one' ? '在传统模式下，序号即章节编号' : '在细化模式下，序号为卷数'}
+          >
+            <InputNumber min={1} style={{ width: '100%' }} placeholder="自动计算的下一个序号" />
+          </Form.Item>
+          
+          <Form.Item
+            label="大纲标题"
+            name="title"
+            rules={[{ required: true, message: '请输入标题' }]}
+          >
+            <Input placeholder={currentProject?.outline_mode === 'one-to-one' ? '例如：第一章 初入江湖' : '例如：第一卷 初入江湖'} />
+          </Form.Item>
+          
+          <Form.Item
+            label="大纲内容"
+            name="content"
+            rules={[{ required: true, message: '请输入内容' }]}
+          >
+            <TextArea
+              rows={6}
+              placeholder="描述本章/卷的主要情节和发展方向..."
+            />
+          </Form.Item>
+        </Form>
+      ),
+      okText: '创建',
+      cancelText: '取消',
+      onOk: async () => {
+        const values = await manualCreateForm.validateFields();
+        
+        // 校验序号是否重复
+        const existingOutline = outlines.find(o => o.order_index === values.order_index);
+        if (existingOutline) {
+          Modal.warning({
+            title: '序号冲突',
+            content: (
+              <div>
+                <p>序号 <strong>{values.order_index}</strong> 已被使用：</p>
+                <div style={{
+                  padding: 12,
+                  background: '#fff7e6',
+                  borderRadius: 4,
+                  border: '1px solid #ffd591',
+                  marginTop: 8
+                }}>
+                  <div style={{ fontWeight: 500, color: '#fa8c16' }}>
+                    {currentProject?.outline_mode === 'one-to-one'
+                      ? `第${existingOutline.order_index}章`
+                      : `第${existingOutline.order_index}卷`
+                    }：{existingOutline.title}
+                  </div>
+                </div>
+                <p style={{ marginTop: 12, color: '#666' }}>
+                  💡 建议使用序号 <strong>{nextOrderIndex}</strong>，或选择其他未使用的序号
+                </p>
+              </div>
+            ),
+            okText: '我知道了',
+            centered: true
+          });
+          throw new Error('序号重复');
+        }
+        
+        try {
+          await outlineApi.createOutline({
+            project_id: currentProject.id,
+            ...values
+          });
+          message.success('大纲创建成功');
+          await refreshOutlines();
+          manualCreateForm.resetFields();
+        } catch (error: any) {
+          if (error.message === '序号重复') {
+            // 序号重复错误已经显示了Modal，不需要再显示message
+            throw error;
+          }
+          message.error('创建失败：' + (error.message || '未知错误'));
+          throw error;
+        }
+      }
     });
   };
 
@@ -1459,6 +1564,13 @@ export default function Outline() {
           )}
         </div>
         <Space size="small" wrap={isMobile}>
+          <Button
+            icon={<PlusOutlined />}
+            onClick={showManualCreateOutlineModal}
+            block={isMobile}
+          >
+            手动创建
+          </Button>
           <Button
             type="primary"
             icon={<ThunderboltOutlined />}

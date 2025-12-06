@@ -287,7 +287,8 @@ export function useChapterSync() {
     styleId?: number,
     targetWordCount?: number,
     onProgressUpdate?: (message: string, progress: number) => void,
-    model?: string
+    model?: string,
+    narrativePerspective?: string
   ) => {
     try {
       // 使用fetch处理流式响应
@@ -299,7 +300,8 @@ export function useChapterSync() {
         body: JSON.stringify({
           style_id: styleId,
           target_word_count: targetWordCount,
-          model: model
+          model: model,
+          narrative_perspective: narrativePerspective
         }),
       });
 

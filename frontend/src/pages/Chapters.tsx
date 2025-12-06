@@ -1,9 +1,9 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { List, Button, Modal, Form, Input, Select, message, Empty, Space, Badge, Tag, Card, Tooltip, InputNumber, Alert, Radio, Descriptions, Collapse, Popconfirm, FloatButton } from 'antd';
-import { EditOutlined, FileTextOutlined, ThunderboltOutlined, LockOutlined, DownloadOutlined, SettingOutlined, FundOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, RocketOutlined, StopOutlined, InfoCircleOutlined, CaretRightOutlined, DeleteOutlined, BookOutlined, FormOutlined } from '@ant-design/icons';
+import { EditOutlined, FileTextOutlined, ThunderboltOutlined, LockOutlined, DownloadOutlined, SettingOutlined, FundOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, RocketOutlined, StopOutlined, InfoCircleOutlined, CaretRightOutlined, DeleteOutlined, BookOutlined, FormOutlined, PlusOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import { useChapterSync } from '../store/hooks';
-import { projectApi, writingStyleApi } from '../services/api';
+import { projectApi, writingStyleApi, chapterApi } from '../services/api';
 import type { Chapter, ChapterUpdate, ApiError, WritingStyle, AnalysisTask, ExpansionPlanData } from '../types';
 import ChapterAnalysis from '../components/ChapterAnalysis';
 import ExpansionPlanEditor from '../components/ExpansionPlanEditor';
@@ -30,6 +30,7 @@ export default function Chapters() {
   const [availableModels, setAvailableModels] = useState<Array<{value: string, label: string}>>([]);
   const [selectedModel, setSelectedModel] = useState<string | undefined>();
   const [batchSelectedModel, setBatchSelectedModel] = useState<string | undefined>(); // 批量生成的模型选择
+  const [temporaryNarrativePerspective, setTemporaryNarrativePerspective] = useState<string | undefined>(); // 临时人称选择
   const [analysisVisible, setAnalysisVisible] = useState(false);
   const [analysisChapterId, setAnalysisChapterId] = useState<string | null>(null);
   // 分析任务状态管理
@@ -50,6 +51,7 @@ export default function Chapters() {
   const [batchGenerating, setBatchGenerating] = useState(false);
   const [batchTaskId, setBatchTaskId] = useState<string | null>(null);
   const [batchForm] = Form.useForm();
+  const [manualCreateForm] = Form.useForm();
   const [batchProgress, setBatchProgress] = useState<{
     status: string;
     total: number;
@@ -260,6 +262,16 @@ export default function Chapters() {
 
   if (!currentProject) return null;
 
+  // 获取人称的中文显示文本
+  const getNarrativePerspectiveText = (perspective?: string): string => {
+    const texts: Record<string, string> = {
+      'first_person': '第一人称（我）',
+      'third_person': '第三人称（他/她）',
+      'omniscient': '全知视角',
+    };
+    return texts[perspective || ''] || '第三人称（默认）';
+  };
+
   const canGenerateChapter = (chapter: Chapter): boolean => {
     if (chapter.chapter_number === 1) {
       return true;
@@ -328,6 +340,7 @@ export default function Chapters() {
         content: chapter.content,
       });
       setEditingId(id);
+      setTemporaryNarrativePerspective(undefined); // 重置人称选择
       setIsEditorOpen(true);
       // 打开编辑窗口时加载模型列表
       loadAvailableModels();
@@ -379,7 +392,8 @@ export default function Chapters() {
           setSingleChapterProgress(progressValue);
           setSingleChapterProgressMessage(progressMsg);
         },
-        selectedModel  // 传递选中的模型
+        selectedModel,  // 传递选中的模型
+        temporaryNarrativePerspective  // 传递临时人称参数
       );
       
       message.success('AI创作成功，正在分析章节内容...');
@@ -692,6 +706,12 @@ export default function Chapters() {
           current_chapter_number: status.current_chapter_number,
         });
         
+        // 每次轮询时刷新章节列表和分析状态，实时显示新生成的章节和分析进度
+        if (status.completed > 0) {
+          refreshChapters();
+          loadAnalysisTasks();
+        }
+        
         // 任务完成或失败，停止轮询
         if (status.status === 'completed' || status.status === 'failed' || status.status === 'cancelled') {
           if (batchPollingIntervalRef.current) {
@@ -701,11 +721,12 @@ export default function Chapters() {
           
           setBatchGenerating(false);
           
+          // 立即刷新章节列表和分析任务状态（在显示消息前）
+          await refreshChapters();
+          await loadAnalysisTasks();
+          
           if (status.status === 'completed') {
             message.success(`批量生成完成！成功生成 ${status.completed} 章`);
-            // 刷新章节列表
-            refreshChapters();
-            loadAnalysisTasks();
           } else if (status.status === 'failed') {
             message.error(`批量生成失败：${status.error_message || '未知错误'}`);
           } else if (status.status === 'cancelled') {
@@ -745,6 +766,10 @@ export default function Chapters() {
       }
       
       message.success('批量生成已取消');
+      
+      // 取消后立即刷新章节列表和分析任务，显示已生成的章节
+      await refreshChapters();
+      await loadAnalysisTasks();
     } catch (error: any) {
       message.error('取消失败：' + (error.message || '未知错误'));
     }
@@ -788,6 +813,200 @@ export default function Chapters() {
     });
     
     setBatchGenerateVisible(true);
+  };
+
+  // 手动创建章节(仅one-to-many模式)
+  const showManualCreateChapterModal = () => {
+    // 计算下一个章节号
+    const nextChapterNumber = chapters.length > 0
+      ? Math.max(...chapters.map(c => c.chapter_number)) + 1
+      : 1;
+    
+    Modal.confirm({
+      title: '手动创建章节',
+      width: 600,
+      centered: true,
+      content: (
+        <Form
+          form={manualCreateForm}
+          layout="vertical"
+          initialValues={{
+            chapter_number: nextChapterNumber,
+            status: 'draft'
+          }}
+          style={{ marginTop: 16 }}
+        >
+          <Form.Item
+            label="章节序号"
+            name="chapter_number"
+            rules={[{ required: true, message: '请输入章节序号' }]}
+            tooltip="建议按顺序创建章节，确保内容连贯性"
+          >
+            <InputNumber min={1} style={{ width: '100%' }} placeholder="自动计算的下一个序号" />
+          </Form.Item>
+          
+          <Form.Item
+            label="章节标题"
+            name="title"
+            rules={[{ required: true, message: '请输入标题' }]}
+          >
+            <Input placeholder="例如：第一章 初遇" />
+          </Form.Item>
+          
+          <Form.Item
+            label="关联大纲"
+            name="outline_id"
+            rules={[{ required: true, message: '请选择关联的大纲' }]}
+            tooltip="one-to-many模式下，章节必须关联到大纲"
+          >
+            <Select placeholder="请选择所属大纲">
+              {sortedChapters.length > 0 && (() => {
+                // 从现有章节中提取大纲信息
+                const outlineMap = new Map();
+                sortedChapters.forEach(ch => {
+                  if (ch.outline_id && ch.outline_title) {
+                    outlineMap.set(ch.outline_id, {
+                      id: ch.outline_id,
+                      title: ch.outline_title,
+                      order: ch.outline_order || 0
+                    });
+                  }
+                });
+                const uniqueOutlines = Array.from(outlineMap.values())
+                  .sort((a, b) => a.order - b.order);
+                
+                return uniqueOutlines.map(outline => (
+                  <Select.Option key={outline.id} value={outline.id}>
+                    第{outline.order}卷：{outline.title}
+                  </Select.Option>
+                ));
+              })()}
+            </Select>
+          </Form.Item>
+          
+          <Form.Item
+            label="章节摘要（可选）"
+            name="summary"
+            tooltip="简要描述本章的主要内容和情节发展"
+          >
+            <TextArea
+              rows={4}
+              placeholder="简要描述本章内容..."
+            />
+          </Form.Item>
+          
+          <Form.Item
+            label="状态"
+            name="status"
+          >
+            <Select>
+              <Select.Option value="draft">草稿</Select.Option>
+              <Select.Option value="writing">创作中</Select.Option>
+              <Select.Option value="completed">已完成</Select.Option>
+            </Select>
+          </Form.Item>
+        </Form>
+      ),
+      okText: '创建',
+      cancelText: '取消',
+      onOk: async () => {
+        const values = await manualCreateForm.validateFields();
+        
+        // 检查章节序号是否已存在
+        const conflictChapter = chapters.find(
+          ch => ch.chapter_number === values.chapter_number
+        );
+        
+        if (conflictChapter) {
+          // 显示冲突提示Modal
+          Modal.confirm({
+            title: '章节序号冲突',
+            icon: <InfoCircleOutlined style={{ color: '#ff4d4f' }} />,
+            width: 500,
+            centered: true,
+            content: (
+              <div>
+                <p style={{ marginBottom: 12 }}>
+                  第 <strong>{values.chapter_number}</strong> 章已存在：
+                </p>
+                <div style={{
+                  padding: 12,
+                  background: '#fff7e6',
+                  borderRadius: 4,
+                  border: '1px solid #ffd591',
+                  marginBottom: 12
+                }}>
+                  <div><strong>标题：</strong>{conflictChapter.title}</div>
+                  <div><strong>状态：</strong>{getStatusText(conflictChapter.status)}</div>
+                  <div><strong>字数：</strong>{conflictChapter.word_count || 0}字</div>
+                  {conflictChapter.outline_title && (
+                    <div><strong>所属大纲：</strong>{conflictChapter.outline_title}</div>
+                  )}
+                </div>
+                <p style={{ color: '#ff4d4f', marginBottom: 8 }}>
+                  ⚠️ 是否删除旧章节并创建新章节？
+                </p>
+                <p style={{ fontSize: 12, color: '#666', marginBottom: 0 }}>
+                  删除后将无法恢复，章节内容和分析结果都将被删除。
+                </p>
+              </div>
+            ),
+            okText: '删除并创建',
+            okButtonProps: { danger: true },
+            cancelText: '取消',
+            onOk: async () => {
+              try {
+                // 先删除旧章节
+                await handleDeleteChapter(conflictChapter.id);
+                
+                // 等待一小段时间确保删除完成
+                await new Promise(resolve => setTimeout(resolve, 300));
+                
+                // 创建新章节
+                await chapterApi.createChapter({
+                  project_id: currentProject.id,
+                  ...values
+                });
+                
+                message.success('已删除旧章节并创建新章节');
+                await refreshChapters();
+                
+                // 刷新项目信息以更新字数统计
+                const updatedProject = await projectApi.getProject(currentProject.id);
+                setCurrentProject(updatedProject);
+                
+                manualCreateForm.resetFields();
+              } catch (error: any) {
+                message.error('操作失败：' + (error.message || '未知错误'));
+                throw error;
+              }
+            }
+          });
+          
+          // 阻止外层Modal关闭
+          return Promise.reject();
+        }
+        
+        // 没有冲突，直接创建
+        try {
+          await chapterApi.createChapter({
+            project_id: currentProject.id,
+            ...values
+          });
+          message.success('章节创建成功');
+          await refreshChapters();
+          
+          // 刷新项目信息以更新字数统计
+          const updatedProject = await projectApi.getProject(currentProject.id);
+          setCurrentProject(updatedProject);
+          
+          manualCreateForm.resetFields();
+        } catch (error: any) {
+          message.error('创建失败：' + (error.message || '未知错误'));
+          throw error;
+        }
+      }
+    });
   };
 
   // 渲染分析状态标签
@@ -1077,21 +1296,9 @@ export default function Chapters() {
 
   // 打开规划编辑器
   const handleOpenPlanEditor = (chapter: Chapter) => {
-    // 检查是否有规划数据
-    if (!chapter.expansion_plan) {
-      message.warning('该章节暂无规划信息');
-      return;
-    }
-    
-    try {
-      // 尝试解析JSON，验证数据有效性
-      JSON.parse(chapter.expansion_plan);
-      setEditingPlanChapter(chapter);
-      setPlanEditorVisible(true);
-    } catch (error) {
-      console.error('规划数据格式错误:', error);
-      message.error('规划数据格式错误，无法编辑');
-    }
+    // 直接打开编辑器,如果没有规划数据则创建新的
+    setEditingPlanChapter(chapter);
+    setPlanEditorVisible(true);
   };
   
   // 保存规划信息
@@ -1157,6 +1364,16 @@ export default function Chapters() {
       }}>
         <h2 style={{ margin: 0, fontSize: isMobile ? 18 : 24 }}>章节管理</h2>
         <Space direction={isMobile ? 'vertical' : 'horizontal'} style={{ width: isMobile ? '100%' : 'auto' }}>
+          {currentProject.outline_mode === 'one-to-many' && (
+            <Button
+              icon={<PlusOutlined />}
+              onClick={showManualCreateChapterModal}
+              block={isMobile}
+              size={isMobile ? 'middle' : 'middle'}
+            >
+              手动创建
+            </Button>
+          )}
           <Button
             type="primary"
             icon={<RocketOutlined />}
@@ -1469,8 +1686,8 @@ export default function Chapters() {
                                     </Tag>
                                   </Tooltip>
                                 )}
-                                {item.expansion_plan && (
-                                  <Space size={4}>
+                                <Space size={4}>
+                                  {item.expansion_plan && (
                                     <Tooltip title="查看展开详情">
                                       <InfoCircleOutlined
                                         style={{ color: '#1890ff', cursor: 'pointer', fontSize: 16 }}
@@ -1480,17 +1697,17 @@ export default function Chapters() {
                                         }}
                                       />
                                     </Tooltip>
-                                    <Tooltip title="编辑规划信息">
-                                      <FormOutlined
-                                        style={{ color: '#52c41a', cursor: 'pointer', fontSize: 16 }}
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          handleOpenPlanEditor(item);
-                                        }}
-                                      />
-                                    </Tooltip>
-                                  </Space>
-                                )}
+                                  )}
+                                  <Tooltip title={item.expansion_plan ? "编辑规划信息" : "创建规划信息"}>
+                                    <FormOutlined
+                                      style={{ color: '#52c41a', cursor: 'pointer', fontSize: 16 }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleOpenPlanEditor(item);
+                                      }}
+                                    />
+                                  </Tooltip>
+                                </Space>
                               </Space>
                             </div>
                           }
@@ -1676,16 +1893,15 @@ export default function Chapters() {
         footer={null}
       >
         <Form form={editorForm} layout="vertical" onFinish={handleEditorSubmit}>
+          {/* 章节标题和AI创作按钮 */}
           <Form.Item
             label="章节标题"
-            tooltip="章节标题由大纲统一管理，建议在大纲页面修改以保持一致性"
+            tooltip="（1-1模式请在大纲修改，1-N模式请使用修改按钮编辑）"
+            style={{ marginBottom: isMobile ? 16 : 12 }}
           >
             <Space.Compact style={{ width: '100%' }}>
-              <Form.Item
-                name="title"
-                noStyle
-              >
-                <Input size="large" disabled style={{ flex: 1 }} />
+              <Form.Item name="title" noStyle>
+                <Input disabled style={{ flex: 1 }} />
               </Form.Item>
               {editingId && (() => {
                 const currentChapter = chapters.find(c => c.id === editingId);
@@ -1701,10 +1917,9 @@ export default function Chapters() {
                       loading={isContinuing}
                       disabled={!canGenerate}
                       danger={!canGenerate}
-                      size="large"
                       style={{ fontWeight: 'bold' }}
                     >
-                      {isMobile ? 'AI创作' : 'AI创作章节内容'}
+                      {isMobile ? 'AI' : 'AI创作'}
                     </Button>
                   </Tooltip>
                 );
@@ -1712,82 +1927,106 @@ export default function Chapters() {
             </Space.Compact>
           </Form.Item>
 
-          <Form.Item
-            label="写作风格"
-            tooltip="选择AI创作时使用的写作风格，可在写作风格菜单中管理"
-            required
-          >
-            <Select
-              placeholder="请选择写作风格"
-              value={selectedStyleId}
-              onChange={setSelectedStyleId}
-              size="large"
-              disabled={isGenerating}
-              style={{ width: '100%' }}
-              status={!selectedStyleId ? 'error' : undefined}
+          {/* 第一行：写作风格 + 叙事角度 */}
+          <div style={{
+            display: isMobile ? 'block' : 'flex',
+            gap: isMobile ? 0 : 16,
+            marginBottom: isMobile ? 0 : 12
+          }}>
+            <Form.Item
+              label="写作风格"
+              tooltip="选择AI创作时使用的写作风格"
+              required
+              style={{ flex: 1, marginBottom: isMobile ? 16 : 0 }}
             >
-              {writingStyles.map(style => (
-                <Select.Option key={style.id} value={style.id}>
-                  {style.name}
-                  {style.is_default && ' (默认)'}
-                  {style.description && ` - ${style.description}`}
-                </Select.Option>
-              ))}
-            </Select>
-            {!selectedStyleId && (
-              <div style={{ color: '#ff4d4f', fontSize: 12, marginTop: 4 }}>
-                请选择写作风格
-              </div>
-            )}
-          </Form.Item>
+              <Select
+                placeholder="请选择写作风格"
+                value={selectedStyleId}
+                onChange={setSelectedStyleId}
+                disabled={isGenerating}
+                status={!selectedStyleId ? 'error' : undefined}
+              >
+                {writingStyles.map(style => (
+                  <Select.Option key={style.id} value={style.id}>
+                    {style.name}{style.is_default && ' (默认)'}
+                  </Select.Option>
+                ))}
+              </Select>
+              {!selectedStyleId && (
+                <div style={{ color: '#ff4d4f', fontSize: 12, marginTop: 4 }}>请选择写作风格</div>
+              )}
+            </Form.Item>
 
-          <Form.Item
-            label="目标字数"
-            tooltip="AI生成章节时的目标字数，实际生成字数可能略有偏差"
-          >
-            <InputNumber
-              min={500}
-              max={10000}
-              step={100}
-              value={targetWordCount}
-              onChange={(value) => setTargetWordCount(value || 3000)}
-              size="large"
-              disabled={isGenerating}
-              style={{ width: '100%' }}
-              formatter={(value) => `${value} 字`}
-              parser={(value) => value?.replace(' 字', '') as any}
-            />
-            <div style={{ color: '#666', fontSize: 12, marginTop: 4 }}>
-              建议范围：500-10000字，默认3000字
-            </div>
-          </Form.Item>
-
-          <Form.Item
-            label="AI模型"
-            tooltip="选择用于生成章节内容的AI模型，不选择则使用默认模型"
-          >
-            <Select
-              placeholder={selectedModel ? `默认: ${availableModels.find(m => m.value === selectedModel)?.label || selectedModel}` : "使用默认模型"}
-              value={selectedModel}
-              onChange={setSelectedModel}
-              size="large"
-              allowClear
-              disabled={isGenerating}
-              style={{ width: '100%' }}
-              showSearch
-              optionFilterProp="label"
+            <Form.Item
+              label="叙事角度"
+              tooltip="第一人称(我)代入感强；第三人称(他/她)更客观；全知视角洞悉一切"
+              style={{ flex: 1, marginBottom: isMobile ? 16 : 0 }}
             >
-              {availableModels.map(model => (
-                <Select.Option key={model.value} value={model.value} label={model.label}>
-                  {model.label}
-                  {model.value === selectedModel && ' (默认)'}
-                </Select.Option>
-              ))}
-            </Select>
-            <div style={{ color: '#666', fontSize: 12, marginTop: 4 }}>
-              {selectedModel ? `当前默认模型: ${availableModels.find(m => m.value === selectedModel)?.label || selectedModel}` : '加载模型列表中...'}
-            </div>
-          </Form.Item>
+              <Select
+                placeholder={`项目默认: ${getNarrativePerspectiveText(currentProject?.narrative_perspective)}`}
+                value={temporaryNarrativePerspective}
+                onChange={setTemporaryNarrativePerspective}
+                allowClear
+                disabled={isGenerating}
+              >
+                <Select.Option value="first_person">第一人称(我)</Select.Option>
+                <Select.Option value="third_person">第三人称(他/她)</Select.Option>
+                <Select.Option value="omniscient">全知视角</Select.Option>
+              </Select>
+              {temporaryNarrativePerspective && (
+                <div style={{ color: '#52c41a', fontSize: 12, marginTop: 4 }}>
+                  ✓ {getNarrativePerspectiveText(temporaryNarrativePerspective)}
+                </div>
+              )}
+            </Form.Item>
+          </div>
+
+          {/* 第二行：目标字数 + AI模型 */}
+          <div style={{
+            display: isMobile ? 'block' : 'flex',
+            gap: isMobile ? 0 : 16,
+            marginBottom: isMobile ? 16 : 12
+          }}>
+            <Form.Item
+              label="目标字数"
+              tooltip="AI生成章节时的目标字数，实际可能略有偏差"
+              style={{ flex: 1, marginBottom: isMobile ? 16 : 0 }}
+            >
+              <InputNumber
+                min={500}
+                max={10000}
+                step={100}
+                value={targetWordCount}
+                onChange={(value) => setTargetWordCount(value || 3000)}
+                disabled={isGenerating}
+                style={{ width: '100%' }}
+                formatter={(value) => `${value} 字`}
+                parser={(value) => value?.replace(' 字', '') as any}
+              />
+            </Form.Item>
+
+            <Form.Item
+              label="AI模型"
+              tooltip="选择用于生成章节内容的AI模型，不选择则使用默认模型"
+              style={{ flex: 1, marginBottom: isMobile ? 16 : 0 }}
+            >
+              <Select
+                placeholder={selectedModel ? `默认: ${availableModels.find(m => m.value === selectedModel)?.label || selectedModel}` : "使用默认模型"}
+                value={selectedModel}
+                onChange={setSelectedModel}
+                allowClear
+                disabled={isGenerating}
+                showSearch
+                optionFilterProp="label"
+              >
+                {availableModels.map(model => (
+                  <Select.Option key={model.value} value={model.value} label={model.label}>
+                    {model.label}
+                  </Select.Option>
+                ))}
+              </Select>
+            </Form.Item>
+          </div>
 
           <Form.Item label="章节内容" name="content">
             <TextArea
