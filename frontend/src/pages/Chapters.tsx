@@ -27,7 +27,7 @@ export default function Chapters() {
   const [writingStyles, setWritingStyles] = useState<WritingStyle[]>([]);
   const [selectedStyleId, setSelectedStyleId] = useState<number | undefined>();
   const [targetWordCount, setTargetWordCount] = useState<number>(3000);
-  const [availableModels, setAvailableModels] = useState<Array<{value: string, label: string}>>([]);
+  const [availableModels, setAvailableModels] = useState<Array<{ value: string, label: string }>>([]);
   const [selectedModel, setSelectedModel] = useState<string | undefined>();
   const [batchSelectedModel, setBatchSelectedModel] = useState<string | undefined>(); // 批量生成的模型选择
   const [temporaryNarrativePerspective, setTemporaryNarrativePerspective] = useState<string | undefined>(); // 临时人称选择
@@ -37,15 +37,15 @@ export default function Chapters() {
   const [analysisTasksMap, setAnalysisTasksMap] = useState<Record<string, AnalysisTask>>({});
   const pollingIntervalsRef = useRef<Record<string, number>>({});
   const [isIndexPanelVisible, setIsIndexPanelVisible] = useState(false);
-  
+
   // 规划编辑状态
   const [planEditorVisible, setPlanEditorVisible] = useState(false);
   const [editingPlanChapter, setEditingPlanChapter] = useState<Chapter | null>(null);
-  
+
   // 单章节生成进度状态
   const [singleChapterProgress, setSingleChapterProgress] = useState(0);
   const [singleChapterProgressMessage, setSingleChapterProgressMessage] = useState('');
-  
+
   // 批量生成相关状态
   const [batchGenerateVisible, setBatchGenerateVisible] = useState(false);
   const [batchGenerating, setBatchGenerating] = useState(false);
@@ -102,9 +102,9 @@ export default function Chapters() {
   // 加载所有章节的分析任务状态
   const loadAnalysisTasks = async () => {
     if (!chapters || chapters.length === 0) return;
-    
+
     const tasksMap: Record<string, AnalysisTask> = {};
-    
+
     for (const chapter of chapters) {
       // 只查询有内容的章节
       if (chapter.content && chapter.content.trim() !== '') {
@@ -113,7 +113,7 @@ export default function Chapters() {
           if (response.ok) {
             const task: AnalysisTask = await response.json();
             tasksMap[chapter.id] = task;
-            
+
             // 如果任务正在运行，启动轮询
             if (task.status === 'pending' || task.status === 'running') {
               startPollingTask(chapter.id);
@@ -125,7 +125,7 @@ export default function Chapters() {
         }
       }
     }
-    
+
     setAnalysisTasksMap(tasksMap);
   };
 
@@ -135,24 +135,24 @@ export default function Chapters() {
     if (pollingIntervalsRef.current[chapterId]) {
       clearInterval(pollingIntervalsRef.current[chapterId]);
     }
-    
+
     const interval = window.setInterval(async () => {
       try {
         const response = await fetch(`/api/chapters/${chapterId}/analysis/status`);
         if (!response.ok) return;
-        
+
         const task: AnalysisTask = await response.json();
-        
+
         setAnalysisTasksMap(prev => ({
           ...prev,
           [chapterId]: task
         }));
-        
+
         // 任务完成或失败，停止轮询
         if (task.status === 'completed' || task.status === 'failed') {
           clearInterval(pollingIntervalsRef.current[chapterId]);
           delete pollingIntervalsRef.current[chapterId];
-          
+
           if (task.status === 'completed') {
             message.success(`章节分析完成`);
           } else if (task.status === 'failed') {
@@ -163,9 +163,9 @@ export default function Chapters() {
         console.error('轮询分析任务失败:', error);
       }
     }, 2000);
-    
+
     pollingIntervalsRef.current[chapterId] = interval;
-    
+
     // 5分钟超时
     setTimeout(() => {
       if (pollingIntervalsRef.current[chapterId]) {
@@ -177,11 +177,11 @@ export default function Chapters() {
 
   const loadWritingStyles = async () => {
     if (!currentProject?.id) return;
-    
+
     try {
       const response = await writingStyleApi.getProjectStyles(currentProject.id);
       setWritingStyles(response.styles);
-      
+
       // 设置默认风格为初始选中
       const defaultStyle = response.styles.find(s => s.is_default);
       if (defaultStyle) {
@@ -200,7 +200,7 @@ export default function Chapters() {
       if (settingsResponse.ok) {
         const settings = await settingsResponse.json();
         const { api_key, api_base_url, api_provider } = settings;
-        
+
         if (api_key && api_base_url) {
           try {
             const modelsResponse = await fetch(
@@ -229,16 +229,16 @@ export default function Chapters() {
   // 检查并恢复批量生成任务
   const checkAndRestoreBatchTask = async () => {
     if (!currentProject?.id) return;
-    
+
     try {
       const response = await fetch(`/api/chapters/project/${currentProject.id}/batch-generate/active`);
       if (!response.ok) return;
-      
+
       const data = await response.json();
-      
+
       if (data.has_active_task && data.task) {
         const task = data.task;
-        
+
         // 恢复任务状态
         setBatchTaskId(task.batch_id);
         setBatchProgress({
@@ -249,10 +249,10 @@ export default function Chapters() {
         });
         setBatchGenerating(true);
         setBatchGenerateVisible(true);
-        
+
         // 启动轮询
         startBatchPolling(task.batch_id);
-        
+
         message.info('检测到未完成的批量生成任务，已自动恢复');
       }
     } catch (error) {
@@ -276,11 +276,11 @@ export default function Chapters() {
     if (chapter.chapter_number === 1) {
       return true;
     }
-    
+
     const previousChapters = chapters.filter(
       c => c.chapter_number < chapter.chapter_number
     );
-    
+
     return previousChapters.every(c => c.content && c.content.trim() !== '');
   };
 
@@ -288,20 +288,20 @@ export default function Chapters() {
     if (chapter.chapter_number === 1) {
       return '';
     }
-    
+
     const previousChapters = chapters.filter(
       c => c.chapter_number < chapter.chapter_number
     );
-    
+
     const incompleteChapters = previousChapters.filter(
       c => !c.content || c.content.trim() === ''
     );
-    
+
     if (incompleteChapters.length > 0) {
       const numbers = incompleteChapters.map(c => c.chapter_number).join('、');
       return `需要先完成前置章节：第 ${numbers} 章`;
     }
-    
+
     return '';
   };
 
@@ -316,13 +316,13 @@ export default function Chapters() {
 
   const handleSubmit = async (values: ChapterUpdate) => {
     if (!editingId) return;
-    
+
     try {
       await updateChapter(editingId, values);
-      
+
       // 刷新章节列表以获取完整的章节数据（包括outline_title等联查字段）
       await refreshChapters();
-      
+
       message.success('章节更新成功');
       setIsModalOpen(false);
       form.resetFields();
@@ -349,14 +349,14 @@ export default function Chapters() {
 
   const handleEditorSubmit = async (values: ChapterUpdate) => {
     if (!editingId || !currentProject) return;
-    
+
     try {
       await updateChapter(editingId, values);
-      
+
       // 刷新项目信息以更新总字数统计
       const updatedProject = await projectApi.getProject(currentProject.id);
       setCurrentProject(updatedProject);
-      
+
       message.success('章节保存成功');
       setIsEditorOpen(false);
     } catch {
@@ -372,12 +372,12 @@ export default function Chapters() {
       setIsGenerating(true);
       setSingleChapterProgress(0);
       setSingleChapterProgressMessage('准备开始生成...');
-      
+
       const result = await generateChapterContentStream(
         editingId,
         (content) => {
           editorForm.setFieldsValue({ content });
-          
+
           if (contentTextAreaRef.current) {
             const textArea = contentTextAreaRef.current.resizableTextArea?.textArea;
             if (textArea) {
@@ -395,9 +395,9 @@ export default function Chapters() {
         selectedModel,  // 传递选中的模型
         temporaryNarrativePerspective  // 传递临时人称参数
       );
-      
+
       message.success('AI创作成功，正在分析章节内容...');
-      
+
       // 如果返回了分析任务ID，启动轮询
       if (result?.analysis_task_id) {
         const taskId = result.analysis_task_id;
@@ -411,7 +411,7 @@ export default function Chapters() {
             progress: 0
           }
         }));
-        
+
         // 启动轮询
         startPollingTask(editingId);
       }
@@ -450,7 +450,7 @@ export default function Chapters() {
             )}
             <li><strong>目标字数：{targetWordCount}字</strong></li>
           </ul>
-          
+
           {previousChapters.length > 0 && (
             <div style={{
               marginTop: 16,
@@ -474,7 +474,7 @@ export default function Chapters() {
               </div>
             </div>
           )}
-          
+
           <p style={{ color: '#ff4d4f', marginTop: 16, marginBottom: 0 }}>
             ⚠️ 注意：此操作将覆盖当前章节内容
           </p>
@@ -491,7 +491,7 @@ export default function Chapters() {
           maskClosable: false,
           keyboard: false,
         });
-        
+
         try {
           if (!selectedStyleId) {
             message.error('请先选择写作风格');
@@ -556,7 +556,7 @@ export default function Chapters() {
 
     sortedChapters.forEach(chapter => {
       const key = chapter.outline_id || 'uncategorized';
-      
+
       if (!groups[key]) {
         groups[key] = {
           outlineId: chapter.outline_id || null,
@@ -565,7 +565,7 @@ export default function Chapters() {
           chapters: []
         };
       }
-      
+
       groups[key].chapters.push(chapter);
     });
 
@@ -578,7 +578,7 @@ export default function Chapters() {
       message.warning('当前项目没有章节，无法导出');
       return;
     }
-    
+
     Modal.confirm({
       title: '导出项目章节',
       content: `确定要将《${currentProject.title}》的所有章节导出为TXT文件吗？`,
@@ -611,29 +611,29 @@ export default function Chapters() {
     model?: string;
   }) => {
     if (!currentProject?.id) return;
-    
+
     // 调试日志
     console.log('[批量生成] 表单values:', values);
     console.log('[批量生成] batchSelectedModel状态:', batchSelectedModel);
-    
+
     // 使用批量生成对话框中选择的风格和字数，如果没有选择则使用默认值
     const styleId = values.styleId || selectedStyleId;
     const wordCount = values.targetWordCount || targetWordCount;
-    
+
     // 使用批量生成专用的模型状态
     const model = batchSelectedModel;
-    
+
     console.log('[批量生成] 最终使用的model:', model);
-    
+
     if (!styleId) {
       message.error('请选择写作风格');
       return;
     }
-    
+
     try {
       setBatchGenerating(true);
       setBatchGenerateVisible(false); // 关闭配置对话框，避免遮挡进度弹窗
-      
+
       const requestBody: any = {
         start_chapter_number: values.startChapterNumber,
         count: values.count,
@@ -641,7 +641,7 @@ export default function Chapters() {
         style_id: styleId,
         target_word_count: wordCount,
       };
-      
+
       // 如果有模型参数，添加到请求体中
       if (model) {
         requestBody.model = model;
@@ -649,9 +649,9 @@ export default function Chapters() {
       } else {
         console.log('[批量生成] 请求体不包含model，使用后端默认模型');
       }
-      
+
       console.log('[批量生成] 完整请求体:', JSON.stringify(requestBody, null, 2));
-      
+
       const response = await fetch(`/api/chapters/project/${currentProject.id}/batch-generate`, {
         method: 'POST',
         headers: {
@@ -659,12 +659,12 @@ export default function Chapters() {
         },
         body: JSON.stringify(requestBody),
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.detail || '创建批量生成任务失败');
       }
-      
+
       const result = await response.json();
       setBatchTaskId(result.batch_id);
       setBatchProgress({
@@ -674,12 +674,12 @@ export default function Chapters() {
         current_chapter_number: values.startChapterNumber,
         estimated_time_minutes: result.estimated_time_minutes,
       });
-      
+
       message.success(`批量生成任务已创建，预计需要 ${result.estimated_time_minutes} 分钟`);
-      
+
       // 开始轮询任务状态
       startBatchPolling(result.batch_id);
-      
+
     } catch (error: any) {
       message.error('创建批量生成任务失败：' + (error.message || '未知错误'));
       setBatchGenerating(false);
@@ -692,12 +692,12 @@ export default function Chapters() {
     if (batchPollingIntervalRef.current) {
       clearInterval(batchPollingIntervalRef.current);
     }
-    
+
     const poll = async () => {
       try {
         const response = await fetch(`/api/chapters/batch-generate/${taskId}/status`);
         if (!response.ok) return;
-        
+
         const status = await response.json();
         setBatchProgress({
           status: status.status,
@@ -705,26 +705,38 @@ export default function Chapters() {
           completed: status.completed,
           current_chapter_number: status.current_chapter_number,
         });
-        
+
         // 每次轮询时刷新章节列表和分析状态，实时显示新生成的章节和分析进度
         if (status.completed > 0) {
           refreshChapters();
           loadAnalysisTasks();
+
+          // 刷新项目信息以实时更新总字数统计
+          if (currentProject?.id) {
+            const updatedProject = await projectApi.getProject(currentProject.id);
+            setCurrentProject(updatedProject);
+          }
         }
-        
+
         // 任务完成或失败，停止轮询
         if (status.status === 'completed' || status.status === 'failed' || status.status === 'cancelled') {
           if (batchPollingIntervalRef.current) {
             clearInterval(batchPollingIntervalRef.current);
             batchPollingIntervalRef.current = null;
           }
-          
+
           setBatchGenerating(false);
-          
+
           // 立即刷新章节列表和分析任务状态（在显示消息前）
           await refreshChapters();
           await loadAnalysisTasks();
-          
+
+          // 刷新项目信息以更新总字数统计
+          if (currentProject?.id) {
+            const updatedProject = await projectApi.getProject(currentProject.id);
+            setCurrentProject(updatedProject);
+          }
+
           if (status.status === 'completed') {
             message.success(`批量生成完成！成功生成 ${status.completed} 章`);
           } else if (status.status === 'failed') {
@@ -732,7 +744,7 @@ export default function Chapters() {
           } else if (status.status === 'cancelled') {
             message.warning('批量生成已取消');
           }
-          
+
           // 延迟关闭对话框，让用户看到最终状态
           setTimeout(() => {
             setBatchGenerateVisible(false);
@@ -744,10 +756,10 @@ export default function Chapters() {
         console.error('轮询批量生成状态失败:', error);
       }
     };
-    
+
     // 立即执行一次
     poll();
-    
+
     // 每2秒轮询一次
     batchPollingIntervalRef.current = window.setInterval(poll, 2000);
   };
@@ -755,21 +767,27 @@ export default function Chapters() {
   // 取消批量生成
   const handleCancelBatchGenerate = async () => {
     if (!batchTaskId) return;
-    
+
     try {
       const response = await fetch(`/api/chapters/batch-generate/${batchTaskId}/cancel`, {
         method: 'POST',
       });
-      
+
       if (!response.ok) {
         throw new Error('取消失败');
       }
-      
+
       message.success('批量生成已取消');
-      
+
       // 取消后立即刷新章节列表和分析任务，显示已生成的章节
       await refreshChapters();
       await loadAnalysisTasks();
+
+      // 刷新项目信息以更新总字数统计
+      if (currentProject?.id) {
+        const updatedProject = await projectApi.getProject(currentProject.id);
+        setCurrentProject(updatedProject);
+      }
     } catch (error: any) {
       message.error('取消失败：' + (error.message || '未知错误'));
     }
@@ -781,28 +799,28 @@ export default function Chapters() {
     const firstIncompleteChapter = sortedChapters.find(
       ch => !ch.content || ch.content.trim() === ''
     );
-    
+
     if (!firstIncompleteChapter) {
       message.info('所有章节都已生成内容');
       return;
     }
-    
+
     // 检查该章节是否可以生成
     if (!canGenerateChapter(firstIncompleteChapter)) {
       const reason = getGenerateDisabledReason(firstIncompleteChapter);
       message.warning(reason);
       return;
     }
-    
+
     // 打开对话框时加载模型列表，等待完成
     const defaultModel = await loadAvailableModels();
-    
+
     console.log('[打开批量生成] defaultModel:', defaultModel);
     console.log('[打开批量生成] selectedStyleId:', selectedStyleId);
-    
+
     // 设置批量生成的模型选择状态
     setBatchSelectedModel(defaultModel || undefined);
-    
+
     // 重置表单并设置初始值
     batchForm.setFieldsValue({
       startChapterNumber: firstIncompleteChapter.chapter_number,
@@ -811,7 +829,7 @@ export default function Chapters() {
       styleId: selectedStyleId,
       targetWordCount: 3000,
     });
-    
+
     setBatchGenerateVisible(true);
   };
 
@@ -821,7 +839,7 @@ export default function Chapters() {
     const nextChapterNumber = chapters.length > 0
       ? Math.max(...chapters.map(c => c.chapter_number)) + 1
       : 1;
-    
+
     Modal.confirm({
       title: '手动创建章节',
       width: 600,
@@ -844,7 +862,7 @@ export default function Chapters() {
           >
             <InputNumber min={1} style={{ width: '100%' }} placeholder="自动计算的下一个序号" />
           </Form.Item>
-          
+
           <Form.Item
             label="章节标题"
             name="title"
@@ -852,7 +870,7 @@ export default function Chapters() {
           >
             <Input placeholder="例如：第一章 初遇" />
           </Form.Item>
-          
+
           <Form.Item
             label="关联大纲"
             name="outline_id"
@@ -874,7 +892,7 @@ export default function Chapters() {
                 });
                 const uniqueOutlines = Array.from(outlineMap.values())
                   .sort((a, b) => a.order - b.order);
-                
+
                 return uniqueOutlines.map(outline => (
                   <Select.Option key={outline.id} value={outline.id}>
                     第{outline.order}卷：{outline.title}
@@ -883,7 +901,7 @@ export default function Chapters() {
               })()}
             </Select>
           </Form.Item>
-          
+
           <Form.Item
             label="章节摘要（可选）"
             name="summary"
@@ -894,7 +912,7 @@ export default function Chapters() {
               placeholder="简要描述本章内容..."
             />
           </Form.Item>
-          
+
           <Form.Item
             label="状态"
             name="status"
@@ -911,12 +929,12 @@ export default function Chapters() {
       cancelText: '取消',
       onOk: async () => {
         const values = await manualCreateForm.validateFields();
-        
+
         // 检查章节序号是否已存在
         const conflictChapter = chapters.find(
           ch => ch.chapter_number === values.chapter_number
         );
-        
+
         if (conflictChapter) {
           // 显示冲突提示Modal
           Modal.confirm({
@@ -958,23 +976,23 @@ export default function Chapters() {
               try {
                 // 先删除旧章节
                 await handleDeleteChapter(conflictChapter.id);
-                
+
                 // 等待一小段时间确保删除完成
                 await new Promise(resolve => setTimeout(resolve, 300));
-                
+
                 // 创建新章节
                 await chapterApi.createChapter({
                   project_id: currentProject.id,
                   ...values
                 });
-                
+
                 message.success('已删除旧章节并创建新章节');
                 await refreshChapters();
-                
+
                 // 刷新项目信息以更新字数统计
                 const updatedProject = await projectApi.getProject(currentProject.id);
                 setCurrentProject(updatedProject);
-                
+
                 manualCreateForm.resetFields();
               } catch (error: any) {
                 message.error('操作失败：' + (error.message || '未知错误'));
@@ -982,11 +1000,11 @@ export default function Chapters() {
               }
             }
           });
-          
+
           // 阻止外层Modal关闭
           return Promise.reject();
         }
-        
+
         // 没有冲突，直接创建
         try {
           await chapterApi.createChapter({
@@ -995,11 +1013,11 @@ export default function Chapters() {
           });
           message.success('章节创建成功');
           await refreshChapters();
-          
+
           // 刷新项目信息以更新字数统计
           const updatedProject = await projectApi.getProject(currentProject.id);
           setCurrentProject(updatedProject);
-          
+
           manualCreateForm.resetFields();
         } catch (error: any) {
           message.error('创建失败：' + (error.message || '未知错误'));
@@ -1012,11 +1030,11 @@ export default function Chapters() {
   // 渲染分析状态标签
   const renderAnalysisStatus = (chapterId: string) => {
     const task = analysisTasksMap[chapterId];
-    
+
     if (!task) {
       return null;
     }
-    
+
     switch (task.status) {
       case 'pending':
         return (
@@ -1052,10 +1070,10 @@ export default function Chapters() {
   // 显示展开规划详情
   const showExpansionPlanModal = (chapter: Chapter) => {
     if (!chapter.expansion_plan) return;
-    
+
     try {
       const planData: ExpansionPlanData = JSON.parse(chapter.expansion_plan);
-      
+
       Modal.info({
         title: (
           <Space style={{ flexWrap: 'wrap' }}>
@@ -1278,16 +1296,16 @@ export default function Chapters() {
   const handleDeleteChapter = async (chapterId: string) => {
     try {
       await deleteChapter(chapterId);
-      
+
       // 刷新章节列表
       await refreshChapters();
-      
+
       // 刷新项目信息以更新总字数统计
       if (currentProject) {
         const updatedProject = await projectApi.getProject(currentProject.id);
         setCurrentProject(updatedProject);
       }
-  
+
       message.success('章节删除成功');
     } catch (error: any) {
       message.error('删除章节失败：' + (error.message || '未知错误'));
@@ -1300,11 +1318,11 @@ export default function Chapters() {
     setEditingPlanChapter(chapter);
     setPlanEditorVisible(true);
   };
-  
+
   // 保存规划信息
   const handleSavePlan = async (planData: ExpansionPlanData) => {
     if (!editingPlanChapter) return;
-    
+
     try {
       const response = await fetch(`/api/chapters/${editingPlanChapter.id}/expansion-plan`, {
         method: 'PUT',
@@ -1313,17 +1331,17 @@ export default function Chapters() {
         },
         body: JSON.stringify(planData),
       });
-      
+
       if (!response.ok) {
         const error = await response.json();
         throw new Error(error.detail || '更新失败');
       }
-      
+
       // 刷新章节列表
       await refreshChapters();
-      
+
       message.success('规划信息更新成功');
-      
+
       // 关闭编辑器
       setPlanEditorVisible(false);
       setEditingPlanChapter(null);
@@ -1332,22 +1350,22 @@ export default function Chapters() {
       throw error;
     }
   };
- 
-   const handleChapterSelect = (chapterId: string) => {
-     const element = document.getElementById(`chapter-item-${chapterId}`);
-     if (element) {
-       element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-       // Optional: add a visual highlight effect
-       element.style.transition = 'background-color 0.5s ease';
-       element.style.backgroundColor = '#e6f7ff';
-       setTimeout(() => {
-         element.style.backgroundColor = '';
-       }, 1500);
-     }
-   };
- 
-   return (
-     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+
+  const handleChapterSelect = (chapterId: string) => {
+    const element = document.getElementById(`chapter-item-${chapterId}`);
+    if (element) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Optional: add a visual highlight effect
+      element.style.transition = 'background-color 0.5s ease';
+      element.style.backgroundColor = '#e6f7ff';
+      setTimeout(() => {
+        element.style.backgroundColor = '';
+      }, 1500);
+    }
+  };
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       <div style={{
         position: 'sticky',
         top: 0,
@@ -1436,13 +1454,13 @@ export default function Chapters() {
                     const task = analysisTasksMap[item.id];
                     const isAnalyzing = task && (task.status === 'pending' || task.status === 'running');
                     const hasContent = item.content && item.content.trim() !== '';
-                    
+
                     return (
                       <Tooltip
                         title={
                           !hasContent ? '请先生成章节内容' :
-                          isAnalyzing ? '分析进行中，请稍候...' :
-                          ''
+                            isAnalyzing ? '分析进行中，请稍候...' :
+                              ''
                         }
                       >
                         <Button
@@ -1505,7 +1523,7 @@ export default function Chapters() {
                       )
                     }
                   />
-                  
+
                   {isMobile && (
                     <Space style={{ marginTop: 12, width: '100%', justifyContent: 'flex-end' }} wrap>
                       <Button
@@ -1519,13 +1537,13 @@ export default function Chapters() {
                         const task = analysisTasksMap[item.id];
                         const isAnalyzing = task && (task.status === 'pending' || task.status === 'running');
                         const hasContent = item.content && item.content.trim() !== '';
-                        
+
                         return (
                           <Tooltip
                             title={
                               !hasContent ? '请先生成章节内容' :
-                              isAnalyzing ? '分析中' :
-                              '查看分析'
+                                isAnalyzing ? '分析中' :
+                                  '查看分析'
                             }
                           >
                             <Button
@@ -1601,64 +1619,64 @@ export default function Chapters() {
                         alignItems: isMobile ? 'flex-start' : 'center',
                       }}
                       actions={isMobile ? undefined : [
-                  <Button
-                    type="text"
-                    icon={<EditOutlined />}
-                    onClick={() => handleOpenEditor(item.id)}
-                  >
-                    编辑内容
-                  </Button>,
-                  (() => {
-                    const task = analysisTasksMap[item.id];
-                    const isAnalyzing = task && (task.status === 'pending' || task.status === 'running');
-                    const hasContent = item.content && item.content.trim() !== '';
-                    
-                    return (
-                      <Tooltip
-                        title={
-                          !hasContent ? '请先生成章节内容' :
-                          isAnalyzing ? '分析进行中，请稍候...' :
-                          ''
-                        }
-                      >
                         <Button
                           type="text"
-                          icon={isAnalyzing ? <SyncOutlined spin /> : <FundOutlined />}
-                          onClick={() => handleShowAnalysis(item.id)}
-                          disabled={!hasContent || isAnalyzing}
-                          loading={isAnalyzing}
+                          icon={<EditOutlined />}
+                          onClick={() => handleOpenEditor(item.id)}
                         >
-                          {isAnalyzing ? '分析中' : '查看分析'}
-                        </Button>
-                      </Tooltip>
-                    );
-                  })(),
-                  <Button
-                    type="text"
-                    icon={<SettingOutlined />}
-                    onClick={() => handleOpenModal(item.id)}
-                  >
-                    修改信息
-                  </Button>,
-                  // 只在 one-to-many 模式下显示删除按钮
-                  ...(currentProject.outline_mode === 'one-to-many' ? [
-                    <Popconfirm
-                      title="确定删除这个章节吗？"
-                      description="删除后将无法恢复，章节内容和分析结果都将被删除。"
-                      onConfirm={() => handleDeleteChapter(item.id)}
-                      okText="确定删除"
-                      cancelText="取消"
-                      okButtonProps={{ danger: true }}
-                    >
-                      <Button
-                        type="text"
-                        danger
-                        icon={<DeleteOutlined />}
-                      >
-                        删除
-                      </Button>
-                    </Popconfirm>
-                  ] : []),
+                          编辑内容
+                        </Button>,
+                        (() => {
+                          const task = analysisTasksMap[item.id];
+                          const isAnalyzing = task && (task.status === 'pending' || task.status === 'running');
+                          const hasContent = item.content && item.content.trim() !== '';
+
+                          return (
+                            <Tooltip
+                              title={
+                                !hasContent ? '请先生成章节内容' :
+                                  isAnalyzing ? '分析进行中，请稍候...' :
+                                    ''
+                              }
+                            >
+                              <Button
+                                type="text"
+                                icon={isAnalyzing ? <SyncOutlined spin /> : <FundOutlined />}
+                                onClick={() => handleShowAnalysis(item.id)}
+                                disabled={!hasContent || isAnalyzing}
+                                loading={isAnalyzing}
+                              >
+                                {isAnalyzing ? '分析中' : '查看分析'}
+                              </Button>
+                            </Tooltip>
+                          );
+                        })(),
+                        <Button
+                          type="text"
+                          icon={<SettingOutlined />}
+                          onClick={() => handleOpenModal(item.id)}
+                        >
+                          修改信息
+                        </Button>,
+                        // 只在 one-to-many 模式下显示删除按钮
+                        ...(currentProject.outline_mode === 'one-to-many' ? [
+                          <Popconfirm
+                            title="确定删除这个章节吗？"
+                            description="删除后将无法恢复，章节内容和分析结果都将被删除。"
+                            onConfirm={() => handleDeleteChapter(item.id)}
+                            okText="确定删除"
+                            cancelText="取消"
+                            okButtonProps={{ danger: true }}
+                          >
+                            <Button
+                              type="text"
+                              danger
+                              icon={<DeleteOutlined />}
+                            >
+                              删除
+                            </Button>
+                          </Popconfirm>
+                        ] : []),
                       ]}
                     >
                       <div style={{ width: '100%' }}>
@@ -1722,7 +1740,7 @@ export default function Chapters() {
                             )
                           }
                         />
-                        
+
                         {isMobile && (
                           <Space style={{ marginTop: 12, width: '100%', justifyContent: 'flex-end' }} wrap>
                             <Button
@@ -1736,13 +1754,13 @@ export default function Chapters() {
                               const task = analysisTasksMap[item.id];
                               const isAnalyzing = task && (task.status === 'pending' || task.status === 'running');
                               const hasContent = item.content && item.content.trim() !== '';
-                              
+
                               return (
                                 <Tooltip
                                   title={
                                     !hasContent ? '请先生成章节内容' :
-                                    isAnalyzing ? '分析中' :
-                                    '查看分析'
+                                      isAnalyzing ? '分析中' :
+                                        '查看分析'
                                   }
                                 >
                                   <Button
@@ -1907,7 +1925,7 @@ export default function Chapters() {
                 const currentChapter = chapters.find(c => c.id === editingId);
                 const canGenerate = currentChapter ? canGenerateChapter(currentChapter) : false;
                 const disabledReason = currentChapter ? getGenerateDisabledReason(currentChapter) : '';
-                
+
                 return (
                   <Tooltip title={!canGenerate ? disabledReason : '根据大纲和前置章节内容创作'}>
                     <Button
@@ -2074,10 +2092,10 @@ export default function Chapters() {
           visible={analysisVisible}
           onClose={() => {
             setAnalysisVisible(false);
-            
+
             // 刷新章节列表以显示最新内容
             refreshChapters();
-            
+
             // 刷新项目信息以更新字数统计
             if (currentProject) {
               projectApi.getProject(currentProject.id)
@@ -2088,11 +2106,11 @@ export default function Chapters() {
                   console.error('刷新项目信息失败:', error);
                 });
             }
-            
+
             // 延迟500ms后刷新该章节的分析状态，给后端足够时间完成数据库写入
             if (analysisChapterId) {
               const chapterIdToRefresh = analysisChapterId;
-              
+
               setTimeout(() => {
                 fetch(`/api/chapters/${chapterIdToRefresh}/analysis/status`)
                   .then(response => {
@@ -2106,7 +2124,7 @@ export default function Chapters() {
                       ...prev,
                       [chapterIdToRefresh]: task
                     }));
-                    
+
                     // 如果任务正在运行，启动轮询
                     if (task.status === 'pending' || task.status === 'running') {
                       startPollingTask(chapterIdToRefresh);
@@ -2134,7 +2152,7 @@ export default function Chapters() {
                   });
               }, 500);
             }
-            
+
             setAnalysisChapterId(null);
           }}
         />
@@ -2429,7 +2447,7 @@ export default function Chapters() {
         } catch (error) {
           console.error('解析规划数据失败:', error);
         }
-        
+
         return (
           <ExpansionPlanEditor
             visible={planEditorVisible}

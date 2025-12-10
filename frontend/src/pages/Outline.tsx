@@ -6,13 +6,13 @@ import { useOutlineSync } from '../store/hooks';
 import { cardStyles } from '../components/CardStyles';
 import { SSEPostClient } from '../utils/sseClient';
 import { SSEProgressModal } from '../components/SSEProgressModal';
-import { outlineApi, chapterApi } from '../services/api';
+import { outlineApi, chapterApi, projectApi } from '../services/api';
 import type { OutlineExpansionResponse, BatchOutlineExpansionResponse } from '../types';
 
 const { TextArea } = Input;
 
 export default function Outline() {
-  const { currentProject, outlines } = useStore();
+  const { currentProject, outlines, setCurrentProject } = useStore();
   const [isGenerating, setIsGenerating] = useState(false);
   const [editForm] = Form.useForm();
   const [generateForm] = Form.useForm();
@@ -142,8 +142,12 @@ export default function Outline() {
     try {
       await deleteOutline(id);
       message.success('删除成功');
-      // 删除后刷新大纲列表，确保显示最新的顺序
+      // 删除后刷新大纲列表和项目信息，更新字数显示
       await refreshOutlines();
+      if (currentProject?.id) {
+        const updatedProject = await projectApi.getProject(currentProject.id);
+        setCurrentProject(updatedProject);
+      }
     } catch {
       message.error('删除失败');
     }
@@ -745,7 +749,12 @@ export default function Outline() {
       await Promise.all(deletePromises);
       
       message.success(`已删除《${outlineTitle}》展开的所有 ${chapters.length} 个章节`);
-      refreshOutlines();
+      await refreshOutlines();
+      // 刷新项目信息以更新字数显示
+      if (currentProject?.id) {
+        const updatedProject = await projectApi.getProject(currentProject.id);
+        setCurrentProject(updatedProject);
+      }
     } catch (error: any) {
       message.error(error.response?.data?.detail || '删除章节失败');
     }

@@ -279,9 +279,20 @@ async def delete_outline(
     project_id = outline.project_id
     deleted_order = outline.order_index
     
-    # 根据项目模式删除对应的章节
+    # 获取要删除的章节并计算总字数
+    deleted_word_count = 0
     if project.outline_mode == 'one-to-one':
-        # one-to-one模式：通过chapter_number删除对应章节
+        # one-to-one模式：通过chapter_number获取对应章节
+        chapters_result = await db.execute(
+            select(Chapter).where(
+                Chapter.project_id == project_id,
+                Chapter.chapter_number == outline.order_index
+            )
+        )
+        chapters_to_delete = chapters_result.scalars().all()
+        deleted_word_count = sum(ch.word_count or 0 for ch in chapters_to_delete)
+        
+        # 删除章节
         delete_result = await db.execute(
             delete(Chapter).where(
                 Chapter.project_id == project_id,
@@ -289,14 +300,26 @@ async def delete_outline(
             )
         )
         deleted_chapters_count = delete_result.rowcount
-        logger.info(f"一对一模式：删除大纲 {outline_id}（序号{outline.order_index}），同时删除了第{outline.order_index}章（{deleted_chapters_count}个章节）")
+        logger.info(f"一对一模式：删除大纲 {outline_id}（序号{outline.order_index}），同时删除了第{outline.order_index}章（{deleted_chapters_count}个章节，{deleted_word_count}字）")
     else:
-        # one-to-many模式：通过outline_id删除关联章节
+        # one-to-many模式：通过outline_id获取关联章节
+        chapters_result = await db.execute(
+            select(Chapter).where(Chapter.outline_id == outline_id)
+        )
+        chapters_to_delete = chapters_result.scalars().all()
+        deleted_word_count = sum(ch.word_count or 0 for ch in chapters_to_delete)
+        
+        # 删除章节
         delete_result = await db.execute(
             delete(Chapter).where(Chapter.outline_id == outline_id)
         )
         deleted_chapters_count = delete_result.rowcount
-        logger.info(f"一对多模式：删除大纲 {outline_id}，同时删除了 {deleted_chapters_count} 个关联章节")
+        logger.info(f"一对多模式：删除大纲 {outline_id}，同时删除了 {deleted_chapters_count} 个关联章节（{deleted_word_count}字）")
+    
+    # 更新项目字数
+    if deleted_word_count > 0:
+        project.current_words = max(0, project.current_words - deleted_word_count)
+        logger.info(f"更新项目字数：减少 {deleted_word_count} 字")
     
     # 删除大纲
     await db.delete(outline)
@@ -530,12 +553,24 @@ async def _generate_new_outline(
     
     from sqlalchemy import delete as sql_delete
     
-    # 先删除所有旧章节（无论是一对一还是一对多模式）
+    # 先获取所有旧章节并计算总字数
+    old_chapters_result = await db.execute(
+        select(Chapter).where(Chapter.project_id == project.id)
+    )
+    old_chapters = old_chapters_result.scalars().all()
+    deleted_word_count = sum(ch.word_count or 0 for ch in old_chapters)
+    
+    # 删除所有旧章节（无论是一对一还是一对多模式）
     delete_result = await db.execute(
         sql_delete(Chapter).where(Chapter.project_id == project.id)
     )
     deleted_chapters_count = delete_result.rowcount
-    logger.info(f"✅ 全新生成：删除了 {deleted_chapters_count} 个旧章节")
+    logger.info(f"✅ 全新生成：删除了 {deleted_chapters_count} 个旧章节（{deleted_word_count}字）")
+    
+    # 更新项目字数
+    if deleted_word_count > 0:
+        project.current_words = max(0, project.current_words - deleted_word_count)
+        logger.info(f"更新项目字数：减少 {deleted_word_count} 字")
     
     # 再删除所有旧大纲
     delete_outline_result = await db.execute(
@@ -1156,12 +1191,24 @@ async def new_outline_generator(
         
         from sqlalchemy import delete as sql_delete
         
-        # 先删除所有旧章节
+        # 先获取所有旧章节并计算总字数
+        old_chapters_result = await db.execute(
+            select(Chapter).where(Chapter.project_id == project_id)
+        )
+        old_chapters = old_chapters_result.scalars().all()
+        deleted_word_count = sum(ch.word_count or 0 for ch in old_chapters)
+        
+        # 删除所有旧章节
         delete_chapters_result = await db.execute(
             sql_delete(Chapter).where(Chapter.project_id == project_id)
         )
         deleted_chapters_count = delete_chapters_result.rowcount
-        logger.info(f"✅ 全新生成：删除了 {deleted_chapters_count} 个旧章节")
+        logger.info(f"✅ 全新生成：删除了 {deleted_chapters_count} 个旧章节（{deleted_word_count}字）")
+        
+        # 更新项目字数
+        if deleted_word_count > 0:
+            project.current_words = max(0, project.current_words - deleted_word_count)
+            logger.info(f"更新项目字数：减少 {deleted_word_count} 字")
         
         # 再删除所有旧大纲
         delete_outlines_result = await db.execute(

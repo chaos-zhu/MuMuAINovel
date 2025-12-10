@@ -127,3 +127,7 @@ body {
     justify-content: center;
   }
 }
+
+.ant-tabs-dropdown {
+  z-index: 2000 !important;
+}
