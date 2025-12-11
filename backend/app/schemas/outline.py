@@ -1,7 +1,38 @@
 """大纲相关的Pydantic模型"""
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List, Dict, Any
 from datetime import datetime
+
+
+# 角色预测相关Schema
+class CharacterPredictionRequest(BaseModel):
+    """角色预测请求"""
+    project_id: str
+    start_chapter: int
+    chapter_count: int = 3
+    plot_stage: str = "development"
+    story_direction: Optional[str] = "自然延续"
+    enable_mcp: bool = True
+
+
+class PredictedCharacter(BaseModel):
+    """预测的角色信息"""
+    name: Optional[str] = None
+    role_description: str
+    suggested_role_type: str
+    importance: str
+    appearance_chapter: int
+    key_abilities: List[str] = []
+    plot_function: str
+    relationship_suggestions: List[Dict[str, str]] = []
+
+
+class CharacterPredictionResponse(BaseModel):
+    """角色预测响应"""
+    needs_new_characters: bool
+    reason: str
+    character_count: int
+    predicted_characters: List[PredictedCharacter]
 
 
 class OutlineBase(BaseModel):
@@ -62,6 +93,8 @@ class OutlineGenerateRequest(BaseModel):
     plot_stage: str = Field("development", description="情节阶段: development(发展), climax(高潮), ending(结局)")
     keep_existing: bool = Field(False, description="是否保留现有大纲(续写时)")
     enable_mcp: bool = Field(True, description="是否启用MCP工具增强（搜索情节设计参考）")
+    enable_auto_characters: bool = Field(True, description="是否启用自动角色引入（根据剧情推进自动创建新角色）")
+    confirmed_characters: Optional[List[Dict[str, Any]]] = Field(None, description="用户确认的角色列表（跳过预测直接创建）")
 
 
 class ChapterOutlineGenerateRequest(BaseModel):

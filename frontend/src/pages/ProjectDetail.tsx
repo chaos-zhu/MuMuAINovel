@@ -14,6 +14,7 @@ import {
   BankOutlined,
   EditOutlined,
   FundOutlined,
+  HeartOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../store';
 import { useCharacterSync, useOutlineSync, useChapterSync } from '../store/hooks';
@@ -66,7 +67,7 @@ export default function ProjectDetail() {
         // 加载项目基本信息
         const project = await projectApi.getProject(id);
         setCurrentProject(project);
-        
+
         // 并行加载其他数据
         await Promise.all([
           refreshOutlines(id),
@@ -138,6 +139,11 @@ export default function ProjectDetail() {
     //   icon: <ToolOutlined />,
     //   label: <Link to={`/project/${projectId}/polish`}>AI去味</Link>,
     // },
+    {
+      key: 'sponsor',
+      icon: <HeartOutlined />,
+      label: <Link to={`/project/${projectId}/sponsor`}>赞助支持</Link>,
+    },
   ];
 
   // 根据当前路径动态确定选中的菜单项
@@ -151,6 +157,7 @@ export default function ProjectDetail() {
     if (path.includes('/chapter-analysis')) return 'chapter-analysis';
     if (path.includes('/chapters')) return 'chapters';
     if (path.includes('/writing-styles')) return 'writing-styles';
+    if (path.includes('/sponsor')) return 'sponsor';
     // if (path.includes('/polish')) return 'polish';
     return 'world-setting'; // 默认选中世界设定
   }, [location.pathname]);
@@ -227,7 +234,7 @@ export default function ProjectDetail() {
             </Button>
           )}
         </div>
-        
+
         <h2 style={{
           margin: 0,
           color: '#fff',
@@ -247,7 +254,7 @@ export default function ProjectDetail() {
         }}>
           {currentProject.title}
         </h2>
-        
+
         {mobile && (
           <Button
             type="text"
@@ -264,94 +271,94 @@ export default function ProjectDetail() {
             主页
           </Button>
         )}
-        
+
         {!mobile && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', zIndex: 1 }}>
             <Row gutter={12} style={{ width: '450px', justifyContent: 'flex-end' }}>
-            <Col>
-              <Card
-                size="small"
-                style={{
-                  background: 'rgba(255,255,255,0.95)',
-                  borderRadius: '6px',
-                  border: 'none',
-                  minWidth: '80px',
-                  textAlign: 'center',
-                  padding: '4px 8px'
-                }}
-                styles={{ body: { padding: '8px' } }}
-              >
-                <Statistic
-                  title={<span style={{ fontSize: '11px', color: '#666' }}>大纲</span>}
-                  value={outlines.length}
-                  suffix="条"
-                  valueStyle={{ fontSize: '16px', fontWeight: 600, color: '#667eea' }}
-                />
-              </Card>
-            </Col>
-            <Col>
-              <Card
-                size="small"
-                style={{
-                  background: 'rgba(255,255,255,0.95)',
-                  borderRadius: '6px',
-                  border: 'none',
-                  minWidth: '80px',
-                  textAlign: 'center',
-                  padding: '4px 8px'
-                }}
-                styles={{ body: { padding: '8px' } }}
-              >
-                <Statistic
-                  title={<span style={{ fontSize: '11px', color: '#666' }}>角色</span>}
-                  value={characters.length}
-                  suffix="个"
-                  valueStyle={{ fontSize: '16px', fontWeight: 600, color: '#52c41a' }}
-                />
-              </Card>
-            </Col>
-            <Col>
-              <Card
-                size="small"
-                style={{
-                  background: 'rgba(255,255,255,0.95)',
-                  borderRadius: '6px',
-                  border: 'none',
-                  minWidth: '80px',
-                  textAlign: 'center',
-                  padding: '4px 8px'
-                }}
-                styles={{ body: { padding: '8px' } }}
-              >
-                <Statistic
-                  title={<span style={{ fontSize: '11px', color: '#666' }}>章节</span>}
-                  value={chapters.length}
-                  suffix="章"
-                  valueStyle={{ fontSize: '16px', fontWeight: 600, color: '#1890ff' }}
-                />
-              </Card>
-            </Col>
-            <Col>
-              <Card
-                size="small"
-                style={{
-                  background: 'rgba(255,255,255,0.95)',
-                  borderRadius: '6px',
-                  border: 'none',
-                  minWidth: '80px',
-                  textAlign: 'center',
-                  padding: '4px 8px'
-                }}
-                styles={{ body: { padding: '8px' } }}
-              >
-                <Statistic
-                  title={<span style={{ fontSize: '11px', color: '#666' }}>已写</span>}
-                  value={currentProject.current_words}
-                  suffix="字"
-                  valueStyle={{ fontSize: '16px', fontWeight: 600, color: '#fa8c16' }}
-                />
-              </Card>
-            </Col>
+              <Col>
+                <Card
+                  size="small"
+                  style={{
+                    background: 'rgba(255,255,255,0.95)',
+                    borderRadius: '6px',
+                    border: 'none',
+                    minWidth: '80px',
+                    textAlign: 'center',
+                    padding: '4px 8px'
+                  }}
+                  styles={{ body: { padding: '8px' } }}
+                >
+                  <Statistic
+                    title={<span style={{ fontSize: '11px', color: '#666' }}>大纲</span>}
+                    value={outlines.length}
+                    suffix="条"
+                    valueStyle={{ fontSize: '16px', fontWeight: 600, color: '#667eea' }}
+                  />
+                </Card>
+              </Col>
+              <Col>
+                <Card
+                  size="small"
+                  style={{
+                    background: 'rgba(255,255,255,0.95)',
+                    borderRadius: '6px',
+                    border: 'none',
+                    minWidth: '80px',
+                    textAlign: 'center',
+                    padding: '4px 8px'
+                  }}
+                  styles={{ body: { padding: '8px' } }}
+                >
+                  <Statistic
+                    title={<span style={{ fontSize: '11px', color: '#666' }}>角色</span>}
+                    value={characters.length}
+                    suffix="个"
+                    valueStyle={{ fontSize: '16px', fontWeight: 600, color: '#52c41a' }}
+                  />
+                </Card>
+              </Col>
+              <Col>
+                <Card
+                  size="small"
+                  style={{
+                    background: 'rgba(255,255,255,0.95)',
+                    borderRadius: '6px',
+                    border: 'none',
+                    minWidth: '80px',
+                    textAlign: 'center',
+                    padding: '4px 8px'
+                  }}
+                  styles={{ body: { padding: '8px' } }}
+                >
+                  <Statistic
+                    title={<span style={{ fontSize: '11px', color: '#666' }}>章节</span>}
+                    value={chapters.length}
+                    suffix="章"
+                    valueStyle={{ fontSize: '16px', fontWeight: 600, color: '#1890ff' }}
+                  />
+                </Card>
+              </Col>
+              <Col>
+                <Card
+                  size="small"
+                  style={{
+                    background: 'rgba(255,255,255,0.95)',
+                    borderRadius: '6px',
+                    border: 'none',
+                    minWidth: '80px',
+                    textAlign: 'center',
+                    padding: '4px 8px'
+                  }}
+                  styles={{ body: { padding: '8px' } }}
+                >
+                  <Statistic
+                    title={<span style={{ fontSize: '11px', color: '#666' }}>已写</span>}
+                    value={currentProject.current_words}
+                    suffix="字"
+                    valueStyle={{ fontSize: '16px', fontWeight: 600, color: '#fa8c16' }}
+                  />
+                </Card>
+              </Col>
             </Row>
           </div>
         )}
@@ -371,23 +378,23 @@ export default function ProjectDetail() {
           </Drawer>
         ) : (
           <Sider
-          collapsible
-          collapsed={collapsed}
-          onCollapse={setCollapsed}
-          trigger={null}
-          width={220}
-          collapsedWidth={60}
-          style={{
-            background: '#fff',
-            position: 'fixed',
-            left: 0,
-            top: 70,
-            bottom: 0,
-            overflow: 'hidden',
-            boxShadow: '2px 0 12px rgba(0,0,0,0.08)',
-            transition: 'all 0.2s',
-            height: 'calc(100vh - 70px)'
-          }}
+            collapsible
+            collapsed={collapsed}
+            onCollapse={setCollapsed}
+            trigger={null}
+            width={220}
+            collapsedWidth={60}
+            style={{
+              background: '#fff',
+              position: 'fixed',
+              left: 0,
+              top: 70,
+              bottom: 0,
+              overflow: 'hidden',
+              boxShadow: '2px 0 12px rgba(0,0,0,0.08)',
+              transition: 'all 0.2s',
+              height: 'calc(100vh - 70px)'
+            }}
           >
             <div style={{
               height: '100%',

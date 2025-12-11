@@ -72,11 +72,11 @@ api.interceptors.response.use(
   },
   (error) => {
     let errorMessage = '请求失败';
-    
+
     if (error.response) {
       const status = error.response.status;
       const data = error.response.data;
-      
+
       switch (status) {
         case 400:
           errorMessage = data?.detail || '请求参数错误';
@@ -113,54 +113,54 @@ api.interceptors.response.use(
     } else {
       errorMessage = error.message || '请求失败';
     }
-    
+
     message.error(errorMessage);
     console.error('API Error:', errorMessage, error);
-    
+
     return Promise.reject(error);
   }
 );
 
 export const authApi = {
   getAuthConfig: () => api.get<unknown, { local_auth_enabled: boolean; linuxdo_enabled: boolean }>('/auth/config'),
-  
+
   localLogin: (username: string, password: string) =>
     api.post<unknown, { success: boolean; message: string; user: User }>('/auth/local/login', { username, password }),
-  
+
   bindAccountLogin: (username: string, password: string) =>
     api.post<unknown, { success: boolean; message: string; user: User }>('/auth/bind/login', { username, password }),
-  
+
   getLinuxDOAuthUrl: () => api.get<unknown, AuthUrlResponse>('/auth/linuxdo/url'),
-  
+
   getCurrentUser: () => api.get<unknown, User>('/auth/user'),
-  
+
   getPasswordStatus: () => api.get<unknown, {
     has_password: boolean;
     has_custom_password: boolean;
     username: string | null;
     default_password: string | null;
   }>('/auth/password/status'),
-  
+
   setPassword: (password: string) =>
     api.post<unknown, { success: boolean; message: string }>('/auth/password/set', { password }),
-  
+
   refreshSession: () => api.post<unknown, { message: string; expire_at: number; remaining_minutes: number }>('/auth/refresh'),
-  
+
   logout: () => api.post('/auth/logout'),
 };
 
 export const userApi = {
   getCurrentUser: () => api.get<unknown, User>('/users/current'),
-  
+
   listUsers: () => api.get<unknown, User[]>('/users'),
-  
+
   setAdmin: (userId: string, isAdmin: boolean) =>
     api.post('/users/set-admin', { user_id: userId, is_admin: isAdmin }),
-  
+
   deleteUser: (userId: string) => api.delete(`/users/${userId}`),
-  
+
   getUser: (userId: string) => api.get<unknown, User>(`/users/${userId}`),
-  
+
   resetPassword: (userId: string, newPassword?: string) =>
     api.post<unknown, {
       message: string;
@@ -172,18 +172,18 @@ export const userApi = {
 
 export const settingsApi = {
   getSettings: () => api.get<unknown, Settings>('/settings'),
-  
+
   saveSettings: (data: SettingsUpdate) =>
     api.post<unknown, Settings>('/settings', data),
-  
+
   updateSettings: (data: SettingsUpdate) =>
     api.put<unknown, Settings>('/settings', data),
-  
+
   deleteSettings: () => api.delete<unknown, { message: string; user_id: string }>('/settings'),
-  
+
   getAvailableModels: (params: { api_key: string; api_base_url: string; provider: string }) =>
     api.get<unknown, { provider: string; models: Array<{ value: string; label: string; description: string }>; count?: number }>('/settings/models', { params }),
-  
+
   testApiConnection: (params: { api_key: string; api_base_url: string; provider: string; llm_model: string }) =>
     api.post<unknown, {
       success: boolean;
@@ -201,20 +201,20 @@ export const settingsApi = {
 
 export const projectApi = {
   getProjects: () => api.get<unknown, Project[]>('/projects'),
-  
+
   getProject: (id: string) => api.get<unknown, Project>(`/projects/${id}`),
-  
+
   createProject: (data: ProjectCreate) => api.post<unknown, Project>('/projects', data),
-  
+
   updateProject: (id: string, data: ProjectUpdate) =>
     api.put<unknown, Project>(`/projects/${id}`, data),
-  
+
   deleteProject: (id: string) => api.delete(`/projects/${id}`),
-  
+
   exportProject: (id: string) => {
     window.open(`/api/projects/${id}/export`, '_blank');
   },
-  
+
   // 导出项目数据为JSON
   exportProjectData: async (id: string, options: { include_generation_history?: boolean; include_writing_styles?: boolean }) => {
     const response = await axios.post(
@@ -227,7 +227,7 @@ export const projectApi = {
         },
       }
     );
-    
+
     // 从响应头获取文件名
     const contentDisposition = response.headers['content-disposition'];
     let filename = 'project_export.json';
@@ -237,7 +237,7 @@ export const projectApi = {
         filename = decodeURIComponent(matches[1]);
       }
     }
-    
+
     // 创建下载链接
     const url = window.URL.createObjectURL(new Blob([response.data]));
     const link = document.createElement('a');
@@ -248,7 +248,7 @@ export const projectApi = {
     link.remove();
     window.URL.revokeObjectURL(url);
   },
-  
+
   // 验证导入文件
   validateImportFile: (file: File) => {
     const formData = new FormData();
@@ -264,7 +264,7 @@ export const projectApi = {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
-  
+
   // 导入项目
   importProject: (file: File) => {
     const formData = new FormData();
@@ -284,22 +284,51 @@ export const projectApi = {
 export const outlineApi = {
   getOutlines: (projectId: string) =>
     api.get<unknown, { total: number; items: Outline[] }>(`/outlines/project/${projectId}`).then(res => res.items),
-  
+
   getOutline: (id: string) => api.get<unknown, Outline>(`/outlines/${id}`),
-  
+
   createOutline: (data: OutlineCreate) => api.post<unknown, Outline>('/outlines', data),
-  
+
   updateOutline: (id: string, data: OutlineUpdate) =>
     api.put<unknown, Outline>(`/outlines/${id}`, data),
-  
+
   deleteOutline: (id: string) => api.delete(`/outlines/${id}`),
-  
+
   reorderOutlines: (data: OutlineReorderRequest) =>
     api.post<unknown, { message: string; updated_outlines: number; updated_chapters: number }>('/outlines/reorder', data),
-  
+
   generateOutline: (data: GenerateOutlineRequest) =>
     api.post<unknown, { total: number; items: Outline[] }>('/outlines/generate', data).then(res => res.items),
-  
+
+  // 预测续写所需角色
+  predictCharacters: (data: {
+    project_id: string;
+    start_chapter: number;
+    chapter_count: number;
+    plot_stage: string;
+    story_direction?: string;
+    enable_mcp: boolean;
+  }) =>
+    api.post<unknown, {
+      needs_new_characters: boolean;
+      reason: string;
+      character_count: number;
+      predicted_characters: Array<{
+        name: string | null;
+        role_description: string;
+        suggested_role_type: string;
+        importance: string;
+        appearance_chapter: number;
+        key_abilities: string[];
+        plot_function: string;
+        relationship_suggestions: Array<{
+          target_character_name: string;
+          relationship_type: string;
+          description?: string;
+        }>;
+      }>;
+    }>('/outlines/predict-characters', data),
+
   // 获取大纲关联的章节
   getOutlineChapters: (outlineId: string) =>
     api.get<unknown, {
@@ -333,11 +362,11 @@ export const outlineApi = {
         }> | null;
       }> | null;
     }>(`/outlines/${outlineId}/chapters`),
-  
+
   // 单个大纲展开为多章
   expandOutline: (outlineId: string, data: OutlineExpansionRequest) =>
     api.post<unknown, OutlineExpansionResponse>(`/outlines/${outlineId}/expand`, data),
-  
+
   // 根据已有规划创建章节（避免重复AI调用）
   createChaptersFromPlans: (outlineId: string, chapterPlans: any[]) =>
     api.post<unknown, {
@@ -354,7 +383,7 @@ export const outlineApi = {
         status: string;
       }>;
     }>(`/outlines/${outlineId}/create-chapters-from-plans`, { chapter_plans: chapterPlans }),
-  
+
   // 批量展开大纲
   batchExpandOutlines: (data: BatchOutlineExpansionRequest) =>
     api.post<unknown, BatchOutlineExpansionResponse>('/outlines/batch-expand', data),
@@ -363,9 +392,9 @@ export const outlineApi = {
 export const characterApi = {
   getCharacters: (projectId: string) =>
     api.get<unknown, Character[]>(`/characters/project/${projectId}`),
-  
+
   getCharacter: (id: string) => api.get<unknown, Character>(`/characters/${id}`),
-  
+
   createCharacter: (data: {
     project_id: string;
     name: string;
@@ -388,12 +417,12 @@ export const characterApi = {
     color?: string;
   }) =>
     api.post<unknown, Character>('/characters', data),
-  
+
   updateCharacter: (id: string, data: CharacterUpdate) =>
     api.put<unknown, Character>(`/characters/${id}`, data),
-  
+
   deleteCharacter: (id: string) => api.delete(`/characters/${id}`),
-  
+
   generateCharacter: (data: GenerateCharacterRequest) =>
     api.post<unknown, Character>('/characters/generate', data),
 };
@@ -401,19 +430,19 @@ export const characterApi = {
 export const chapterApi = {
   getChapters: (projectId: string) =>
     api.get<unknown, Chapter[]>(`/chapters/project/${projectId}`),
-  
+
   getChapter: (id: string) => api.get<unknown, Chapter>(`/chapters/${id}`),
-  
+
   createChapter: (data: ChapterCreate) => api.post<unknown, Chapter>('/chapters', data),
-  
+
   updateChapter: (id: string, data: ChapterUpdate) =>
     api.put<unknown, Chapter>(`/chapters/${id}`, data),
-  
+
   deleteChapter: (id: string) => api.delete(`/chapters/${id}`),
-  
+
   checkCanGenerate: (chapterId: string) =>
     api.get<unknown, import('../types').ChapterCanGenerateResponse>(`/chapters/${chapterId}/can-generate`),
-  
+
   // 章节重新生成相关
   getRegenerationTasks: (chapterId: string, limit?: number) =>
     api.get<unknown, {
@@ -436,31 +465,31 @@ export const writingStyleApi = {
   // 获取预设风格列表
   getPresetStyles: () =>
     api.get<unknown, PresetStyle[]>('/writing-styles/presets/list'),
-  
+
   // 获取用户的所有风格（新接口）
   getUserStyles: () =>
     api.get<unknown, WritingStyleListResponse>('/writing-styles/user'),
-  
+
   // 获取项目的所有风格（保留向后兼容）
   getProjectStyles: (projectId: string) =>
     api.get<unknown, WritingStyleListResponse>(`/writing-styles/project/${projectId}`),
-  
+
   // 创建新风格（基于预设或自定义）
   createStyle: (data: WritingStyleCreate) =>
     api.post<unknown, WritingStyle>('/writing-styles', data),
-  
+
   // 更新风格
   updateStyle: (styleId: number, data: WritingStyleUpdate) =>
     api.put<unknown, WritingStyle>(`/writing-styles/${styleId}`, data),
-  
+
   // 删除风格
   deleteStyle: (styleId: number) =>
     api.delete<unknown, { message: string }>(`/writing-styles/${styleId}`),
-  
+
   // 设置默认风格
   setDefaultStyle: (styleId: number, projectId: string) =>
     api.post<unknown, WritingStyle>(`/writing-styles/${styleId}/set-default`, { project_id: projectId }),
-  
+
   // 为项目初始化默认风格（如果没有任何风格）
   initializeDefaultStyles: (projectId: string) =>
     api.post<unknown, WritingStyleListResponse>(`/writing-styles/project/${projectId}/initialize`, {}),
@@ -469,7 +498,7 @@ export const writingStyleApi = {
 export const polishApi = {
   polishText: (data: PolishTextRequest) =>
     api.post<unknown, { polished_text: string }>('/polish', data),
-  
+
   polishBatch: (texts: string[]) =>
     api.post<unknown, { polished_texts: string[] }>('/polish/batch', { texts }),
 };
@@ -488,7 +517,7 @@ export const inspirationApi = {
       options: string[];
       error?: string;
     }>('/inspiration/generate-options', data),
-  
+
   // 智能补全缺失信息
   quickGenerate: (data: {
     title?: string;
@@ -607,39 +636,39 @@ export const mcpPluginApi = {
   // 获取所有插件
   getPlugins: () =>
     api.get<unknown, MCPPlugin[]>('/mcp/plugins'),
-  
+
   // 获取单个插件
   getPlugin: (id: string) =>
     api.get<unknown, MCPPlugin>(`/mcp/plugins/${id}`),
-  
+
   // 创建插件
   createPlugin: (data: MCPPluginCreate) =>
     api.post<unknown, MCPPlugin>('/mcp/plugins', data),
-  
+
   // 简化创建插件（通过标准MCP配置JSON）
   createPluginSimple: (data: MCPPluginSimpleCreate) =>
     api.post<unknown, MCPPlugin>('/mcp/plugins/simple', data),
-  
+
   // 更新插件
   updatePlugin: (id: string, data: MCPPluginUpdate) =>
     api.put<unknown, MCPPlugin>(`/mcp/plugins/${id}`, data),
-  
+
   // 删除插件
   deletePlugin: (id: string) =>
     api.delete<unknown, { message: string }>(`/mcp/plugins/${id}`),
-  
+
   // 启用/禁用插件
   togglePlugin: (id: string, enabled: boolean) =>
     api.post<unknown, MCPPlugin>(`/mcp/plugins/${id}/toggle`, null, { params: { enabled } }),
-  
+
   // 测试插件连接
   testPlugin: (id: string) =>
     api.post<unknown, MCPTestResult>(`/mcp/plugins/${id}/test`),
-  
+
   // 获取插件工具列表
   getPluginTools: (id: string) =>
     api.get<unknown, { tools: MCPTool[] }>(`/mcp/plugins/${id}/tools`),
-  
+
   // 调用工具
   callTool: (data: MCPToolCallRequest) =>
     api.post<unknown, MCPToolCallResponse>('/mcp/call', data),
@@ -650,7 +679,7 @@ export const adminApi = {
   // 获取用户列表
   getUsers: () =>
     api.get<unknown, { total: number; users: User[] }>('/admin/users'),
-  
+
   // 添加用户
   createUser: (data: {
     username: string;
@@ -666,7 +695,7 @@ export const adminApi = {
       user: User;
       default_password?: string;
     }>('/admin/users', data),
-  
+
   // 编辑用户
   updateUser: (userId: string, data: {
     display_name?: string;
@@ -678,7 +707,7 @@ export const adminApi = {
       message: string;
       user: User;
     }>(`/admin/users/${userId}`, data),
-  
+
   // 切换用户状态（启用/禁用）
   toggleUserStatus: (userId: string, isActive: boolean) =>
     api.post<unknown, {
@@ -686,7 +715,7 @@ export const adminApi = {
       message: string;
       is_active: boolean;
     }>(`/admin/users/${userId}/toggle-status`, { is_active: isActive }),
-  
+
   // 重置密码
   resetPassword: (userId: string, newPassword?: string) =>
     api.post<unknown, {
@@ -694,7 +723,7 @@ export const adminApi = {
       message: string;
       new_password: string;
     }>(`/admin/users/${userId}/reset-password`, { new_password: newPassword }),
-  
+
   // 删除用户
   deleteUser: (userId: string) =>
     api.delete<unknown, {

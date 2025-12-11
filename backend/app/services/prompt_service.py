@@ -1437,6 +1437,193 @@ class PromptService:
 3. 每个plot_summary必须是200-300字的详细描述
 4. 所有内容描述中严禁使用任何特殊符号"""
 
+    # 自动角色引入 - 预测性分析提示词（方案A）
+    AUTO_CHARACTER_ANALYSIS = """你是专业的小说角色设计顾问。请根据即将续写的剧情方向，预测是否需要引入新角色。
+
+【项目信息】
+- 书名：{title}
+- 类型：{genre}
+- 主题：{theme}
+
+【世界观】
+- 时间背景：{time_period}
+- 地理位置：{location}
+- 氛围基调：{atmosphere}
+
+【已有角色】
+{existing_characters}
+
+【已有章节概览】
+{all_chapters_brief}
+
+【续写计划】
+- 起始章节：第{start_chapter}章
+- 续写数量：{chapter_count}章
+- 剧情阶段：{plot_stage}
+- 发展方向：{story_direction}
+
+【预测性分析任务】
+请预测在接下来的{chapter_count}章中，根据剧情发展方向和阶段，是否需要引入新角色。
+
+**分析要点：**
+1. **剧情需求预测**：根据发展方向，哪些场景、冲突需要新角色参与
+2. **角色充分性**：现有角色是否足以支撑即将发生的剧情
+3. **引入时机**：新角色应该在哪个章节登场最合适
+4. **重要性判断**：新角色对后续剧情的影响程度
+
+**预测依据：**
+- 剧情阶段的典型角色需求（如：高潮阶段可能需要强力对手）
+- 故事发展方向的逻辑需要（如：进入新地点需要当地角色）
+- 冲突升级的角色需求（如：更强的反派、意外的盟友）
+- 世界观扩展的需要（如：新组织、新势力的代表）
+
+**如果需要新角色，请详细说明：**
+- 角色定位和作用
+- 建议的角色类型和重要性
+- 预计登场时机
+- 与现有角色的潜在关系
+
+**输出格式（纯JSON）：**
+{{
+  "needs_new_characters": true,
+  "reason": "预测分析原因（150-200字），说明为什么即将的剧情需要新角色",
+  "character_count": 2,
+  "character_specifications": [
+    {{
+      "name": "建议的角色名字（可选，如果有明确想法）",
+      "role_description": "角色在剧情中的定位和作用（100-150字）",
+      "suggested_role_type": "supporting/antagonist/protagonist",
+      "importance": "high/medium/low",
+      "appearance_chapter": {start_chapter},
+      "key_abilities": ["能力1", "能力2"],
+      "plot_function": "在剧情中的具体功能（如：作为主要对手、提供关键信息等）",
+      "relationship_suggestions": [
+        {{
+          "target_character": "现有角色名",
+          "relationship_type": "建议的关系类型",
+          "reason": "为什么建立这种关系"
+        }}
+      ]
+    }}
+  ]
+}}
+
+或者如果不需要新角色：
+{{
+  "needs_new_characters": false,
+  "reason": "现有角色足以支撑即将的剧情发展，说明理由"
+}}
+
+**重要提示：**
+- 这是预测性分析，不是基于已生成内容的事后分析
+- 要考虑剧情的自然发展和节奏
+- 不要为了引入角色而引入，确保必要性
+- 优先考虑角色的长期作用，而非一次性功能
+
+只返回纯JSON，不要有markdown标记或其他文字。"""
+
+    # 自动角色引入 - 生成提示词
+    AUTO_CHARACTER_GENERATION = """你是专业的角色设定师。请根据以下信息，为小说生成新角色的完整设定。
+
+【项目信息】
+- 书名：{title}
+- 类型：{genre}
+- 主题：{theme}
+
+【世界观】
+- 时间背景：{time_period}
+- 地理位置：{location}
+- 氛围基调：{atmosphere}
+- 世界规则：{rules}
+
+【已有角色】
+{existing_characters}
+
+【剧情上下文】
+{plot_context}
+
+【角色规格要求】
+{character_specification}
+
+【MCP工具参考】
+{mcp_references}
+
+【生成要求】
+1. 角色必须符合剧情需求和世界观设定
+2. **必须分析新角色与已有角色的关系**，至少建立1-3个有意义的关系
+3. 性格、背景要有深度和独特性
+4. 外貌描写要具体生动
+5. 特长和能力要符合角色定位
+
+**关系建立指导（非常重要）：**
+- 仔细审视【已有角色】列表，思考新角色与哪些现有角色有联系
+- 根据剧情需求，建立合理的角色关系（如：主角的新朋友、反派的手下、某角色的亲属等）
+- 每个关系都要有明确的类型、亲密度和描述
+- 关系应该服务于剧情发展，推动故事前进
+- 如果新角色是组织成员，记得填写organization_memberships
+
+**重要格式要求：**
+1. 只返回纯JSON格式，不要包含任何markdown标记或其他说明文字
+2. JSON字符串值中严禁使用特殊符号（引号、方括号、书名号等）
+3. 所有专有名词直接书写，不使用任何符号包裹
+
+请严格按照以下JSON格式返回：
+{{
+  "name": "角色姓名",
+  "age": 25,
+  "gender": "男/女/其他",
+  "role_type": "supporting",
+  "personality": "性格特点的详细描述（100-200字）",
+  "background": "背景故事的详细描述（100-200字）",
+  "appearance": "外貌描述（50-100字）",
+  "traits": ["特长1", "特长2", "特长3"],
+  "relationships_text": "用自然语言描述该角色与其他角色的关系网络",
+  
+  "relationships": [
+    {{
+      "target_character_name": "已存在的角色名称",
+      "relationship_type": "关系类型（如：朋友、师父、敌人、父亲等）",
+      "intimacy_level": 75,
+      "description": "关系的具体描述，说明他们如何认识、关系如何发展",
+      "status": "active"
+    }}
+  ],
+  "organization_memberships": [
+    {{
+      "organization_name": "已存在的组织名称",
+      "position": "职位",
+      "rank": 5,
+      "loyalty": 80
+    }}
+  ]
+}}
+
+**关系类型参考（从中选择或自定义）：**
+- 家族关系：父亲、母亲、兄弟、姐妹、子女、配偶、恋人、亲戚
+- 社交关系：师父、徒弟、朋友、挚友、同学、同事、邻居、知己、酒友
+- 职业关系：上司、下属、合作伙伴、客户、雇主、员工
+- 敌对关系：敌人、仇人、竞争对手、宿敌、死敌
+
+**重要说明：**
+1. **relationships数组必填**：至少要有1-3个与已有角色的关系（除非确实没有合理的关联）
+2. **target_character_name必须精确匹配**：只能引用【已有角色】列表中的角色名称
+3. organization_memberships只能引用已存在的组织名称
+4. intimacy_level是-100到100的整数：
+   - 80-100：至亲、挚友、深爱
+   - 50-79：亲密、友好
+   - 0-49：一般、普通
+   - -1到-49：不和、敌视
+   - -50到-100：仇恨、死敌
+5. loyalty是0-100的整数（仅用于组织成员）
+6. status默认为"active"，表示当前关系状态
+
+**关系建立示例：**
+- 如果新角色是主角的新队友，应该与主角建立"队友"或"朋友"关系
+- 如果新角色是反派的手下，应该与反派建立"上司-下属"关系
+- 如果新角色与某角色有血缘，应该建立家族关系
+
+只返回纯JSON对象，不要有```json```这样的标记。"""
+
     @staticmethod
     def format_prompt(template: str, **kwargs) -> str:
         """
@@ -2306,6 +2493,20 @@ class PromptService:
                 "category": "MCP增强",
                 "description": "使用MCP工具搜索资料辅助角色设计",
                 "parameters": ["title", "genre", "theme", "time_period", "location"]
+            },
+            "AUTO_CHARACTER_ANALYSIS": {
+                "name": "自动角色分析",
+                "category": "自动角色引入",
+                "description": "分析新生成的大纲，判断是否需要引入新角色",
+                "parameters": ["title", "genre", "theme", "time_period", "location", "atmosphere",
+                             "existing_characters", "new_outlines", "start_chapter", "end_chapter"]
+            },
+            "AUTO_CHARACTER_GENERATION": {
+                "name": "自动角色生成",
+                "category": "自动角色引入",
+                "description": "根据剧情需求自动生成新角色的完整设定",
+                "parameters": ["title", "genre", "theme", "time_period", "location", "atmosphere", "rules",
+                             "existing_characters", "plot_context", "character_specification", "mcp_references"]
             }
         }
         

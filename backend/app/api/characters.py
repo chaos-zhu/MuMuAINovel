@@ -960,6 +960,153 @@ async def generate_character_stream(
                     db.add(organization)
                     await db.flush()
             
+            # 处理结构化关系数据（仅针对非组织角色）
+            if not is_organization:
+                relationships_data = character_data.get("relationships", [])
+                if relationships_data and isinstance(relationships_data, list):
+                    logger.info(f"📊 开始处理 {len(relationships_data)} 条关系数据")
+                    created_rels = 0
+                    
+                    for rel in relationships_data:
+                        try:
+                            target_name = rel.get("target_character_name")
+                            if not target_name:
+                                logger.debug(f"  ⚠️  关系缺少target_character_name，跳过")
+                                continue
+                            
+                            target_result = await db.execute(
+                                select(Character).where(
+                                    Character.project_id == request.project_id,
+                                    Character.name == target_name
+                                )
+                            )
+                            target_char = target_result.scalar_one_or_none()
+                            
+                            if target_char:
+                                # 检查是否已存在相同关系
+                                existing_rel = await db.execute(
+                                    select(CharacterRelationship).where(
+                                        CharacterRelationship.project_id == request.project_id,
+                                        CharacterRelationship.character_from_id == character.id,
+                                        CharacterRelationship.character_to_id == target_char.id
+                                    )
+                                )
+                                if existing_rel.scalar_one_or_none():
+                                    logger.debug(f"  ℹ️  关系已存在：{character.name} -> {target_name}")
+                                    continue
+                                
+                                relationship = CharacterRelationship(
+                                    project_id=request.project_id,
+                                    character_from_id=character.id,
+                                    character_to_id=target_char.id,
+                                    relationship_name=rel.get("relationship_type", "未知关系"),
+                                    intimacy_level=rel.get("intimacy_level", 50),
+                                    description=rel.get("description", ""),
+                                    started_at=rel.get("started_at"),
+                                    source="ai"
+                                )
+                                
+                                # 匹配预定义关系类型
+                                rel_type_result = await db.execute(
+                                    select(RelationshipType).where(
+                                        RelationshipType.name == rel.get("relationship_type")
+                                    )
+                                )
+                                rel_type = rel_type_result.scalar_one_or_none()
+                                if rel_type:
+                                    relationship.relationship_type_id = rel_type.id
+                                
+                                db.add(relationship)
+                                created_rels += 1
+                                logger.info(f"  ✅ 创建关系：{character.name} -> {target_name} ({rel.get('relationship_type')})")
+                            else:
+                                logger.warning(f"  ⚠️  目标角色不存在：{target_name}")
+                                
+                        except Exception as rel_error:
+                            logger.warning(f"  ❌ 创建关系失败：{str(rel_error)}")
+                            continue
+                    
+                    logger.info(f"✅ 成功创建 {created_rels} 条关系记录")
+            
+            # 处理组织成员关系（仅针对非组织角色）
+            if not is_organization:
+                org_memberships = character_data.get("organization_memberships", [])
+                if org_memberships and isinstance(org_memberships, list):
+                    logger.info(f"🏢 开始处理 {len(org_memberships)} 条组织成员关系")
+                    created_members = 0
+                    
+                    for membership in org_memberships:
+                        try:
+                            org_name = membership.get("organization_name")
+                            if not org_name:
+                                logger.debug(f"  ⚠️  组织成员关系缺少organization_name，跳过")
+                                continue
+                            
+                            org_char_result = await db.execute(
+                                select(Character).where(
+                                    Character.project_id == request.project_id,
+                                    Character.name == org_name,
+                                    Character.is_organization == True
+                                )
+                            )
+                            org_char = org_char_result.scalar_one_or_none()
+                            
+                            if org_char:
+                                # 获取或创建Organization记录
+                                org_result = await db.execute(
+                                    select(Organization).where(Organization.character_id == org_char.id)
+                                )
+                                org = org_result.scalar_one_or_none()
+                                
+                                if not org:
+                                    # 如果组织Character存在但Organization不存在，自动创建
+                                    org = Organization(
+                                        character_id=org_char.id,
+                                        project_id=request.project_id,
+                                        member_count=0
+                                    )
+                                    db.add(org)
+                                    await db.flush()
+                                    logger.info(f"  ℹ️  自动创建缺失的组织详情：{org_name}")
+                                
+                                # 检查是否已存在成员关系
+                                existing_member = await db.execute(
+                                    select(OrganizationMember).where(
+                                        OrganizationMember.organization_id == org.id,
+                                        OrganizationMember.character_id == character.id
+                                    )
+                                )
+                                if existing_member.scalar_one_or_none():
+                                    logger.debug(f"  ℹ️  成员关系已存在：{character.name} -> {org_name}")
+                                    continue
+                                
+                                # 创建成员关系
+                                member = OrganizationMember(
+                                    organization_id=org.id,
+                                    character_id=character.id,
+                                    position=membership.get("position", "成员"),
+                                    rank=membership.get("rank", 0),
+                                    loyalty=membership.get("loyalty", 50),
+                                    joined_at=membership.get("joined_at"),
+                                    status=membership.get("status", "active"),
+                                    source="ai"
+                                )
+                                db.add(member)
+                                
+                                # 更新组织成员计数
+                                org.member_count += 1
+                                
+                                created_members += 1
+                                logger.info(f"  ✅ 添加成员：{character.name} -> {org_name} ({membership.get('position')})")
+                            else:
+                                logger.warning(f"  ⚠️  组织不存在：{org_name}")
+                                
+                        except Exception as org_error:
+                            logger.warning(f"  ❌ 添加组织成员失败：{str(org_error)}")
+                            continue
+                    
+                    logger.info(f"✅ 成功创建 {created_members} 条组织成员记录")
+            
             yield await SSEResponse.send_progress("保存生成历史...", 95)
             
             # 记录生成历史

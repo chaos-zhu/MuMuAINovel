@@ -22,7 +22,10 @@ from app.schemas.outline import (
     BatchOutlineExpansionRequest,
     BatchOutlineExpansionResponse,
     CreateChaptersFromPlansRequest,
-    CreateChaptersFromPlansResponse
+    CreateChaptersFromPlansResponse,
+    CharacterPredictionRequest,
+    PredictedCharacter,
+    CharacterPredictionResponse
 )
 from app.services.ai_service import AIService
 from app.services.prompt_service import prompt_service, PromptService
@@ -358,6 +361,107 @@ async def delete_outline(
         "deleted_chapters": deleted_chapters_count
     }
 
+
+
+@router.post("/predict-characters", summary="预测续写所需角色")
+async def predict_characters(
+    request_data: CharacterPredictionRequest,
+    http_request: Request,
+    db: AsyncSession = Depends(get_db),
+    user_ai_service: AIService = Depends(get_user_ai_service)
+):
+    """
+    预测续写大纲时可能需要的新角色
+    
+    用于角色确认机制的第一步：在生成大纲前预测角色需求
+    """
+    # 验证用户权限
+    user_id = getattr(http_request.state, 'user_id', None)
+    project = await verify_project_access(request_data.project_id, user_id, db)
+    
+    try:
+        # 获取现有大纲
+        existing_result = await db.execute(
+            select(Outline)
+            .where(Outline.project_id == request_data.project_id)
+            .order_by(Outline.order_index)
+        )
+        existing_outlines = existing_result.scalars().all()
+        
+        if not existing_outlines:
+            return CharacterPredictionResponse(
+                needs_new_characters=False,
+                reason="项目尚无大纲，无法预测角色需求",
+                character_count=0,
+                predicted_characters=[]
+            )
+        
+        # 获取现有角色
+        characters_result = await db.execute(
+            select(Character).where(Character.project_id == request_data.project_id)
+        )
+        characters = characters_result.scalars().all()
+        
+        # 构建已有章节概览
+        all_chapters_brief = ""
+        if len(existing_outlines) > 20:
+            recent_20 = existing_outlines[-20:]
+            all_chapters_brief = "\n".join([
+                f"第{o.order_index}章《{o.title}》"
+                for o in recent_20
+            ])
+        else:
+            all_chapters_brief = "\n".join([
+                f"第{o.order_index}章《{o.title}》"
+                for o in existing_outlines
+            ])
+        
+        # 调用自动角色服务进行预测
+        from app.services.auto_character_service import get_auto_character_service
+        
+        auto_char_service = get_auto_character_service(user_ai_service)
+        
+        # 使用预测模式（不创建角色，仅分析）
+        last_chapter_number = existing_outlines[-1].order_index
+        auto_result = await auto_char_service.analyze_and_create_characters(
+            project_id=request_data.project_id,
+            outline_content="",  # 预测模式不需要大纲内容
+            existing_characters=list(characters),
+            db=db,
+            user_id=user_id,
+            enable_mcp=request_data.enable_mcp,
+            all_chapters_brief=all_chapters_brief,
+            start_chapter=last_chapter_number + 1,
+            chapter_count=request_data.chapter_count,
+            plot_stage=request_data.plot_stage,
+            story_direction=request_data.story_direction,
+            preview_only=True  # 新增参数：仅预测不创建
+        )
+        
+        # 构建预测响应
+        predicted_characters = []
+        for char_data in auto_result.get("predicted_characters", []):
+            predicted_characters.append(PredictedCharacter(
+                name=char_data.get("name"),
+                role_description=char_data.get("role_description", ""),
+                suggested_role_type=char_data.get("suggested_role_type", "supporting"),
+                importance=char_data.get("importance", "medium"),
+                appearance_chapter=char_data.get("appearance_chapter", last_chapter_number + 1),
+                key_abilities=char_data.get("key_abilities", []),
+                plot_function=char_data.get("plot_function", ""),
+                relationship_suggestions=char_data.get("relationship_suggestions", [])
+            ))
+        
+        return CharacterPredictionResponse(
+            needs_new_characters=auto_result.get("needs_new_characters", False),
+            reason=auto_result.get("reason", ""),
+            character_count=len(predicted_characters),
+            predicted_characters=predicted_characters
+        )
+        
+    except Exception as e:
+        logger.error(f"角色预测失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"角色预测失败: {str(e)}")
 
 @router.post("/generate", response_model=OutlineListResponse, summary="AI生成/续写大纲")
 async def generate_outline(
@@ -696,8 +800,8 @@ async def _continue_outline(
     user_ai_service: AIService,
     user_id: str = "system"
 ) -> OutlineListResponse:
-    """续写大纲 - 分批生成，每批5章（记忆+MCP增强版）"""
-    logger.info(f"续写大纲 - 项目: {project.id}, 已有: {len(existing_outlines)} 章, enable_mcp: {request.enable_mcp}")
+    """续写大纲 - 分批生成，每批5章（记忆+MCP+自动角色引入增强版）"""
+    logger.info(f"续写大纲 - 项目: {project.id}, 已有: {len(existing_outlines)} 章, enable_mcp: {request.enable_mcp}, enable_auto_characters: {request.enable_auto_characters}")
     
     # 分析已有大纲
     current_chapter_count = len(existing_outlines)
@@ -728,6 +832,136 @@ async def _continue_outline(
         "ending": "解决主要冲突，收束伏笔，给出结局"
     }
     stage_instruction = stage_instructions.get(request.plot_stage, "")
+    
+    # 🎭 【方案A】先角色后大纲：在生成大纲前预测并创建角色
+    if request.enable_auto_characters:
+        # 检查是否有用户确认的角色列表
+        if request.confirmed_characters:
+            # 直接使用用户确认的角色列表创建角色
+            try:
+                from app.services.auto_character_service import get_auto_character_service
+                
+                logger.info(f"🎭 【确认模式】用户提供了 {len(request.confirmed_characters)} 个确认的角色，直接创建")
+                
+                auto_char_service = get_auto_character_service(user_ai_service)
+                
+                for char_data in request.confirmed_characters:
+                    try:
+                        # 生成角色详细信息
+                        character_data = await auto_char_service._generate_character_details(
+                            spec=char_data,
+                            project=project,
+                            existing_characters=list(characters),
+                            db=db,
+                            user_id=user_id,
+                            enable_mcp=request.enable_mcp
+                        )
+                        
+                        # 创建角色记录
+                        character = await auto_char_service._create_character_record(
+                            project_id=project.id,
+                            character_data=character_data,
+                            db=db
+                        )
+                        
+                        # 建立关系
+                        relationships_data = character_data.get("relationships") or character_data.get("relationships_array", [])
+                        if relationships_data:
+                            await auto_char_service._create_relationships(
+                                new_character=character,
+                                relationship_specs=relationships_data,
+                                existing_characters=list(characters),
+                                project_id=project.id,
+                                db=db
+                            )
+                        
+                        characters.append(character)
+                        logger.info(f"✅ 创建确认的角色: {character.name}")
+                        
+                    except Exception as e:
+                        logger.error(f"创建确认的角色失败: {e}", exc_info=True)
+                        continue
+                
+                # 提交角色到数据库
+                await db.commit()
+                
+                # 更新角色信息（供后续大纲生成使用）
+                characters_info = "\n".join([
+                    f"- {char.name} ({'组织' if char.is_organization else '角色'}, {char.role_type}): "
+                    f"{char.personality[:100] if char.personality else '暂无描述'}"
+                    for char in characters
+                ])
+                
+                logger.info(f"✅ 【确认模式】成功创建 {len(request.confirmed_characters)} 个用户确认的角色")
+                
+            except Exception as e:
+                logger.error(f"⚠️ 【确认模式】创建确认角色失败: {e}", exc_info=True)
+        else:
+            # 🔮 预测模式：仅预测角色，不自动创建，需要用户确认
+            # 抛出特殊异常，在非SSE接口中会被捕获并返回449状态码
+            # 在SSE接口中会被特殊处理
+            try:
+                from app.services.auto_character_service import get_auto_character_service
+                
+                logger.info(f"🔮 【预测模式】在生成大纲前预测是否需要新角色（需要用户确认）")
+                
+                # 构建已有章节概览
+                all_chapters_brief_for_analysis = ""
+                if len(existing_outlines) > 20:
+                    recent_20 = existing_outlines[-20:]
+                    all_chapters_brief_for_analysis = "\n".join([
+                        f"第{o.order_index}章《{o.title}》"
+                        for o in recent_20
+                    ])
+                else:
+                    all_chapters_brief_for_analysis = "\n".join([
+                        f"第{o.order_index}章《{o.title}》"
+                        for o in existing_outlines
+                    ])
+                
+                # 调用自动角色服务（✅ 设置 preview_only=True，仅预测不创建）
+                auto_char_service = get_auto_character_service(user_ai_service)
+                auto_result = await auto_char_service.analyze_and_create_characters(
+                    project_id=project.id,
+                    outline_content="",  # 预测模式不需要大纲内容
+                    existing_characters=list(characters),
+                    db=db,
+                    user_id=user_id,
+                    enable_mcp=request.enable_mcp,
+                    all_chapters_brief=all_chapters_brief_for_analysis,
+                    start_chapter=last_chapter_number + 1,
+                    chapter_count=total_chapters_to_generate,
+                    plot_stage=request.plot_stage,
+                    story_direction=request.story_direction or "自然延续",
+                    preview_only=True  # ✅ 关键修复：设置为True，仅预测不创建
+                )
+                
+                # 检查是否需要新角色
+                if auto_result.get("needs_new_characters") and auto_result.get("predicted_characters"):
+                    predicted_count = len(auto_result["predicted_characters"])
+                    logger.warning(
+                        f"⚠️ 【预测模式】AI预测需要 {predicted_count} 个新角色，需要用户确认！"
+                    )
+                    
+                    # 🚨 抛出特殊异常，包含预测的角色信息
+                    raise HTTPException(
+                        status_code=449,  # 449 Retry With
+                        detail={
+                            "code": "CHARACTER_CONFIRMATION_REQUIRED",
+                            "message": "续写需要引入新角色，请先确认角色信息",
+                            "predicted_characters": auto_result["predicted_characters"],
+                            "reason": auto_result.get("reason", "剧情发展需要新角色"),
+                            "chapter_range": f"第{last_chapter_number + 1}-{last_chapter_number + total_chapters_to_generate}章"
+                        }
+                    )
+                else:
+                    logger.info(f"✅ 【预测模式】AI判断无需引入新角色，继续生成大纲")
+                    
+            except HTTPException:
+                raise
+            except Exception as e:
+                logger.error(f"⚠️ 【方案A】预测性角色引入失败: {e}", exc_info=True)
+                # 不阻断大纲生成流程
     
     # 批量生成
     all_new_outlines = []
@@ -914,6 +1148,7 @@ async def _continue_outline(
         current_start_chapter += current_batch_size
         
         logger.info(f"第{batch_num + 1}批生成完成，本批生成{len(batch_outlines)}章")
+                
     
     # 返回所有大纲（包括旧的和新的）
     final_result = await db.execute(
@@ -1348,6 +1583,156 @@ async def continue_outline_generator(
             "ending": "解决主要冲突，收束伏笔，给出结局"
         }
         stage_instruction = stage_instructions.get(data.get("plot_stage", "development"), "")
+        
+        # 🎭 【方案A】先角色后大纲：在生成大纲前预测并创建角色
+        enable_auto_characters = data.get("enable_auto_characters", True)
+        confirmed_characters = data.get("confirmed_characters")
+        
+        if enable_auto_characters:
+            # 检查是否有用户确认的角色列表
+            if confirmed_characters:
+                # 直接使用用户确认的角色列表创建角色
+                try:
+                    yield await SSEResponse.send_progress(
+                        f"🎭 【确认模式】创建 {len(confirmed_characters)} 个用户确认的角色...",
+                        27
+                    )
+                    
+                    from app.services.auto_character_service import get_auto_character_service
+                    
+                    logger.info(f"🎭 【确认模式】用户提供了 {len(confirmed_characters)} 个确认的角色，直接创建")
+                    
+                    auto_char_service = get_auto_character_service(user_ai_service)
+                    
+                    created_count = 0
+                    for char_data in confirmed_characters:
+                        try:
+                            # 生成角色详细信息
+                            character_data = await auto_char_service._generate_character_details(
+                                spec=char_data,
+                                project=project,
+                                existing_characters=list(characters),
+                                db=db,
+                                user_id=user_id,
+                                enable_mcp=data.get("enable_mcp", True)
+                            )
+                            
+                            # 创建角色记录
+                            character = await auto_char_service._create_character_record(
+                                project_id=project_id,
+                                character_data=character_data,
+                                db=db
+                            )
+                            
+                            # 建立关系
+                            relationships_data = character_data.get("relationships") or character_data.get("relationships_array", [])
+                            if relationships_data:
+                                await auto_char_service._create_relationships(
+                                    new_character=character,
+                                    relationship_specs=relationships_data,
+                                    existing_characters=list(characters),
+                                    project_id=project_id,
+                                    db=db
+                                )
+                            
+                            characters.append(character)
+                            created_count += 1
+                            logger.info(f"✅ 创建确认的角色: {character.name}")
+                            
+                        except Exception as e:
+                            logger.error(f"创建确认的角色失败: {e}", exc_info=True)
+                            continue
+                    
+                    # 提交角色到数据库
+                    await db.commit()
+                    
+                    yield await SSEResponse.send_progress(
+                        f"✅ 【确认模式】成功创建 {created_count} 个角色",
+                        28
+                    )
+                    logger.info(f"✅ 【确认模式】成功创建 {created_count} 个用户确认的角色")
+                    
+                except Exception as e:
+                    logger.error(f"⚠️ 【确认模式】创建确认角色失败: {e}", exc_info=True)
+                    yield await SSEResponse.send_progress(
+                        f"⚠️ 角色创建失败，继续生成大纲",
+                        28
+                    )
+            else:
+                # 🔮 预测模式：仅预测角色，不自动创建，需要用户确认
+                try:
+                    yield await SSEResponse.send_progress(
+                        "🔮 【预测模式】检测是否需要新角色（需用户确认）...",
+                        27
+                    )
+                    
+                    from app.services.auto_character_service import get_auto_character_service
+                    
+                    logger.info(f"🔮 【预测模式】在生成大纲前预测是否需要新角色")
+                    
+                    # 构建已有章节概览
+                    all_chapters_brief_for_analysis = ""
+                    if len(existing_outlines) > 20:
+                        recent_20 = existing_outlines[-20:]
+                        all_chapters_brief_for_analysis = "\n".join([
+                            f"第{o.order_index}章《{o.title}》"
+                            for o in recent_20
+                        ])
+                    else:
+                        all_chapters_brief_for_analysis = "\n".join([
+                            f"第{o.order_index}章《{o.title}》"
+                            for o in existing_outlines
+                        ])
+                    
+                    # 调用自动角色服务（✅ 设置 preview_only=True）
+                    auto_char_service = get_auto_character_service(user_ai_service)
+                    auto_result = await auto_char_service.analyze_and_create_characters(
+                        project_id=project_id,
+                        outline_content="",  # 预测模式不需要大纲内容
+                        existing_characters=list(characters),
+                        db=db,
+                        user_id=user_id,
+                        enable_mcp=data.get("enable_mcp", True),
+                        all_chapters_brief=all_chapters_brief_for_analysis,
+                        start_chapter=last_chapter_number + 1,
+                        chapter_count=total_chapters_to_generate,
+                        plot_stage=data.get("plot_stage", "development"),
+                        story_direction=data.get("story_direction", "自然延续"),
+                        preview_only=True  # ✅ 关键修复：仅预测不创建
+                    )
+                    
+                    # 检查是否需要新角色
+                    if auto_result.get("needs_new_characters") and auto_result.get("predicted_characters"):
+                        predicted_count = len(auto_result["predicted_characters"])
+                        logger.warning(
+                            f"⚠️ 【预测模式】AI预测需要 {predicted_count} 个新角色，需要用户确认！"
+                        )
+                        
+                        # 🚨 使用专用事件类型通知前端需要角色确认
+                        yield await SSEResponse.send_event(
+                            event="character_confirmation_required",
+                            data={
+                                "message": "续写需要引入新角色，请先确认角色信息",
+                                "predicted_characters": auto_result["predicted_characters"],
+                                "reason": auto_result.get("reason", "剧情发展需要新角色"),
+                                "chapter_range": f"第{last_chapter_number + 1}-{last_chapter_number + total_chapters_to_generate}章"
+                            }
+                        )
+                        return
+                    else:
+                        yield await SSEResponse.send_progress(
+                            "✅ 【预测模式】无需引入新角色，继续生成大纲",
+                            28
+                        )
+                        logger.info(f"✅ 【预测模式】AI判断无需引入新角色")
+                        
+                except Exception as e:
+                    logger.error(f"⚠️ 【方案A】预测性角色引入失败: {e}", exc_info=True)
+                    yield await SSEResponse.send_progress(
+                        f"⚠️ 角色预测失败，继续生成大纲",
+                        28
+                    )
+                    # 不阻断大纲生成流程
         
         # 批量生成
         all_new_outlines = []

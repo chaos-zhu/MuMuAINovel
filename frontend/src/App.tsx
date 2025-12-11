@@ -18,6 +18,7 @@ import Settings from './pages/Settings';
 import MCPPlugins from './pages/MCPPlugins';
 import UserManagement from './pages/UserManagement';
 import PromptTemplates from './pages/PromptTemplates';
+import Sponsor from './pages/Sponsor';
 // import Polish from './pages/Polish';
 import Login from './pages/Login';
 import AuthCallback from './pages/AuthCallback';
@@ -37,7 +38,7 @@ function App() {
         <Routes>
           <Route path="/login" element={<><Login /><AppFooter /></>} />
           <Route path="/auth/callback" element={<AuthCallback />} />
-          
+
           <Route path="/" element={<ProtectedRoute><><ProjectList /><AppFooter /></></ProtectedRoute>} />
           <Route path="/projects" element={<ProtectedRoute><><ProjectList /><AppFooter /></></ProtectedRoute>} />
           <Route path="/wizard" element={<ProtectedRoute><ProjectWizardNew /></ProtectedRoute>} />
@@ -57,6 +58,7 @@ function App() {
             <Route path="chapters" element={<Chapters />} />
             <Route path="chapter-analysis" element={<ChapterAnalysis />} />
             <Route path="writing-styles" element={<WritingStyles />} />
+            <Route path="sponsor" element={<Sponsor />} />
             {/* <Route path="polish" element={<Polish />} /> */}
           </Route>
         </Routes>

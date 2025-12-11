@@ -77,6 +77,17 @@ class SSEResponse:
         })
     
     @staticmethod
+    async def send_event(event: str, data: Dict[str, Any]) -> str:
+        """
+        发送自定义事件类型的SSE消息
+        
+        Args:
+            event: 事件类型名称
+            data: 事件数据
+        """
+        return SSEResponse.format_sse(data, event=event)
+    
+    @staticmethod
     async def send_error(error: str, code: int = 500) -> str:
         """
         发送错误消息
