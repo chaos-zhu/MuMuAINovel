@@ -347,7 +347,7 @@ export default function ProjectList() {
         padding: `${topPadding}px ${sidePadding}px 0`,
       }}>
         <div style={{
-          maxWidth: 1400,
+          maxWidth: 1800,
           margin: '0 auto'
         }}>
           {/* 现代化头部区域 */}
@@ -822,7 +822,7 @@ export default function ProjectList() {
         padding: `${isMobile ? 16 : 24}px ${sidePadding}px`,
         paddingBottom: footerHeight + (isMobile ? 24 : 32),
       }}>
-        <div style={{ maxWidth: 1400, margin: '0 auto' }}>
+        <div style={{ maxWidth: 1800, margin: '0 auto' }}>
           <Spin spinning={loading}>
             {!Array.isArray(projects) || projects.length === 0 ? (
               <Card

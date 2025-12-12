@@ -179,6 +179,7 @@ export default function ProjectDetail() {
     }}>
       <Menu
         mode="inline"
+        inlineCollapsed={collapsed}
         selectedKeys={[selectedKey]}
         style={{
           borderRight: 0,

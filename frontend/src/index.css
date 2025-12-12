@@ -320,6 +320,16 @@ body {
   transform: scale(1.15);
 }
 
+/* 折叠状态下图标去边距并隐藏文字容器，确保居中 */
+.modern-sider.ant-layout-sider-collapsed .ant-menu-item .anticon {
+  margin-right: 0 !important;
+  font-size: 22px !important;
+}
+
+.modern-sider.ant-layout-sider-collapsed .ant-menu-item .ant-menu-title-content {
+  display: none !important;
+}
+
 /* 选中项左侧指示条 */
 .modern-sider .ant-menu-item-selected::before {
   content: '';

@@ -31,15 +31,44 @@ export default function AnnouncementModal({ visible, onClose, onDoNotShowToday, 
 
   return (
     <Modal
-      title="🎉 欢迎使用 AI小说创作助手"
+      title={
+        <div style={{
+          fontSize: '20px',
+          fontWeight: 600,
+          color: 'var(--color-primary)',
+          textAlign: 'center',
+        }}>
+          🎉 欢迎使用 AI小说创作助手
+        </div>
+      }
       open={visible}
       onCancel={onClose}
       footer={
         <Space style={{ width: '100%', justifyContent: 'center' }}>
-          <Button onClick={handleDoNotShowToday} size="large">
+          <Button
+            onClick={handleDoNotShowToday}
+            size="large"
+            style={{
+              borderRadius: '8px',
+              height: '40px',
+              fontSize: '14px',
+            }}
+          >
             今日内不再展示
           </Button>
-          <Button type="primary" onClick={handleNeverShow} size="large">
+          <Button
+            type="primary"
+            onClick={handleNeverShow}
+            size="large"
+            style={{
+              borderRadius: '8px',
+              height: '40px',
+              fontSize: '14px',
+              background: 'var(--color-primary)',
+              borderColor: 'var(--color-primary)',
+              boxShadow: 'var(--shadow-primary)',
+            }}
+          >
             永不再展示
           </Button>
         </Space>
@@ -49,6 +78,17 @@ export default function AnnouncementModal({ visible, onClose, onDoNotShowToday, 
       styles={{
         body: {
           padding: '24px',
+          background: 'var(--color-bg-container)',
+        },
+        header: {
+          background: 'linear-gradient(135deg, rgba(77, 128, 136, 0.08) 0%, rgba(248, 246, 241, 0.95) 100%)',
+          borderBottom: '1px solid var(--color-border-secondary)',
+          padding: '20px 24px',
+        },
+        footer: {
+          background: 'var(--color-bg-container)',
+          borderTop: '1px solid var(--color-border-secondary)',
+          padding: '16px 24px',
         },
       }}
     >

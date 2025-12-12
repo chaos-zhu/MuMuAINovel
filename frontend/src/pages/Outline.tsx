@@ -887,6 +887,7 @@ export default function Outline() {
               modalApi.confirm({
                 title: '确认删除',
                 icon: <ExclamationCircleOutlined />,
+                centered: true,
                 content: (
                   <div>
                     <p>此操作将删除大纲《{outlineTitle}》展开的所有 <strong>{data.chapter_count}</strong> 个章节。</p>

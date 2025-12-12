@@ -1128,6 +1128,27 @@ async def generate_chapter_content_stream(
                     previous_content += smart_context['recent_summary'] + "\n\n"
                 if smart_context['recent_full']:
                     previous_content += smart_context['recent_full']
+                    
+                    # 🔧 修复1-n模式重复问题: 提取上一章结尾作为精确衔接点
+                    if current_chapter.chapter_number > 1:
+                        recent_chapters_parts = smart_context['recent_full'].split('===')
+                        if len(recent_chapters_parts) >= 2:
+                            # 提取最后一章(recent_full包含最近3章,最后一个是上一章)
+                            last_chapter_content = recent_chapters_parts[-1].strip()
+                            # 提取结尾500字
+                            last_chapter_ending = last_chapter_content[-600:] if len(last_chapter_content) > 600 else last_chapter_content
+                            
+                            previous_content += f"\n\n{'='*50}\n"
+                            previous_content += f"【⚠️ 上一章结尾内容(必读,用于衔接)】\n"
+                            previous_content += f"以下是上一章(第{current_chapter.chapter_number-1}章)的结尾部分:\n\n"
+                            previous_content += last_chapter_ending + "\n"
+                            previous_content += f"\n{'='*50}\n"
+                            previous_content += f"【本章({current_chapter.chapter_number}章)创作要求】\n"
+                            previous_content += f"1. 必须自然承接上述结尾的场景/情节/对话\n"
+                            previous_content += f"2. 不要重复叙述上一章已经发生的事件\n"
+                            previous_content += f"3. 从新的情节点、新的场景或新的时间点开始\n"
+                            previous_content += f"4. 角色状态要延续,不要重新介绍已出场角色\n"
+                            previous_content += f"{'='*50}\n"
                 
                 # 日志输出统计信息
                 stats = smart_context['stats']
