@@ -110,7 +110,7 @@ class PlotAnalyzer:
     
     def _parse_analysis_response(self, response: str) -> Optional[Dict[str, Any]]:
         """
-        解析AI返回的分析结果
+        解析AI返回的分析结果（使用统一的JSON清洗方法）
         
         Args:
             response: AI返回的文本
@@ -119,13 +119,8 @@ class PlotAnalyzer:
             解析后的字典,失败返回None
         """
         try:
-            # 清理响应文本
-            cleaned = response.strip()
-            
-            # 移除可能的markdown标记
-            cleaned = re.sub(r'^```json\s*', '', cleaned)
-            cleaned = re.sub(r'^```\s*', '', cleaned)
-            cleaned = re.sub(r'\s*```$', '', cleaned)
+            # 使用统一的JSON清洗方法
+            cleaned = self.ai_service._clean_json_response(response)
             
             # 尝试解析JSON
             result = json.loads(cleaned)
@@ -137,22 +132,12 @@ class PlotAnalyzer:
                     logger.warning(f"⚠️ 分析结果缺少字段: {field}")
                     result[field] = [] if field != 'scores' else {}
             
+            logger.info("✅ 成功解析分析结果")
             return result
             
         except json.JSONDecodeError as e:
             logger.error(f"❌ JSON解析失败: {str(e)}")
             logger.error(f"  原始响应(前500字): {response[:500]}")
-            
-            # 尝试提取JSON部分
-            json_match = re.search(r'\{[\s\S]*\}', response)
-            if json_match:
-                try:
-                    result = json.loads(json_match.group())
-                    logger.info("✅ 通过正则提取成功解析JSON")
-                    return result
-                except:
-                    pass
-            
             return None
         except Exception as e:
             logger.error(f"❌ 解析异常: {str(e)}")

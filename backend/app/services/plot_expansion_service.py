@@ -109,7 +109,7 @@ class PlotExpansionService:
         context_info = await self._get_outline_context(outline, project.id, db)
         
         # 获取自定义提示词模板
-        template = await PromptService.get_template("PLOT_EXPANSION_SINGLE_BATCH", project.user_id, db)
+        template = await PromptService.get_template("OUTLINE_EXPAND_SINGLE", project.user_id, db)
         # 格式化提示词
         prompt = PromptService.format_prompt(
             template,
@@ -209,7 +209,7 @@ class PlotExpansionService:
     ⚠️ 当前是第{current_start_index}-{current_start_index + current_batch_size - 1}节（共{target_chapter_count}节中的一部分）
     """
             # 获取自定义提示词模板
-            template = await PromptService.get_template("PLOT_EXPANSION_MULTI_BATCH", project.user_id, db)
+            template = await PromptService.get_template("OUTLINE_EXPAND_MULTI", project.user_id, db)
             # 格式化提示词
             prompt = PromptService.format_prompt(
                 template,
@@ -497,17 +497,10 @@ class PlotExpansionService:
         ai_response: str,
         outline_id: str
     ) -> List[Dict[str, Any]]:
-        """解析AI的展开响应"""
+        """解析AI的展开响应（使用统一的JSON清洗方法）"""
         try:
-            # 清理响应文本
-            cleaned_text = ai_response.strip()
-            if cleaned_text.startswith('```json'):
-                cleaned_text = cleaned_text[7:]
-            if cleaned_text.startswith('```'):
-                cleaned_text = cleaned_text[3:]
-            if cleaned_text.endswith('```'):
-                cleaned_text = cleaned_text[:-3]
-            cleaned_text = cleaned_text.strip()
+            # 使用统一的JSON清洗方法
+            cleaned_text = self.ai_service._clean_json_response(ai_response)
             
             # 解析JSON
             chapter_plans = json.loads(cleaned_text)
@@ -520,10 +513,11 @@ class PlotExpansionService:
             for plan in chapter_plans:
                 plan["outline_id"] = outline_id
             
+            logger.info(f"✅ 成功解析 {len(chapter_plans)} 个章节规划")
             return chapter_plans
             
         except json.JSONDecodeError as e:
-            logger.error(f"解析AI响应失败: {e}, 响应内容: {ai_response[:500]}")
+            logger.error(f"❌ 解析AI响应失败: {e}, 响应内容: {ai_response[:500]}")
             # 返回一个基础规划
             return [{
                 "outline_id": outline_id,
@@ -531,6 +525,20 @@ class PlotExpansionService:
                 "title": "AI解析失败的默认章节",
                 "plot_summary": ai_response[:500],
                 "key_events": ["解析失败"],
+                "character_focus": [],
+                "emotional_tone": "未知",
+                "narrative_goal": "需要重新生成",
+                "conflict_type": "未知",
+                "estimated_words": 3000
+            }]
+        except Exception as e:
+            logger.error(f"❌ 解析异常: {str(e)}")
+            return [{
+                "outline_id": outline_id,
+                "sub_index": 1,
+                "title": "解析异常的默认章节",
+                "plot_summary": "系统错误",
+                "key_events": [],
                 "character_focus": [],
                 "emotional_tone": "未知",
                 "narrative_goal": "需要重新生成",

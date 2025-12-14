@@ -9,75 +9,125 @@ class WritingStyleManager:
     # 预设风格配置
     PRESET_STYLES = {
         "natural": {
-            "name": "自然流畅",
-            "description": "像普通人讲故事一样自然，不刻意修饰，有生活气息",
+            "name": "自然沉浸 (Natural & Immersive)",
+            "description": "祛除翻译腔，强调生活质感，像呼吸一样自然的叙事",
             "prompt_content": """
-**自然流畅风格要求：**
-- 用简单朴实的语言叙述，避免华丽辞藻
-- 像在和朋友聊天一样讲故事
-- 保持轻松自然的节奏，不要刻意营造氛围
-- 多用短句，少用长句和排比
-- 让读者感觉舒服，不要让人觉得在"看文学作品"
+### 核心指令：自然沉浸风格
+请模拟人类作家在放松状态下的写作，通过以下规则消除“AI味”：
+
+1.  **拒绝翻译腔与书面化**：
+    -   严禁使用“一种...的感觉”、“随着...”、“与此同时”等连接词。
+    -   多用短句和“流水句”，模拟人类视线的移动和思维的跳跃。
+    -   口语化叙述，但不要滥用语气词，而是通过句子的长短节奏来体现语气。
+
+2.  **生活化的颗粒度**：
+    -   描写不要宏大，要聚焦在具体的、微小的生活细节（如：杯子上的水渍、衣服的褶皱）。
+    -   允许逻辑上的适度“松散”，不要让每句话都像说明书一样严丝合缝。
+
+3.  **具体的“展示”**：
+    -   不要写“他很生气”，要写他“把烟头按灭在还没吃完的米饭里”。
+    -   避免使用抽象的形容词（如：巨大的、美丽的、悲伤的），必须用名词和动词来承载画面。
 """
         },
         "classical": {
-            "name": "古典优雅",
-            "description": "典雅精致的文学风格，注重意境和韵味",
+            "name": "古典雅致 (Classical & Elegant)",
+            "description": "白话文与古典韵味的结合，强调留白与炼字",
             "prompt_content": """
-**古典优雅风格要求：**
-- 使用优美典雅的语言，注重文字的韵律感
-- 善用比喻、拟人等修辞手法
-- 注重意境营造，追求诗意美感
-- 可适当引用古诗词或典故（需符合世界观）
-- 保持端庄雅致的叙述节奏
+### 核心指令：古典雅致风格
+请模仿民国时期或古典白话小说的笔触，构建端庄且富有余味的叙事：
+
+1.  **炼字与韵律**：
+    -   尽量使用双音节词或四字短语，但严禁堆砌辞藻。
+    -   注重句子的声调韵律，读起来要有金石之声或流水之韵。
+    -   适当使用倒装句或定语后置，增加古雅感。
+
+2.  **克制的修辞**：
+    -   少用现代的比喻（如“像机器一样”），多用取自自然的比喻（如“如风过林”）。
+    -   **意在言外**：不要把话说透，留三分余地。写景即是写情，不要将情感直接剖白。
+
+3.  **禁忌**：
+    -   严禁使用现代科技词汇（除非题材需要）、网络用语或过于西化的句式（如长定语从句）。
+    -   避免滥用“之乎者也”，追求的是“神似”而非生硬的半文半白。
 """
         },
         "modern": {
-            "name": "现代简约",
-            "description": "简洁明快的现代风格，注重效率和直接表达",
+            "name": "冷硬现代 (Modern & Hard-boiled)",
+            "description": "海明威式的冰山理论，节奏极快，零度情感",
             "prompt_content": """
-**现代简约风格要求：**
-- 语言简洁有力，直达重点
-- 多用短句和短段落，节奏明快
-- 避免冗长描写，注重信息密度
-- 使用现代口语化表达
-- 情节推进快速，少做环境渲染
+### 核心指令：冷硬现代风格
+请采用“极简主义”和“零度写作”手法，去除所有矫饰：
+
+1.  **冰山理论**：
+    -   **只写动作和对话，完全剔除心理描写和形容词堆砌。**
+    -   不要告诉读者角色感觉如何，通过角色的反应和环境的冷峻反馈来体现。
+
+2.  **电影蒙太奇节奏**：
+    -   句子要短、脆、硬。像手术刀一样切开场景。
+    -   段落之间快速切换，不要用过渡句连接，直接跳切。
+
+3.  **高信息密度**：
+    -   删除所有废话。如果一个词删掉不影响理解，就删掉它。
+    -   多用名词和强动词（Strong Verbs），少用副词（Adverbs）。例如：不要写“他重重地关上门”，写“他摔上了门”。
 """
         },
         "poetic": {
-            "name": "诗意抒情",
-            "description": "富有诗意和情感张力的抒情风格",
+            "name": "意识流 (Stream of Consciousness)",
+            "description": "注重感官通感与内心独白，打破现实与幻想的边界",
             "prompt_content": """
-**诗意抒情风格要求：**
-- 注重情感表达和内心描写
-- 善用景物描写烘托情绪
-- 语言富有韵律和美感
-- 细腻刻画人物心理活动
-- 营造情感氛围，引发共鸣
+### 核心指令：意识流/诗意风格
+请侧重于主观感受的流动，而非客观事实的记录：
+
+1.  **通感与陌生化**：
+    -   打通五感（如：听到了颜色的声音，闻到了悲伤的气味）。
+    -   使用“陌生化”的语言，把熟悉的事物写得陌生，迫使读者重新审视。
+
+2.  **情绪的具象化**：
+    -   **绝对禁止**直接出现“开心”、“痛苦”等抽象词汇。
+    -   必须寻找“客观对应物”（Objective Correlative），将情绪投射到具体的景物上（如：生锈的铁轨、发霉的橘子）。
+
+3.  **流动的句式**：
+    -   句子可以很长，包含多重意象的叠加。
+    -   允许思维的非线性跳跃，模拟梦境或深层潜意识的逻辑。
 """
         },
         "concise": {
-            "name": "精炼利落",
-            "description": "惜字如金的简练风格，每个字都有意义",
+            "name": "白描速写 (Sketch & Concise)",
+            "description": "只有骨架的叙事，强调绝对的精准和功能性",
             "prompt_content": """
-**精炼利落风格要求：**
-- 删除所有冗余描写，每句话都要有作用
-- 多用动词，少用形容词和副词
-- 对话干脆利落，不拖泥带水
-- 环境描写点到为止
-- 用最少的字数传达最多的信息
+### 核心指令：白描速写风格
+请像速写画家一样，只勾勒线条，不涂抹色彩：
+
+1.  **功能性第一**：
+    -   每一句话必须推动情节，或者揭示关键信息。
+    -   如果一句话只是为了渲染气氛，删掉它。
+
+2.  **主谓宾结构**：
+    -   尽量使用简单的主谓宾结构，减少修饰语。
+    -   避免复杂的从句和嵌套结构。
+
+3.  **直击核心**：
+    -   对话直接进入主题，去除寒暄和废话。
+    -   环境描写仅限于对情节有物理影响的物体（如：挡路的石头、藏在桌下的枪）。
 """
         },
         "vivid": {
-            "name": "生动形象",
-            "description": "画面感强烈，让读者如临其境",
+            "name": "感官特写 (Sensory & Vivid)",
+            "description": "高分辨率的描写，强调材质、光影和微观细节",
             "prompt_content": """
-**生动形象风格要求：**
-- 注重细节描写，让场景具体可感
-- 调动五感（视觉、听觉、触觉、嗅觉、味觉）
-- 使用鲜明的比喻和形象化语言
-- 让读者能"看到"场景和动作
-- 人物表情、动作要具体生动
+### 核心指令：感官特写风格
+请将镜头推到特写级别（Macro Lens），捕捉常人忽略的细节：
+
+1.  **反套路细节**：
+    -   不要写大众化的细节（如：蓝天白云），要写具有**独特性**的细节（如：云层边缘那抹像淤青一样的灰紫色）。
+    -   关注物体的**质感（Texture）**：粗糙的、粘稠的、冰凉的、颗粒感的。
+
+2.  **动态捕捉**：
+    -   不要写静止的画面，要写光影的流变、灰尘的飞舞、肌肉的抽动。
+    -   让读者产生生理性的反应（如：痛感、饥饿感、窒息感）。
+
+3.  **禁用词汇**：
+    -   禁止使用“映入眼帘”、“宛如画卷”等陈词滥调。
+    -   必须用具体的动词带动感官描写。
 """
         }
     }
@@ -339,15 +389,23 @@ class PromptService:
 4. 所有内容描述中严禁使用任何特殊符号，包括但不限于中文引号、英文引号、方括号、书名号等"""
 
     # 向导大纲生成提示词
-    COMPLETE_OUTLINE_GENERATION = """你是一位经验丰富的小说作家和编剧。请根据以下信息生成完整的{chapter_count}章小说大纲：
+    OUTLINE_CREATE = """你是一位经验丰富的小说作家和编剧。请根据以下信息为小说生成**开篇{chapter_count}章**的大纲：
+
+【重要说明】
+本次任务是为项目初始化生成开头部分的大纲，而不是整本书的完整大纲。这些章节应该：
+- 完成故事的**开局设定**和**世界观展示**
+- 引入主要角色，建立初始关系
+- 埋下核心矛盾和悬念钩子
+- 为后续剧情发展打下基础
+- **不需要完整的故事闭环**，结尾应该为续写留出空间
 
 基本信息：
 - 书名：{title}
 - 主题：{theme}
 - 类型：{genre}
-- 章节数：{chapter_count}
+- 开篇章节数：{chapter_count}
 - 叙事视角：{narrative_perspective}
-- 目标字数：{target_words}
+- 全书目标字数：{target_words}
 
 世界观：
 - 时间背景：{time_period}
@@ -362,13 +420,14 @@ class PromptService:
 
 其他要求：{requirements}
 
-整体要求：
-- 结构完整：起承转合清晰
-- 情节连贯：章节之间紧密衔接
-- 冲突递进：矛盾逐步升级
-- 人物成长：角色有明确的变化弧线
-- 节奏把控：有张有弛
-- 视角统一：采用{narrative_perspective}视角叙事
+开篇大纲要求：
+- **开局设定**：前几章完成世界观呈现、主角登场、初始状态建立
+- **矛盾引入**：引出核心冲突或故事主线，但不急于展开
+- **角色亮相**：主要角色依次登场，展示性格特点和相互关系
+- **节奏控制**：开篇不宜过快，给读者适应和代入的时间
+- **悬念设置**：埋下伏笔和钩子，为后续续写大纲预留发展空间
+- **视角统一**：采用{narrative_perspective}视角叙事
+- **留白艺术**：结尾不要收束过紧，要为后续剧情留出足够的发展空间
 
 **重要格式要求：**
 1. 只返回纯JSON数组格式，不要包含任何markdown标记、代码块标记或其他说明文字
@@ -379,7 +438,7 @@ class PromptService:
 [
   {{
     "chapter_number": 1,
-    "title": "第一章标题",
+    "title": "章节标题",
     "summary": "章节概要的详细描述（100-200字），包含主要情节、冲突、转折等",
     "scenes": ["场景1描述", "场景2描述", "场景3描述"],
     "characters": ["角色1", "角色2"],
@@ -389,7 +448,7 @@ class PromptService:
   }},
   {{
     "chapter_number": 2,
-    "title": "第二章标题",
+    "title": "章节标题",
     "summary": "章节概要...",
     "scenes": ["场景1", "场景2"],
     "characters": ["角色1", "角色2"],
@@ -405,7 +464,7 @@ class PromptService:
 3. 所有内容描述中严禁使用任何特殊符号"""
     
     # 大纲续写提示词（记忆增强版）
-    OUTLINE_CONTINUE_GENERATION = """你是一位经验丰富的小说作家和编剧。请基于以下信息续写小说大纲：
+    OUTLINE_CONTINUE = """你是一位经验丰富的小说作家和编剧。请基于以下信息续写小说大纲：
 
 【项目信息】
 - 书名：{title}
@@ -558,7 +617,7 @@ class PromptService:
 3. 符合角色性格设定
 4. 体现世界观特色
 5. 使用{narrative_perspective}视角
-6. **字数要求：目标{target_word_count}字，不得低于{target_word_count}字，建议控制在{target_word_count}至{max_word_count}字之间**
+6. 字数要求：目标{target_word_count}字，不得低于{target_word_count}字，必须严格控制在{target_word_count}至{max_word_count}字之间
 7. 语言自然流畅，避免AI痕迹
 
 请直接输出章节正文内容，不要包含章节标题和其他说明文字。"""
@@ -624,7 +683,7 @@ class PromptService:
 
 5. **写作风格**：
 - 使用{narrative_perspective}视角
-- **字数要求：目标{target_word_count}字，不得低于{target_word_count}字，建议控制在{target_word_count}至{max_word_count}字之间**
+- 字数要求：目标{target_word_count}字，不得低于{target_word_count}字，必须严格控制在{target_word_count}至{max_word_count}字之间
 - 语言自然流畅，避免AI痕迹
 - 体现世界观特色
 
@@ -641,41 +700,6 @@ class PromptService:
 
 请直接输出章节正文内容，不要包含章节标题和其他说明文字。"""
 
-    # 大纲生成提示词
-    OUTLINE_GENERATION = """你是一位经验丰富的小说作家和编剧。请根据以下信息生成小说大纲：
-
-类型：{genre}
-主题：{theme}
-目标字数：{target_words}
-其他要求：{requirements}
-
-请生成一个完整的章节大纲框架，包含：
-1. 合理的章节数量（根据字数）
-2. 每章的标题和内容概要
-3. 清晰的故事结构（起承转合）
-4. 情节的递进和冲突升级
-5. 角色的成长弧线
-
-**重要格式要求：**
-1. 只返回纯JSON格式，不要包含任何markdown标记、代码块标记或其他说明文字
-2. JSON字符串值的内容描述中严禁使用任何特殊符号（包括中文引号、英文引号、方括号、书名号等）
-3. 所有专有名词直接书写，不使用任何符号包裹
-
-请严格按照以下JSON格式返回：
-{{
-  "chapters": [
-    {{
-      "order": 1,
-      "title": "章节标题",
-      "content": "章节内容概要（150-200字）"
-    }}
-  ]
-}}
-
-再次强调：
-1. 只返回纯JSON对象，不要有```json```这样的标记
-2. 所有内容描述中严禁使用任何特殊符号
-3. 不要有任何额外的文字说明"""
 
     # 单个角色生成提示词
     SINGLE_CHARACTER_GENERATION = """你是一位专业的角色设定师。请根据以下信息创建一个立体饱满的小说角色。
@@ -910,7 +934,7 @@ class PromptService:
 - 冲突解决进度(0-100%)
 
 ### 4. 情感曲线 (Emotional Arc)
-- 主导情绪: 紧张/温馨/悲伤/激昂/平静等
+- 主导情绪（最多10个字）: 紧张/温馨/悲伤/激昂/平静/压抑/欢快/恐惧/期待/失落等
 - 情感强度(1-10)
 - 情绪变化轨迹描述
 
@@ -975,7 +999,7 @@ class PromptService:
     "resolution_progress": 0.3
   }},
   "emotional_arc": {{
-    "primary_emotion": "紧张",
+    "primary_emotion": "紧张焦虑",
     "intensity": 8,
     "curve": "平静→紧张→高潮→释放",
     "secondary_emotions": ["期待", "焦虑"]
@@ -1031,7 +1055,7 @@ class PromptService:
 只返回JSON,不要其他说明。"""
 
     # 大纲单批次展开提示词
-    PLOT_EXPANSION_SINGLE_BATCH = """你是专业的小说情节架构师。请分析以下大纲节点，将其展开为 {target_chapter_count} 个章节的详细规划。
+    OUTLINE_EXPAND_SINGLE = """你是专业的小说情节架构师。请分析以下大纲节点，将其展开为 {target_chapter_count} 个章节的详细规划。
 
 【项目信息】
 小说名称：{project_title}
@@ -1125,7 +1149,7 @@ class PromptService:
 """
 
     # 大纲分批展开提示词
-    PLOT_EXPANSION_MULTI_BATCH = """你是专业的小说情节架构师。请继续分析以下大纲节点，将其展开为第{start_index}-{end_index}节（共{target_chapter_count}个章节）的详细规划。
+    OUTLINE_EXPAND_MULTI = """你是专业的小说情节架构师。请继续分析以下大纲节点，将其展开为第{start_index}-{end_index}节（共{target_chapter_count}个章节）的详细规划。
 
 【项目信息】
 小说名称：{project_title}
@@ -1388,80 +1412,6 @@ class PromptService:
 4. 相关领域的人物原型
 
 请查询最关键的1个问题（不要超过1个）。"""
-    # 大纲展开为多章节的提示词
-    OUTLINE_EXPANSION = """你是专业的小说情节架构师。请分析以下大纲节点，将其展开为 {target_chapters} 个章节的详细规划。
-
-【项目信息】
-小说名称：{title}
-类型：{genre}
-主题：{theme}
-叙事视角：{narrative_perspective}
-
-【世界观背景】
-时间背景：{time_period}
-地理位置：{location}
-氛围基调：{atmosphere}
-世界规则：{rules}
-
-【角色信息】
-{characters_info}
-
-【大纲节点】
-序号：第 {outline_order} 节
-标题：{outline_title}
-内容：{outline_content}
-
-【上下文】
-{context_info}
-
-【展开策略】
-{strategy_instruction}
-
-【任务要求】
-1. 深度分析该大纲的剧情容量和叙事节奏
-2. 识别关键剧情点、冲突点和情感转折点
-3. 将大纲拆解为 {target_chapters} 个章节，每章需包含：
-   - sub_index: 子章节序号（1, 2, 3...）
-   - title: 章节标题（体现该章核心冲突或情感）
-   - plot_summary: 剧情摘要（200-300字，详细描述该章发生的事件）
-   - key_events: 关键事件列表（3-5个关键剧情点）
-   - character_focus: 角色焦点（主要涉及的角色名称）
-   - emotional_tone: 情感基调（如：紧张、温馨、悲伤、激动等）
-   - narrative_goal: 叙事目标（该章要达成的叙事效果）
-   - conflict_type: 冲突类型（如：内心挣扎、人际冲突、环境挑战等）
-   - estimated_words: 预计字数（建议2000-5000字）
-{scene_instruction}
-4. 确保章节间：
-   - 衔接自然流畅
-   - 剧情递进合理
-   - 节奏张弛有度
-   - 每章都有明确的叙事价值
-
-**重要格式要求：**
-1. 只返回纯JSON数组格式，不要包含任何markdown标记、代码块标记或其他说明文字
-2. JSON字符串值的内容描述中严禁使用任何特殊符号（包括中文引号、英文引号、方括号、书名号等）
-3. 所有专有名词直接书写，不使用任何符号包裹
-
-请严格按照以下JSON数组格式输出：
-[
-  {{
-    "sub_index": 1,
-    "title": "章节标题",
-    "plot_summary": "该章详细剧情摘要（200-300字）...",
-    "key_events": ["关键事件1", "关键事件2", "关键事件3"],
-    "character_focus": ["角色A", "角色B"],
-    "emotional_tone": "情感基调",
-    "narrative_goal": "叙事目标",
-    "conflict_type": "冲突类型",
-    "estimated_words": 3000{scene_field}
-  }}
-]
-
-再次强调：
-1. 只返回纯JSON数组，不要有```json```这样的标记
-2. 数组中要包含{target_chapters}个章节对象
-3. 每个plot_summary必须是200-300字的详细描述
-4. 所有内容描述中严禁使用任何特殊符号"""
 
     # 自动角色引入 - 预测性分析提示词（方案A）
     AUTO_CHARACTER_ANALYSIS = """你是专业的小说角色设计顾问。请根据即将续写的剧情方向，预测是否需要引入新角色。
@@ -1667,451 +1617,6 @@ class PromptService:
         except KeyError as e:
             raise ValueError(f"缺少必需的参数: {e}")
     
-    @classmethod
-    def get_denoising_prompt(cls, original_text: str) -> str:
-        """获取AI去味提示词"""
-        return cls.format_prompt(
-            cls.AI_DENOISING,
-            original_text=original_text
-        )
-    
-    @classmethod
-    def get_world_building_prompt(cls, title: str, theme: str, genre: str = "", description: str = "") -> str:
-        """获取世界构建提示词"""
-        return cls.format_prompt(
-            cls.WORLD_BUILDING,
-            title=title,
-            theme=theme,
-            genre=genre or "通用类型",
-            description=description or "暂无简介"
-        )
-    
-    @classmethod
-    def get_characters_batch_prompt(cls, count: int, time_period: str, location: str,
-                                   atmosphere: str, rules: str, theme: str,
-                                   genre: str = "", requirements: str = "") -> str:
-        """获取批量角色生成提示词"""
-        return cls.format_prompt(
-            cls.CHARACTERS_BATCH_GENERATION,
-            count=count,
-            time_period=time_period,
-            location=location,
-            atmosphere=atmosphere,
-            rules=rules,
-            theme=theme,
-            genre=genre or "通用类型",
-            requirements=requirements or "无特殊要求"
-        )
-    
-    @classmethod
-    def get_complete_outline_prompt(cls, title: str, theme: str, genre: str,
-                                   chapter_count: int, narrative_perspective: str,
-                                   target_words: int, time_period: str, location: str,
-                                   atmosphere: str, rules: str, characters_info: str,
-                                   requirements: str = "",
-                                   mcp_references: str = "") -> str:
-        """获取向导大纲生成提示词（支持MCP增强）"""
-        # 格式化MCP参考资料
-        mcp_text = ""
-        if mcp_references:
-            mcp_text = "【📚 MCP工具搜索 - 情节设计参考】\n"
-            mcp_text += "以下是通过MCP工具搜索到的情节设计参考资料，可用于设计大纲结构和情节发展：\n\n"
-            mcp_text += mcp_references
-            mcp_text += "\n"
-        
-        return cls.format_prompt(
-            cls.COMPLETE_OUTLINE_GENERATION,
-            title=title,
-            theme=theme,
-            genre=genre,
-            chapter_count=chapter_count,
-            narrative_perspective=narrative_perspective,
-            target_words=target_words,
-            time_period=time_period,
-            location=location,
-            atmosphere=atmosphere,
-            rules=rules,
-            characters_info=characters_info,
-            mcp_references=mcp_text,
-            requirements=requirements or "无特殊要求"
-        )
-    
-    @classmethod
-    def get_chapter_generation_prompt(cls, title: str, theme: str, genre: str,
-                                      narrative_perspective: str, time_period: str,
-                                      location: str, atmosphere: str, rules: str,
-                                      characters_info: str, outlines_context: str,
-                                      chapter_number: int, chapter_title: str,
-                                      chapter_outline: str, style_content: str = "",
-                                      target_word_count: int = 3000,
-                                      memory_context: dict = None,
-                                      mcp_references: str = "",
-                                      outline_mode: str = "one-to-many") -> str:
-        """
-        获取章节完整创作提示词
-        
-        Args:
-            style_content: 写作风格要求内容，如果提供则会追加到提示词中
-            target_word_count: 目标字数，默认3000字
-            memory_context: 记忆上下文（可选）
-            mcp_references: MCP工具搜索的参考资料（可选）
-            outline_mode: 大纲模式 (one-to-one/one-to-many)
-        """
-        # 计算最大字数（目标字数+1000）
-        max_word_count = target_word_count + 1000
-        
-        # 格式化记忆上下文
-        memory_text = ""
-        if memory_context:
-            memory_text = "\n【🧠 智能记忆系统 - 重要参考】\n"
-            memory_text += memory_context.get('recent_context', '')
-            memory_text += "\n" + memory_context.get('relevant_memories', '')
-            memory_text += "\n" + memory_context.get('foreshadows', '')
-            memory_text += "\n" + memory_context.get('character_states', '')
-            memory_text += "\n" + memory_context.get('plot_points', '')
-        
-        # 格式化MCP参考资料
-        mcp_text = ""
-        if mcp_references:
-            mcp_text = "\n【📚 MCP工具搜索 - 参考资料】\n"
-            mcp_text += "以下是通过MCP工具搜索到的相关参考资料，可用于丰富情节和细节：\n\n"
-            mcp_text += mcp_references
-            mcp_text += "\n"
-        
-        # 根据大纲模式添加创作指导
-        mode_instruction = ""
-        if outline_mode == 'one-to-one':
-            mode_instruction = "\n\n【创作模式说明】\n本章采用一对一模式：一个大纲节点对应一个章节。请充分展开大纲中的情节，注重叙事的完整性和丰满度。\n"
-        else:
-            mode_instruction = "\n\n【创作模式说明】\n本章采用细纲模式：本章是大纲节点的细化展开之一。请严格遵循上述详细规划中的剧情点、角色焦点和情感基调，确保与整体规划保持一致。\n"
-        
-        base_prompt = cls.format_prompt(
-            cls.CHAPTER_GENERATION,
-            title=title,
-            theme=theme,
-            genre=genre,
-            narrative_perspective=narrative_perspective,
-            time_period=time_period,
-            location=location,
-            atmosphere=atmosphere,
-            rules=rules,
-            characters_info=characters_info,
-            outlines_context=outlines_context,
-            chapter_number=chapter_number,
-            chapter_title=chapter_title,
-            chapter_outline=chapter_outline,
-            target_word_count=target_word_count,
-            max_word_count=max_word_count
-        )
-        
-        # 插入记忆上下文和MCP参考资料
-        insert_text = ""
-        if memory_text:
-            insert_text += memory_text
-        if mcp_text:
-            insert_text += mcp_text
-        
-        if insert_text:
-            base_prompt = base_prompt.replace(
-                "本章信息：",
-                insert_text + mode_instruction + "\n\n本章信息："
-            )
-        else:
-            # 没有记忆和MCP时也要插入模式说明
-            base_prompt = base_prompt.replace(
-                "本章信息：",
-                mode_instruction + "\n\n本章信息："
-            )
-        
-        # 如果有风格要求，应用到提示词中
-        if style_content:
-            return WritingStyleManager.apply_style_to_prompt(base_prompt, style_content)
-        
-        return base_prompt
-    
-    @classmethod
-    def get_chapter_generation_with_context_prompt(cls, title: str, theme: str, genre: str,
-                                                   narrative_perspective: str, time_period: str,
-                                                   location: str, atmosphere: str, rules: str,
-                                                   characters_info: str, outlines_context: str,
-                                                   previous_content: str, chapter_number: int,
-                                                   chapter_title: str, chapter_outline: str,
-                                                   style_content: str = "",
-                                                   target_word_count: int = 3000,
-                                                   memory_context: dict = None,
-                                                   mcp_references: str = "",
-                                                   outline_mode: str = "one-to-many") -> str:
-        """
-        获取章节完整创作提示词（带前置章节上下文和记忆增强）
-        
-        Args:
-            style_content: 写作风格要求内容，如果提供则会追加到提示词中
-            target_word_count: 目标字数，默认3000字
-            memory_context: 记忆上下文（可选）
-            mcp_references: MCP工具搜索的参考资料（可选）
-            outline_mode: 大纲模式 (one-to-one/one-to-many)
-        """
-        # 计算最大字数（目标字数+1000）
-        max_word_count = target_word_count + 1000
-        
-        # 格式化记忆上下文
-        memory_text = ""
-        if memory_context:
-            memory_text = memory_context.get('recent_context', '')
-            memory_text += "\n" + memory_context.get('relevant_memories', '')
-            memory_text += "\n" + memory_context.get('foreshadows', '')
-            memory_text += "\n" + memory_context.get('character_states', '')
-            memory_text += "\n" + memory_context.get('plot_points', '')
-        else:
-            memory_text = "暂无相关记忆"
-        
-        # 格式化MCP参考资料
-        if mcp_references:
-            memory_text += "\n\n【📚 MCP工具搜索 - 参考资料】\n"
-            memory_text += "以下是通过MCP工具搜索到的相关参考资料，可用于丰富情节和细节：\n\n"
-            memory_text += mcp_references
-        
-        # 根据大纲模式添加创作指导
-        mode_instruction = ""
-        if outline_mode == 'one-to-one':
-            mode_instruction = "\n\n【创作模式说明】\n本章采用一对一模式：一个大纲节点对应一个章节。请在承接前文的基础上，充分展开大纲中的情节，保持叙事的完整性。\n"
-        else:
-            mode_instruction = "\n\n【创作模式说明】\n本章采用细纲模式：本章是大纲节点的细化展开之一。请严格遵循上述详细规划（expansion_plan）中的剧情点、角色焦点、情感基调和叙事目标，确保与整体规划保持一致，同时自然衔接前文内容。\n"
-        
-        base_prompt = cls.format_prompt(
-            cls.CHAPTER_GENERATION_WITH_CONTEXT,
-            title=title,
-            theme=theme,
-            genre=genre,
-            narrative_perspective=narrative_perspective,
-            time_period=time_period,
-            location=location,
-            atmosphere=atmosphere,
-            rules=rules,
-            characters_info=characters_info,
-            outlines_context=outlines_context,
-            previous_content=previous_content,
-            chapter_number=chapter_number,
-            chapter_title=chapter_title,
-            chapter_outline=chapter_outline,
-            target_word_count=target_word_count,
-            max_word_count=max_word_count,
-            memory_context=memory_text
-        )
-        
-        # 插入模式说明
-        base_prompt = base_prompt.replace(
-            "本章信息：",
-            mode_instruction + "\n本章信息："
-        )
-        
-        # 如果有风格要求，应用到提示词中
-        if style_content:
-            return WritingStyleManager.apply_style_to_prompt(base_prompt, style_content)
-        
-        return base_prompt
-    
-    @classmethod
-    def get_outline_prompt(cls, genre: str, theme: str, target_words: int,
-                          requirements: str = "") -> str:
-        """获取大纲生成提示词"""
-        return cls.format_prompt(
-            cls.OUTLINE_GENERATION,
-            genre=genre,
-            theme=theme,
-            target_words=target_words,
-            requirements=requirements or "无特殊要求"
-        )
-    
-    @classmethod
-    def get_outline_continue_prompt(cls, title: str, theme: str, genre: str,
-                                    narrative_perspective: str, chapter_count: int,
-                                    time_period: str, location: str, atmosphere: str,
-                                    rules: str, characters_info: str,
-                                    current_chapter_count: int, all_chapters_brief: str,
-                                    recent_plot: str, plot_stage_instruction: str,
-                                    start_chapter: int, story_direction: str,
-                                    requirements: str = "",
-                                    memory_context: dict = None,
-                                    mcp_references: str = "") -> str:
-        """获取大纲续写提示词（支持记忆+MCP增强）"""
-        end_chapter = start_chapter + chapter_count - 1
-        
-        # 格式化记忆上下文
-        memory_text = ""
-        if memory_context:
-            memory_text = memory_context.get('recent_context', '')
-            memory_text += "\n" + memory_context.get('relevant_memories', '')
-            memory_text += "\n" + memory_context.get('foreshadows', '')
-            memory_text += "\n" + memory_context.get('character_states', '')
-            memory_text += "\n" + memory_context.get('plot_points', '')
-        else:
-            memory_text = "暂无相关记忆（可能是首次续写或记忆库为空）"
-        
-        # 格式化MCP参考资料
-        mcp_text = ""
-        if mcp_references:
-            mcp_text = "\n\n【📚 MCP工具搜索 - 续写参考资料】\n"
-            mcp_text += "以下是通过MCP工具搜索到的续写参考资料，可用于丰富情节发展和冲突设计：\n\n"
-            mcp_text += mcp_references
-            mcp_text += "\n"
-        
-        return cls.format_prompt(
-            cls.OUTLINE_CONTINUE_GENERATION,
-            title=title,
-            theme=theme,
-            genre=genre,
-            narrative_perspective=narrative_perspective,
-            chapter_count=chapter_count,
-            time_period=time_period,
-            location=location,
-            atmosphere=atmosphere,
-            rules=rules,
-            characters_info=characters_info,
-            current_chapter_count=current_chapter_count,
-            all_chapters_brief=all_chapters_brief,
-            recent_plot=recent_plot,
-            plot_stage_instruction=plot_stage_instruction,
-            start_chapter=start_chapter,
-            end_chapter=end_chapter,
-            story_direction=story_direction,
-            requirements=requirements or "无特殊要求",
-            memory_context=memory_text,
-            mcp_references=mcp_text
-        )
-    
-    @classmethod
-    def get_single_character_prompt(cls, project_context: str, user_input: str) -> str:
-        """获取单个角色生成提示词"""
-        return cls.format_prompt(
-            cls.SINGLE_CHARACTER_GENERATION,
-            project_context=project_context,
-            user_input=user_input
-        )
-    
-    @classmethod
-    def get_single_organization_prompt(cls, project_context: str, user_input: str) -> str:
-        """获取单个组织生成提示词"""
-        return cls.format_prompt(
-            cls.SINGLE_ORGANIZATION_GENERATION,
-            project_context=project_context,
-            user_input=user_input
-        )
-    
-    @classmethod
-    def get_outline_expansion_prompt(cls, title: str, genre: str, theme: str,
-                                    narrative_perspective: str, time_period: str,
-                                    location: str, atmosphere: str, rules: str,
-                                    characters_info: str, outline_order: int,
-                                    outline_title: str, outline_content: str,
-                                    context_info: str, strategy: str = "balanced",
-                                    target_chapters: int = 3,
-                                    include_scenes: bool = False) -> str:
-        """
-        获取大纲展开为多章节的提示词
-        
-        Args:
-            title: 小说名称
-            genre: 类型
-            theme: 主题
-            narrative_perspective: 叙事视角
-            time_period: 时间背景
-            location: 地理位置
-            atmosphere: 氛围基调
-            rules: 世界规则
-            characters_info: 角色信息
-            outline_order: 大纲序号
-            outline_title: 大纲标题
-            outline_content: 大纲内容
-            context_info: 上下文信息
-            strategy: 展开策略 (balanced/climax/detail)
-            target_chapters: 目标章节数
-            include_scenes: 是否包含场景字段
-        """
-        # 根据策略生成指导说明
-        strategy_instructions = {
-            "balanced": "采用均衡策略：将大纲内容平均分配到各章节，保持节奏均匀，每章剧情密度相当。",
-            "climax": "采用高潮重点策略：识别大纲中的高潮部分，为其分配更多章节进行细致展开，其他部分适当精简。",
-            "detail": "采用细节丰富策略：深挖大纲中的每个细节，为每个关键事件、情感转折都安排足够的叙事空间。"
-        }
-        strategy_instruction = strategy_instructions.get(strategy, strategy_instructions["balanced"])
-        
-        # 场景相关的指令和字段
-        scene_instruction = ""
-        scene_field = ""
-        if include_scenes:
-            scene_instruction = "\n   - scenes: 场景列表（2-4个具体场景描述）"
-            scene_field = ',\n    "scenes": ["场景1", "场景2"]'
-        
-        return cls.format_prompt(
-            cls.OUTLINE_EXPANSION,
-            title=title,
-            genre=genre,
-            theme=theme,
-            narrative_perspective=narrative_perspective,
-            time_period=time_period,
-            location=location,
-            atmosphere=atmosphere,
-            rules=rules,
-            characters_info=characters_info,
-            outline_order=outline_order,
-            outline_title=outline_title,
-            outline_content=outline_content,
-            context_info=context_info,
-            strategy_instruction=strategy_instruction,
-            target_chapters=target_chapters,
-            scene_instruction=scene_instruction,
-            scene_field=scene_field
-        )
-    
-    @classmethod
-    def get_plot_analysis_prompt(cls, chapter_number: int, title: str, 
-                                 content: str, word_count: int) -> str:
-        """获取章节剧情分析提示词"""
-        return cls.format_prompt(
-            cls.PLOT_ANALYSIS,
-            chapter_number=chapter_number,
-            title=title,
-            content=content,
-            word_count=word_count
-        )
-    @classmethod
-    def get_plot_expansion_single_batch_prompt(cls, project_title: str, project_genre: str, project_theme: str,
-                                                 project_narrative_perspective: str, project_world_time_period: str,
-                                                 project_world_location: str, project_world_atmosphere: str,
-                                                 characters_info: str, outline_order_index: int, outline_title: str,
-                                                 outline_content: str, context_info: str, strategy_instruction: str,
-                                                 target_chapter_count: int, scene_instruction: str, scene_field: str) -> str:
-        """获取大纲单批次展开提示词"""
-        return cls.format_prompt(
-            cls.PLOT_EXPANSION_SINGLE_BATCH,
-            project_title=project_title, project_genre=project_genre, project_theme=project_theme,
-            project_narrative_perspective=project_narrative_perspective, project_world_time_period=project_world_time_period,
-            project_world_location=project_world_location, project_world_atmosphere=project_world_atmosphere,
-            characters_info=characters_info, outline_order_index=outline_order_index, outline_title=outline_title,
-            outline_content=outline_content, context_info=context_info, strategy_instruction=strategy_instruction,
-            target_chapter_count=target_chapter_count, scene_instruction=scene_instruction, scene_field=scene_field
-        )
-
-    @classmethod
-    def get_plot_expansion_multi_batch_prompt(cls, project_title: str, project_genre: str, project_theme: str,
-                                                project_narrative_perspective: str, project_world_time_period: str,
-                                                project_world_location: str, project_world_atmosphere: str,
-                                                characters_info: str, outline_order_index: int, outline_title: str,
-                                                outline_content: str, context_info: str, previous_context: str,
-                                                strategy_instruction: str, start_index: int, end_index: int,
-                                                target_chapter_count: int, scene_instruction: str, scene_field: str) -> str:
-        """获取大纲分批展开提示词"""
-        return cls.format_prompt(
-            cls.PLOT_EXPANSION_MULTI_BATCH,
-            project_title=project_title, project_genre=project_genre, project_theme=project_theme,
-            project_narrative_perspective=project_narrative_perspective, project_world_time_period=project_world_time_period,
-            project_world_location=project_world_location, project_world_atmosphere=project_world_atmosphere,
-            characters_info=characters_info, outline_order_index=outline_order_index, outline_title=outline_title,
-            outline_content=outline_content, context_info=context_info, previous_context=previous_context,
-            strategy_instruction=strategy_instruction, start_index=start_index, end_index=end_index,
-            target_chapter_count=target_chapter_count, scene_instruction=scene_instruction, scene_field=scene_field
-        )
 
     @classmethod
     async def get_chapter_regeneration_prompt(cls, chapter_number: int, title: str, word_count: int, content: str,
@@ -2410,14 +1915,14 @@ class PromptService:
                 "description": "生成组织/势力的详细设定",
                 "parameters": ["project_context", "user_input"]
             },
-            "COMPLETE_OUTLINE_GENERATION": {
-                "name": "完整大纲生成",
+            "OUTLINE_CREATE": {
+                "name": "初始大纲生成",
                 "category": "大纲生成",
                 "description": "根据项目信息生成完整的章节大纲",
                 "parameters": ["title", "theme", "genre", "chapter_count", "narrative_perspective", "target_words", 
                              "time_period", "location", "atmosphere", "rules", "characters_info", "requirements", "mcp_references"]
             },
-            "OUTLINE_CONTINUE_GENERATION": {
+            "OUTLINE_CONTINUE": {
                 "name": "大纲续写",
                 "category": "大纲生成",
                 "description": "基于已有章节续写大纲",
@@ -2477,7 +1982,7 @@ class PromptService:
                 "description": "深度分析章节的剧情、钩子、伏笔等",
                 "parameters": ["chapter_number", "title", "content", "word_count"]
             },
-            "PLOT_EXPANSION_SINGLE_BATCH": {
+            "OUTLINE_EXPAND_SINGLE": {
                 "name": "大纲单批次展开",
                 "category": "情节展开",
                 "description": "将大纲节点展开为详细章节规划（单批次）",
@@ -2486,7 +1991,7 @@ class PromptService:
                              "characters_info", "outline_order_index", "outline_title", "outline_content", 
                              "context_info", "strategy_instruction", "target_chapter_count", "scene_instruction", "scene_field"]
             },
-            "PLOT_EXPANSION_MULTI_BATCH": {
+            "OUTLINE_EXPAND_MULTI": {
                 "name": "大纲分批展开",
                 "category": "情节展开",
                 "description": "将大纲节点展开为详细章节规划（分批）",

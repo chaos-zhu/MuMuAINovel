@@ -162,26 +162,19 @@ async def world_building_generator(
             if chunk_count % 20 == 0:
                 yield await SSEResponse.send_heartbeat()
         
-        # 解析结果
+        # 解析结果 - 使用统一的JSON清洗方法
         yield await SSEResponse.send_progress("解析AI返回结果...", 80)
         
         world_data = {}
         try:
-            cleaned_text = accumulated_text.strip()
-            
-            # 移除markdown代码块标记
-            if cleaned_text.startswith('```json'):
-                cleaned_text = cleaned_text[7:].lstrip('\n\r')
-            elif cleaned_text.startswith('```'):
-                cleaned_text = cleaned_text[3:].lstrip('\n\r')
-            if cleaned_text.endswith('```'):
-                cleaned_text = cleaned_text[:-3].rstrip('\n\r')
-            cleaned_text = cleaned_text.strip()
-            
+            # ✅ 使用 AIService 的统一清洗方法
+            cleaned_text = user_ai_service._clean_json_response(accumulated_text)
             world_data = json.loads(cleaned_text)
+            logger.info(f"✅ 世界观JSON解析成功")
                     
         except json.JSONDecodeError as e:
-            logger.error(f"世界构建JSON解析失败: {e}")
+            logger.error(f"❌ 世界构建JSON解析失败: {e}")
+            logger.error(f"   原始内容预览: {accumulated_text[:200]}")
             world_data = {
                 "time_period": "AI返回格式错误，请重试",
                 "location": "AI返回格式错误，请重试",
@@ -478,17 +471,8 @@ async def characters_generator(
                         accumulated_text += chunk
                         yield await SSEResponse.send_chunk(chunk)
                     
-                    # 解析批次结果
-                    cleaned_text = accumulated_text.strip()
-                    # 移除markdown代码块标记
-                    if cleaned_text.startswith('```json'):
-                        cleaned_text = cleaned_text[7:].lstrip('\n\r')
-                    elif cleaned_text.startswith('```'):
-                        cleaned_text = cleaned_text[3:].lstrip('\n\r')
-                    if cleaned_text.endswith('```'):
-                        cleaned_text = cleaned_text[:-3].rstrip('\n\r')
-                    cleaned_text = cleaned_text.strip()
-                    
+                    # 解析批次结果 - 使用统一的JSON清洗方法
+                    cleaned_text = user_ai_service._clean_json_response(accumulated_text)
                     characters_data = json.loads(cleaned_text)
                     if not isinstance(characters_data, list):
                         characters_data = [characters_data]
@@ -944,7 +928,7 @@ async def outline_generator(
         outline_requirements += "5. 不要在JSON字符串值中使用中文引号（""''），请使用【】或《》标记\n"
         
         # 获取自定义提示词模板
-        template = await PromptService.get_template("COMPLETE_OUTLINE_GENERATION", user_id, db)
+        template = await PromptService.get_template("OUTLINE_CREATE", user_id, db)
         outline_prompt = PromptService.format_prompt(
             template,
             title=project.title,
@@ -972,18 +956,11 @@ async def outline_generator(
             accumulated_text += chunk
             yield await SSEResponse.send_chunk(chunk)
         
-        # 解析大纲结果
+        # 解析大纲结果 - 使用统一的JSON清洗方法
         yield await SSEResponse.send_progress("解析大纲...", 40)
-        cleaned_text = accumulated_text.strip()
-        if cleaned_text.startswith('```json'):
-            cleaned_text = cleaned_text[7:].lstrip('\n\r')
-        elif cleaned_text.startswith('```'):
-            cleaned_text = cleaned_text[3:].lstrip('\n\r')
-        if cleaned_text.endswith('```'):
-            cleaned_text = cleaned_text[:-3].rstrip('\n\r')
-        cleaned_text = cleaned_text.strip()
         
         try:
+            cleaned_text = user_ai_service._clean_json_response(accumulated_text)
             outline_data = json.loads(cleaned_text)
             if not isinstance(outline_data, list):
                 outline_data = [outline_data]
@@ -1239,22 +1216,14 @@ async def world_building_regenerate_generator(
             if chunk_count % 20 == 0:
                 yield await SSEResponse.send_heartbeat()
         
-        # 解析结果
+        # 解析结果 - 使用统一的JSON清洗方法
         yield await SSEResponse.send_progress("解析AI返回结果...", 80)
         
         world_data = {}
         try:
-            cleaned_text = accumulated_text.strip()
-            
-            if cleaned_text.startswith('```json'):
-                cleaned_text = cleaned_text[7:].lstrip('\n\r')
-            elif cleaned_text.startswith('```'):
-                cleaned_text = cleaned_text[3:].lstrip('\n\r')
-            if cleaned_text.endswith('```'):
-                cleaned_text = cleaned_text[:-3].rstrip('\n\r')
-            cleaned_text = cleaned_text.strip()
-            
+            cleaned_text = user_ai_service._clean_json_response(accumulated_text)
             world_data = json.loads(cleaned_text)
+            logger.info(f"✅ 世界观重新生成JSON解析成功")
                     
         except json.JSONDecodeError as e:
             logger.error(f"世界构建JSON解析失败: {e}")

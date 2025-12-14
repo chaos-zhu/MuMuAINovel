@@ -205,7 +205,9 @@ class MCPTestService:
             
             if isinstance(test_arguments, str):
                 try:
-                    test_arguments = json.loads(test_arguments)
+                    # 使用统一的JSON清洗方法
+                    cleaned_args = ai_service._clean_json_response(test_arguments)
+                    test_arguments = json.loads(cleaned_args)
                 except json.JSONDecodeError as e:
                     logger.error(f"❌ 解析AI参数失败: {e}")
                     return MCPTestResult(

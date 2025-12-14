@@ -463,72 +463,6 @@ async def predict_characters(
         logger.error(f"角色预测失败: {str(e)}")
         raise HTTPException(status_code=500, detail=f"角色预测失败: {str(e)}")
 
-@router.post("/generate", response_model=OutlineListResponse, summary="AI生成/续写大纲")
-async def generate_outline(
-    request: OutlineGenerateRequest,
-    http_request: Request,
-    db: AsyncSession = Depends(get_db),
-    user_ai_service: AIService = Depends(get_user_ai_service)
-):
-    """
-    使用AI生成或续写小说大纲 - 智能模式
-    
-    支持三种模式：
-    - auto: 自动判断（无大纲→新建，有大纲→续写）
-    - new: 强制全新生成
-    - continue: 强制续写模式
-    """
-    # 验证用户权限
-    user_id = getattr(http_request.state, 'user_id', None)
-    project = await verify_project_access(request.project_id, user_id, db)
-    
-    try:
-        # 获取现有大纲（强制从数据库获取最新数据，包括用户手动修改的内容）
-        existing_result = await db.execute(
-            select(Outline)
-            .where(Outline.project_id == request.project_id)
-            .order_by(Outline.order_index)
-            .execution_options(populate_existing=True)
-        )
-        existing_outlines = existing_result.scalars().all()
-        
-        # 判断实际执行模式
-        actual_mode = request.mode
-        if actual_mode == "auto":
-            actual_mode = "continue" if existing_outlines else "new"
-            logger.info(f"自动判断模式：{'续写' if existing_outlines else '新建'}")
-        
-        # 模式：全新生成
-        if actual_mode == "new":
-            return await _generate_new_outline(
-                request, project, db, user_ai_service, user_id
-            )
-        
-        # 模式：续写
-        elif actual_mode == "continue":
-            if not existing_outlines:
-                raise HTTPException(
-                    status_code=400,
-                    detail="续写模式需要已有大纲，当前项目没有大纲"
-                )
-            
-            # 获取用户ID用于记忆检索
-            user_id = getattr(http_request.state, "user_id", "system")
-            return await _continue_outline(
-                request, project, existing_outlines, db, user_ai_service, user_id
-            )
-        
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail=f"不支持的模式: {request.mode}"
-            )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"生成大纲失败: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"生成大纲失败: {str(e)}")
 
 
 async def _generate_new_outline(
@@ -621,7 +555,7 @@ async def _generate_new_outline(
             mcp_reference_materials = ""
     
     # 使用完整提示词（插入MCP参考资料，支持自定义）
-    template = await PromptService.get_template("COMPLETE_OUTLINE_GENERATION", user_id, db)
+    template = await PromptService.get_template("OUTLINE_CREATE", user_id, db)
     prompt = PromptService.format_prompt(
         template,
         title=project.title,
@@ -1085,7 +1019,7 @@ async def _continue_outline(
                 mcp_reference_materials = ""
         
         # 使用标准续写提示词模板（支持记忆+MCP增强+自定义）
-        template = await PromptService.get_template("OUTLINE_CONTINUE_GENERATION", user_id, db)
+        template = await PromptService.get_template("OUTLINE_CONTINUE", user_id, db)
         prompt = PromptService.format_prompt(
             template,
             title=project.title,
@@ -1163,17 +1097,12 @@ async def _continue_outline(
 
 
 def _parse_ai_response(ai_response: str) -> list:
-    """解析AI响应为章节数据列表"""
+    """解析AI响应为章节数据列表（使用统一的JSON清洗方法）"""
     try:
-        # 清理响应文本
-        cleaned_text = ai_response.strip()
-        if cleaned_text.startswith('```json'):
-            cleaned_text = cleaned_text[7:]
-        if cleaned_text.startswith('```'):
-            cleaned_text = cleaned_text[3:]
-        if cleaned_text.endswith('```'):
-            cleaned_text = cleaned_text[:-3]
-        cleaned_text = cleaned_text.strip()
+        # 使用统一的JSON清洗方法（从AIService导入）
+        from app.services.ai_service import AIService
+        ai_service_temp = AIService()
+        cleaned_text = ai_service_temp._clean_json_response(ai_response)
         
         outline_data = json.loads(cleaned_text)
         
@@ -1185,15 +1114,23 @@ def _parse_ai_response(ai_response: str) -> list:
             else:
                 outline_data = [outline_data]
         
+        logger.info(f"✅ 成功解析 {len(outline_data)} 个章节数据")
         return outline_data
         
     except json.JSONDecodeError as e:
-        logger.error(f"AI响应解析失败: {e}")
+        logger.error(f"❌ AI响应解析失败: {e}")
         # 返回一个包含原始内容的章节
         return [{
             "title": "AI生成的大纲",
             "content": ai_response[:1000],
             "summary": ai_response[:1000]
+        }]
+    except Exception as e:
+        logger.error(f"❌ 解析异常: {str(e)}")
+        return [{
+            "title": "解析异常的大纲",
+            "content": "系统错误",
+            "summary": "系统错误"
         }]
 
 
@@ -1377,7 +1314,7 @@ async def new_outline_generator(
         
         # 使用完整提示词（插入MCP参考资料，支持自定义）
         yield await SSEResponse.send_progress("准备AI提示词...", 20)
-        template = await PromptService.get_template("COMPLETE_OUTLINE_GENERATION", user_id_for_mcp, db)
+        template = await PromptService.get_template("OUTLINE_CREATE", user_id_for_mcp, db)
         prompt = PromptService.format_prompt(
             template,
             title=project.title,
@@ -1877,7 +1814,7 @@ async def continue_outline_generator(
             )
             
             # 使用标准续写提示词模板（支持记忆+MCP增强+自定义）
-            template = await PromptService.get_template("OUTLINE_CONTINUE_GENERATION", user_id, db)
+            template = await PromptService.get_template("OUTLINE_CONTINUE", user_id, db)
             prompt = PromptService.format_prompt(
                 template,
                 title=project.title,
@@ -2322,142 +2259,6 @@ async def create_single_chapter_from_outline(
         raise HTTPException(status_code=500, detail=f"创建章节失败: {str(e)}")
 
 
-@router.post("/{outline_id}/expand", response_model=OutlineExpansionResponse, summary="展开单个大纲为多章")
-async def expand_outline_to_chapters(
-    outline_id: str,
-    expansion_request: OutlineExpansionRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    user_ai_service: AIService = Depends(get_user_ai_service)
-):
-    """
-    根据单个大纲摘要，通过AI分析生成多个章节规划
-    
-    流程：
-    1. 获取大纲信息和上下文（前后大纲）
-    2. 调用AI分析大纲，生成多章节规划
-    3. 根据规划创建章节记录（outline_id关联到原大纲）
-    
-    参数：
-    - outline_id: 要展开的大纲ID
-    - expansion_request: 展开配置（章节数量、展开策略等）
-    
-    返回：
-    - 展开后的章节列表和规划详情
-    """
-    # 验证用户权限
-    user_id = getattr(request.state, 'user_id', None)
-    
-    # 获取大纲
-    result = await db.execute(
-        select(Outline).where(Outline.id == outline_id)
-    )
-    outline = result.scalar_one_or_none()
-    
-    if not outline:
-        raise HTTPException(status_code=404, detail="大纲不存在")
-    
-    # 验证项目权限并获取项目信息
-    project = await verify_project_access(outline.project_id, user_id, db)
-    
-    # 验证项目模式
-    if project.outline_mode != 'one-to-many':
-        raise HTTPException(
-            status_code=400,
-            detail=f"当前项目为{project.outline_mode}模式，不支持展开功能。请使用一对一创建。"
-        )
-    
-    try:
-        # 创建展开服务实例
-        expansion_service = PlotExpansionService(user_ai_service)
-        
-        # 获取项目信息
-        project_result = await db.execute(
-            select(Project).where(Project.id == outline.project_id)
-        )
-        project = project_result.scalar_one_or_none()
-        if not project:
-            raise HTTPException(status_code=404, detail="项目不存在")
-        
-        # 分析大纲并生成章节规划
-        logger.info(f"开始展开大纲 {outline_id}，目标章节数: {expansion_request.target_chapter_count}")
-        
-        chapter_plans = await expansion_service.analyze_outline_for_chapters(
-            outline=outline,
-            project=project,
-            db=db,
-            target_chapter_count=expansion_request.target_chapter_count,
-            expansion_strategy=expansion_request.expansion_strategy,
-            enable_scene_analysis=expansion_request.enable_scene_analysis,
-            provider=expansion_request.provider,
-            model=expansion_request.model
-        )
-        
-        if not chapter_plans:
-            raise HTTPException(status_code=500, detail="AI分析失败，未能生成章节规划")
-        
-        logger.info(f"AI分析完成，生成了 {len(chapter_plans)} 个章节规划")
-        
-        # 根据规划创建章节记录
-        if expansion_request.auto_create_chapters:
-            created_chapters = await expansion_service.create_chapters_from_plans(
-                outline_id=outline_id,
-                chapter_plans=chapter_plans,
-                project_id=outline.project_id,
-                db=db,
-                start_chapter_number=None  # 自动计算章节序号
-            )
-            
-            await db.commit()
-            
-            # 刷新章节数据
-            for chapter in created_chapters:
-                await db.refresh(chapter)
-            
-            logger.info(f"成功创建 {len(created_chapters)} 个章节记录")
-            
-            # 构建响应
-            return OutlineExpansionResponse(
-                outline_id=outline_id,
-                outline_title=outline.title,
-                target_chapter_count=expansion_request.target_chapter_count,
-                actual_chapter_count=len(chapter_plans),
-                expansion_strategy=expansion_request.expansion_strategy,
-                chapter_plans=chapter_plans,
-                created_chapters=[
-                    {
-                        "id": ch.id,
-                        "chapter_number": ch.chapter_number,
-                        "title": ch.title,
-                        "summary": ch.summary,
-                        "outline_id": ch.outline_id,
-                        "sub_index": ch.sub_index,
-                        "status": ch.status
-                    }
-                    for ch in created_chapters
-                ]
-            )
-        else:
-            # 仅返回章节规划，不创建记录
-            logger.info(f"仅生成规划，未创建章节记录")
-            return OutlineExpansionResponse(
-                outline_id=outline_id,
-                outline_title=outline.title,
-                target_chapter_count=expansion_request.target_chapter_count,
-                actual_chapter_count=len(chapter_plans),
-                expansion_strategy=expansion_request.expansion_strategy,
-                chapter_plans=chapter_plans,
-                created_chapters=None
-            )
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"大纲展开失败: {str(e)}", exc_info=True)
-        await db.rollback()
-        raise HTTPException(status_code=500, detail=f"大纲展开失败: {str(e)}")
-
-
 @router.post("/{outline_id}/expand-stream", summary="展开单个大纲为多章(SSE流式)")
 async def expand_outline_to_chapters_stream(
     outline_id: str,
@@ -2583,183 +2384,6 @@ async def get_outline_chapters(
         ],
         "expansion_plans": expansion_plans if expansion_plans else None
     }
-
-
-@router.post("/batch-expand", response_model=BatchOutlineExpansionResponse, summary="批量展开大纲为多章")
-async def batch_expand_outlines(
-    batch_request: BatchOutlineExpansionRequest,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    user_ai_service: AIService = Depends(get_user_ai_service)
-):
-    """
-    批量展开项目中的所有大纲或指定大纲列表
-    
-    流程：
-    1. 获取项目中的所有大纲（或指定大纲列表）
-    2. 逐个分析大纲，生成多章节规划
-    3. 根据规划批量创建章节记录
-    
-    参数：
-    - batch_request: 批量展开配置
-    
-    返回：
-    - 所有展开的大纲和章节信息
-    """
-    # 验证用户权限
-    user_id = getattr(request.state, 'user_id', None)
-    await verify_project_access(batch_request.project_id, user_id, db)
-    
-    try:
-        # 创建展开服务实例
-        expansion_service = PlotExpansionService(user_ai_service)
-        
-        # 获取项目信息
-        project_result = await db.execute(
-            select(Project).where(Project.id == batch_request.project_id)
-        )
-        project = project_result.scalar_one_or_none()
-        if not project:
-            raise HTTPException(status_code=404, detail="项目不存在")
-        
-        # 获取要展开的大纲列表
-        if batch_request.outline_ids:
-            # 展开指定的大纲
-            outlines_result = await db.execute(
-                select(Outline)
-                .where(
-                    Outline.project_id == batch_request.project_id,
-                    Outline.id.in_(batch_request.outline_ids)
-                )
-                .order_by(Outline.order_index)
-            )
-        else:
-            # 展开所有大纲
-            outlines_result = await db.execute(
-                select(Outline)
-                .where(Outline.project_id == batch_request.project_id)
-                .order_by(Outline.order_index)
-            )
-        
-        outlines = outlines_result.scalars().all()
-        
-        if not outlines:
-            raise HTTPException(status_code=404, detail="没有找到要展开的大纲")
-        
-        # 批量展开大纲
-        logger.info(f"开始批量展开 {len(outlines)} 个大纲")
-        
-        expansion_results = []
-        total_chapters_created = 0
-        skipped_outlines = []
-        
-        for outline in outlines:
-            try:
-                # 检查大纲是否已经展开过
-                existing_chapters_result = await db.execute(
-                    select(Chapter)
-                    .where(Chapter.outline_id == outline.id)
-                    .limit(1)
-                )
-                existing_chapter = existing_chapters_result.scalar_one_or_none()
-                
-                if existing_chapter:
-                    logger.info(f"大纲 {outline.title} (ID: {outline.id}) 已经展开过，跳过")
-                    skipped_outlines.append({
-                        "outline_id": outline.id,
-                        "outline_title": outline.title,
-                        "reason": "已展开"
-                    })
-                    continue
-                
-                # 分析大纲生成章节规划
-                chapter_plans = await expansion_service.analyze_outline_for_chapters(
-                    outline=outline,
-                    project=project,
-                    db=db,
-                    target_chapter_count=batch_request.chapters_per_outline,
-                    expansion_strategy=batch_request.expansion_strategy,
-                    enable_scene_analysis=batch_request.enable_scene_analysis,
-                    provider=batch_request.provider,
-                    model=batch_request.model
-                )
-                
-                created_chapters = None
-                if batch_request.auto_create_chapters:
-                    # 创建章节记录
-                    chapters = await expansion_service.create_chapters_from_plans(
-                        outline_id=outline.id,
-                        chapter_plans=chapter_plans,
-                        project_id=outline.project_id,
-                        db=db,
-                        start_chapter_number=None  # 自动计算章节序号
-                    )
-                    created_chapters = [
-                        {
-                            "id": ch.id,
-                            "chapter_number": ch.chapter_number,
-                            "title": ch.title,
-                            "summary": ch.summary,
-                            "outline_id": ch.outline_id,
-                            "sub_index": ch.sub_index,
-                            "status": ch.status
-                        }
-                        for ch in chapters
-                    ]
-                    total_chapters_created += len(chapters)
-                
-                expansion_results.append({
-                    "outline_id": outline.id,
-                    "outline_title": outline.title,
-                    "target_chapter_count": batch_request.chapters_per_outline,
-                    "actual_chapter_count": len(chapter_plans),
-                    "expansion_strategy": batch_request.expansion_strategy,
-                    "chapter_plans": chapter_plans,
-                    "created_chapters": created_chapters
-                })
-                
-                logger.info(f"大纲 {outline.title} 展开完成，生成 {len(chapter_plans)} 个章节规划")
-                
-            except Exception as e:
-                logger.error(f"展开大纲 {outline.id} 失败: {str(e)}", exc_info=True)
-                expansion_results.append({
-                    "outline_id": outline.id,
-                    "outline_title": outline.title,
-                    "target_chapter_count": batch_request.chapters_per_outline,
-                    "actual_chapter_count": 0,
-                    "expansion_strategy": batch_request.expansion_strategy,
-                    "chapter_plans": [],
-                    "created_chapters": None,
-                    "error": str(e)
-                })
-        
-        logger.info(f"批量展开完成: {len(expansion_results)} 个大纲，共生成 {total_chapters_created} 个章节")
-        
-        # 构建响应
-        return BatchOutlineExpansionResponse(
-            project_id=batch_request.project_id,
-            total_outlines_expanded=len(expansion_results),
-            total_chapters_created=total_chapters_created,
-            expansion_results=[
-                OutlineExpansionResponse(
-                    outline_id=result["outline_id"],
-                    outline_title=result["outline_title"],
-                    target_chapter_count=result["target_chapter_count"],
-                    actual_chapter_count=result["actual_chapter_count"],
-                    expansion_strategy=result["expansion_strategy"],
-                    chapter_plans=result["chapter_plans"],
-                    created_chapters=result.get("created_chapters")
-                )
-                for result in expansion_results
-            ]
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"批量大纲展开失败: {str(e)}", exc_info=True)
-        await db.rollback()
-        raise HTTPException(status_code=500, detail=f"批量大纲展开失败: {str(e)}")
 
 
 async def batch_expand_outlines_generator(

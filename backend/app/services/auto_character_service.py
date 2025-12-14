@@ -256,7 +256,7 @@ class AutoCharacterService:
         )
         
         try:
-            # 调用AI分析
+            # 调用AI分析（使用统一的JSON调用方法）
             if enable_mcp and user_id:
                 result = await self.ai_service.generate_text_with_mcp(
                     prompt=prompt,
@@ -266,28 +266,21 @@ class AutoCharacterService:
                     max_tool_rounds=1
                 )
                 content = result.get("content", "")
+                # 使用统一的JSON清洗方法
+                cleaned = self.ai_service._clean_json_response(content)
+                analysis = json.loads(cleaned)
             else:
-                result = await self.ai_service.generate_text(prompt=prompt)
-                content = result.get("content", "") if isinstance(result, dict) else result
+                # 非MCP调用：使用带自动重试的JSON调用
+                analysis = await self.ai_service.call_with_json_retry(
+                    prompt=prompt,
+                    max_retries=3
+                )
             
-            # 清理并解析JSON
-            cleaned = content.strip()
-            if cleaned.startswith("```json"):
-                cleaned = cleaned[7:]
-            if cleaned.startswith("```"):
-                cleaned = cleaned[3:]
-            if cleaned.endswith("```"):
-                cleaned = cleaned[:-3]
-            cleaned = cleaned.strip()
-            
-            analysis = json.loads(cleaned)
             logger.info(f"  ✅ AI分析完成: needs_new_characters={analysis.get('needs_new_characters')}")
-            
             return analysis
             
         except json.JSONDecodeError as e:
             logger.error(f"  ❌ 角色需求分析JSON解析失败: {e}")
-            logger.error(f"     响应内容: {content[:500]}")
             return {"needs_new_characters": False}
         except Exception as e:
             logger.error(f"  ❌ 角色需求分析失败: {e}")
@@ -328,7 +321,7 @@ class AutoCharacterService:
             mcp_references=""  # 暂时不使用MCP增强
         )
         
-        # 调用AI生成
+        # 调用AI生成（使用统一的JSON调用方法）
         try:
             if enable_mcp and user_id:
                 result = await self.ai_service.generate_text_with_mcp(
@@ -339,20 +332,16 @@ class AutoCharacterService:
                     max_tool_rounds=1
                 )
                 content = result.get("content", "")
+                # 使用统一的JSON清洗方法
+                cleaned = self.ai_service._clean_json_response(content)
+                character_data = json.loads(cleaned)
             else:
-                result = await self.ai_service.generate_text(prompt=prompt)
-                content = result.get("content", "") if isinstance(result, dict) else result
+                # 非MCP调用：使用带自动重试的JSON调用
+                character_data = await self.ai_service.call_with_json_retry(
+                    prompt=prompt,
+                    max_retries=3
+                )
             
-            # 解析JSON
-            cleaned = content.strip()
-            if cleaned.startswith("```json"):
-                cleaned = cleaned[7:]
-            if cleaned.startswith("```"):
-                cleaned = cleaned[3:]
-            if cleaned.endswith("```"):
-                cleaned = cleaned[:-3]
-            
-            character_data = json.loads(cleaned.strip())
             char_name = character_data.get('name', '未知')
             logger.info(f"    ✅ 角色详情生成成功: {char_name}")
             logger.debug(f"       角色数据字段: {list(character_data.keys())}")

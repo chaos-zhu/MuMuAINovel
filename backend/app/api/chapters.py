@@ -1194,6 +1194,9 @@ async def generate_chapter_content_stream(
                 # 发送开始事件
                 yield f"data: {json.dumps({'type': 'start', 'message': '开始AI创作...'}, ensure_ascii=False)}\n\n"
                 
+                # 发送初始进度0%
+                yield f"data: {json.dumps({'type': 'progress', 'progress': 0, 'message': '准备生成...', 'status': 'processing'}, ensure_ascii=False)}\n\n"
+                
                 # 🔧 MCP工具增强：收集章节参考资料（优化版）
                 mcp_reference_materials = ""
                 if enable_mcp and current_user_id:
@@ -1253,10 +1256,15 @@ async def generate_chapter_content_stream(
                                 yield f"data: {json.dumps({'type': 'progress', 'message': 'ℹ️ MCP未使用工具，继续', 'progress': 32}, ensure_ascii=False)}\n\n"
                         else:
                             logger.debug(f"用户 {current_user_id} 未启用MCP工具，跳过MCP增强")
+                            # 未启用MCP时也发送进度，保持连贯性
+                            yield f"data: {json.dumps({'type': 'progress', 'message': '准备生成内容...', 'progress': 10}, ensure_ascii=False)}\n\n"
                             
                     except Exception as e:
                         logger.warning(f"⚠️ MCP工具调用失败，降级为基础模式: {str(e)}")
-                        yield f"data: {json.dumps({'type': 'progress', 'message': '⚠️ MCP工具暂时不可用，使用基础模式', 'progress': 32}, ensure_ascii=False)}\n\n"
+                        yield f"data: {json.dumps({'type': 'progress', 'message': '⚠️ MCP工具暂时不可用，使用基础模式', 'progress': 10}, ensure_ascii=False)}\n\n"
+                else:
+                    # 如果未启用MCP，也发送基础进度
+                    yield f"data: {json.dumps({'type': 'progress', 'message': '开始构建创作上下文...', 'progress': 10}, ensure_ascii=False)}\n\n"
                 
                 # 🎭 确定使用的叙事人称（临时指定 > 项目默认 > 系统默认）
                 chapter_perspective = (
@@ -1382,6 +1390,9 @@ async def generate_chapter_content_stream(
                 
                 logger.info(f"开始AI流式创作章节 {chapter_id}")
                 
+                # 发送开始生成的进度
+                yield f"data: {json.dumps({'type': 'progress', 'progress': 35, 'message': '开始AI创作...', 'status': 'processing'}, ensure_ascii=False)}\n\n"
+                
                 # 准备生成参数
                 generate_kwargs = {"prompt": prompt}
                 if custom_model:
@@ -1402,11 +1413,11 @@ async def generate_chapter_content_stream(
                     # 发送内容块
                     yield f"data: {json.dumps({'type': 'content', 'content': chunk}, ensure_ascii=False)}\n\n"
                     
-                    # 每50个chunk发送一次进度更新（估算）
-                    if chunk_count % 50 == 0:
+                    # 每20个chunk发送一次进度更新（提高频率）
+                    if chunk_count % 20 == 0:
                         current_word_count = len(full_content)
-                        # 根据目标字数估算进度（35%起步，最高95%，为后续保存留5%）
-                        estimated_progress = min(95, 35 + int((current_word_count / target_word_count) * 60))
+                        # 根据目标字数估算进度（40%起步，最高95%，为后续保存留5%）
+                        estimated_progress = min(95, 40 + int((current_word_count / target_word_count) * 55))
                         
                         # 只在进度变化时发送
                         if estimated_progress > last_progress:

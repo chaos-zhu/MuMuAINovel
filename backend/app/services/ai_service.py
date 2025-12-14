@@ -8,8 +8,14 @@ from app.mcp.adapters import UniversalMCPAdapter, PromptInjectionAdapter
 import httpx
 import json
 import hashlib
+import re
+import asyncio
 
 logger = get_logger(__name__)
+
+# 全局请求限流器（使用信号量控制并发数）
+_global_semaphore = asyncio.Semaphore(5)  # 最多5个并发请求
+_request_delay = 0.2  # 请求间隔200ms
 
 # 全局HTTP客户端池（按配置复用）
 _http_client_pool: Dict[str, httpx.AsyncClient] = {}
@@ -308,7 +314,7 @@ class AIService:
         max_tokens: int,
         system_prompt: Optional[str]
     ) -> str:
-        """使用OpenAI生成文本"""
+        """使用OpenAI生成文本（带限流和重试）"""
         if not self.openai_http_client:
             raise ValueError("OpenAI客户端未初始化，请检查API key配置")
         
@@ -317,84 +323,118 @@ class AIService:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
         
-        try:
-            logger.info(f"🔵 开始调用OpenAI API（直接HTTP请求）")
-            logger.info(f"  - 模型: {model}")
-            logger.info(f"  - 温度: {temperature}")
-            logger.info(f"  - 最大tokens: {max_tokens}")
-            logger.info(f"  - Prompt长度: {len(prompt)} 字符")
-            logger.info(f"  - 消息数量: {len(messages)}")
+        # 使用全局信号量限流
+        async with _global_semaphore:
+            # 请求间隔
+            await asyncio.sleep(_request_delay)
             
-            url = f"{self.openai_base_url}/chat/completions"
-            headers = {
-                "Authorization": f"Bearer {self.openai_api_key}",
-                "Content-Type": "application/json"
-            }
-            payload = {
-                "model": model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens
-            }
-            
-            logger.debug(f"  - 请求URL: {url}")
-            logger.debug(f"  - 请求头: Authorization=Bearer ***")
-            
-            response = await self.openai_http_client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            logger.info(f"✅ OpenAI API调用成功")
-            logger.info(f"  - 响应ID: {data.get('id', 'N/A')}")
-            logger.info(f"  - 选项数量: {len(data.get('choices', []))}")
-            logger.debug(f"  - 完整API响应: {data}")
-            
-            if not data.get('choices'):
-                logger.error("❌ OpenAI返回的choices为空")
-                raise ValueError("API返回的响应格式错误：choices字段为空")
-            
-            choice = data['choices'][0]
-            message = choice.get('message', {})
-            finish_reason = choice.get('finish_reason')
-            
-            # DeepSeek R1特殊处理：只使用content（最终答案），忽略reasoning_content（思考过程）
-            # reasoning_content是AI的思考过程，不是我们需要的JSON结果
-            content = message.get('content', '')
-            
-            # 检查是否因达到长度限制而截断
-            if finish_reason == 'length':
-                logger.warning(f"⚠️  响应因达到max_tokens限制而被截断")
-                logger.warning(f"  - 当前max_tokens: {max_tokens}")
-                logger.warning(f"  - 建议: 增加max_tokens参数（推荐2000+）")
-            
-            if content:
-                logger.info(f"  - 返回内容长度: {len(content)} 字符")
-                logger.info(f"  - 完成原因: {finish_reason}")
-                logger.info(f"  - 返回内容预览（前200字符）: {content[:200]}")
-                return content
-            else:
-                logger.error("❌ AI返回了空内容")
-                logger.error(f"  - 完整响应: {data}")
-                logger.error(f"  - 完成原因: {finish_reason}")
+            # 重试机制
+            max_retries = 3
+            for attempt in range(max_retries):
+                try:
+                    if attempt > 0:
+                        wait_time = min(2 ** attempt, 10)  # 指数退避
+                        logger.warning(f"⚠️ OpenAI API调用失败，{wait_time}秒后重试（第{attempt + 1}/{max_retries}次）")
+                        await asyncio.sleep(wait_time)
+                    
+                    logger.info(f"🔵 开始调用OpenAI API（尝试 {attempt + 1}/{max_retries}）")
+                    logger.info(f"  - 模型: {model}")
+                    logger.info(f"  - 温度: {temperature}")
+                    logger.info(f"  - 最大tokens: {max_tokens}")
+                    logger.info(f"  - Prompt长度: {len(prompt)} 字符")
+                    logger.info(f"  - 消息数量: {len(messages)}")
+                    
+                    url = f"{self.openai_base_url}/chat/completions"
+                    headers = {
+                        "Authorization": f"Bearer {self.openai_api_key}",
+                        "Content-Type": "application/json"
+                    }
+                    payload = {
+                        "model": model,
+                        "messages": messages,
+                        "temperature": temperature,
+                        "max_tokens": max_tokens
+                    }
+                    
+                    logger.debug(f"  - 请求URL: {url}")
+                    logger.debug(f"  - 请求头: Authorization=Bearer ***")
+                    
+                    response = await self.openai_http_client.post(url, headers=headers, json=payload)
+                    response.raise_for_status()
+                    
+                    data = response.json()
+                    
+                    logger.info(f"✅ OpenAI API调用成功")
+                    logger.info(f"  - 响应ID: {data.get('id', 'N/A')}")
+                    logger.info(f"  - 选项数量: {len(data.get('choices', []))}")
+                    logger.debug(f"  - 完整API响应: {data}")
+                    
+                    if not data.get('choices'):
+                        logger.error("❌ OpenAI返回的choices为空")
+                        raise ValueError("API返回的响应格式错误：choices字段为空")
+                    
+                    choice = data['choices'][0]
+                    message = choice.get('message', {})
+                    finish_reason = choice.get('finish_reason')
+                    
+                    # DeepSeek R1特殊处理：只使用content（最终答案），忽略reasoning_content（思考过程）
+                    # reasoning_content是AI的思考过程，不是我们需要的JSON结果
+                    content = message.get('content', '')
+                    
+                    # 检查是否因达到长度限制而截断
+                    if finish_reason == 'length':
+                        logger.warning(f"⚠️  响应因达到max_tokens限制而被截断")
+                        logger.warning(f"  - 当前max_tokens: {max_tokens}")
+                        logger.warning(f"  - 建议: 增加max_tokens参数（推荐2000+）")
+                    
+                    if content:
+                        logger.info(f"  - 返回内容长度: {len(content)} 字符")
+                        logger.info(f"  - 完成原因: {finish_reason}")
+                        logger.info(f"  - 返回内容预览（前200字符）: {content[:200]}")
+                        return content
+                    else:
+                        logger.error("❌ AI返回了空内容")
+                        logger.error(f"  - 完整响应: {data}")
+                        logger.error(f"  - 完成原因: {finish_reason}")
+                        
+                        # 提供更详细的错误信息
+                        if finish_reason == 'length':
+                            raise ValueError(f"AI响应被截断且无有效内容。请增加max_tokens参数（当前: {max_tokens}，建议: 2000+）")
+                        else:
+                            raise ValueError(f"AI返回了空内容（finish_reason: {finish_reason}），请检查API配置或稍后重试")
                 
-                # 提供更详细的错误信息
-                if finish_reason == 'length':
-                    raise ValueError(f"AI响应被截断且无有效内容。请增加max_tokens参数（当前: {max_tokens}，建议: 2000+）")
-                else:
-                    raise ValueError(f"AI返回了空内容（finish_reason: {finish_reason}），请检查API配置或稍后重试")
-            
-        except httpx.HTTPStatusError as e:
-            logger.error(f"❌ OpenAI API调用失败 (HTTP {e.response.status_code})")
-            logger.error(f"  - 错误信息: {e.response.text}")
-            logger.error(f"  - 模型: {model}")
-            raise Exception(f"API返回错误 ({e.response.status_code}): {e.response.text}")
-        except Exception as e:
-            logger.error(f"❌ OpenAI API调用失败")
-            logger.error(f"  - 错误类型: {type(e).__name__}")
-            logger.error(f"  - 错误信息: {str(e)}")
-            logger.error(f"  - 模型: {model}")
-            raise
+                except httpx.ConnectError as e:
+                    logger.error(f"❌ OpenAI API连接失败 (尝试 {attempt + 1}/{max_retries}): {str(e)}")
+                    if attempt == max_retries - 1:
+                        raise Exception(f"连接失败，已重试{max_retries}次。请检查网络连接或API地址: {str(e)}")
+                    continue
+                    
+                except httpx.HTTPStatusError as e:
+                    logger.error(f"❌ OpenAI API调用失败 (HTTP {e.response.status_code}, 尝试 {attempt + 1}/{max_retries})")
+                    logger.error(f"  - 错误信息: {e.response.text}")
+                    
+                    # 某些错误不需要重试（如401、403）
+                    if e.response.status_code in [401, 403, 404]:
+                        raise Exception(f"API返回错误 ({e.response.status_code}): {e.response.text}")
+                    
+                    if attempt == max_retries - 1:
+                        raise Exception(f"API返回错误 ({e.response.status_code}): {e.response.text}")
+                    continue
+                    
+                except httpx.TimeoutException as e:
+                    logger.error(f"❌ OpenAI API超时 (尝试 {attempt + 1}/{max_retries})")
+                    if attempt == max_retries - 1:
+                        raise Exception(f"API请求超时，已重试{max_retries}次: {str(e)}")
+                    continue
+                    
+                except Exception as e:
+                    logger.error(f"❌ OpenAI API调用失败 (尝试 {attempt + 1}/{max_retries})")
+                    logger.error(f"  - 错误类型: {type(e).__name__}")
+                    logger.error(f"  - 错误信息: {str(e)}")
+                    
+                    if attempt == max_retries - 1:
+                        raise
+                    continue
     
 
     async def _generate_openai_with_tools(
@@ -1044,6 +1084,297 @@ class AIService:
             **kwargs
         ):
             yield chunk
+    
+    # ========== JSON 统一调用和自动重试 ==========
+    
+    @staticmethod
+    def _clean_json_response(text: str) -> str:
+        """
+        清洗 AI 返回的 JSON 响应
+        
+        去除常见的格式问题：
+        - markdown 代码块标记 (```json ```)
+        - 前后空白字符
+        - 注释文字
+        
+        Args:
+            text: AI 返回的原始文本
+            
+        Returns:
+            清洗后的 JSON 字符串
+        """
+        if not text:
+            return text
+        
+        # 去除 markdown 代码块标记
+        text = re.sub(r'^```json\s*\n?', '', text, flags=re.MULTILINE | re.IGNORECASE)
+        text = re.sub(r'^```\s*\n?', '', text, flags=re.MULTILINE)
+        text = re.sub(r'\n?```\s*$', '', text, flags=re.MULTILINE)
+        
+        # 去除前后空白
+        text = text.strip()
+        
+        # 尝试提取第一个完整的 JSON 对象或数组
+        # 查找第一个 { 或 [
+        start_idx = -1
+        for i, char in enumerate(text):
+            if char in ('{', '['):
+                start_idx = i
+                break
+        
+        if start_idx == -1:
+            return text
+        
+        # 从第一个括号开始提取
+        text = text[start_idx:]
+        
+        # 查找匹配的结束括号
+        bracket_stack = []
+        end_idx = -1
+        in_string = False
+        escape_next = False
+        
+        for i, char in enumerate(text):
+            if escape_next:
+                escape_next = False
+                continue
+            
+            if char == '\\':
+                escape_next = True
+                continue
+            
+            if char == '"':
+                in_string = not in_string
+                continue
+            
+            if in_string:
+                continue
+            
+            if char in ('{', '['):
+                bracket_stack.append(char)
+            elif char == '}':
+                if bracket_stack and bracket_stack[-1] == '{':
+                    bracket_stack.pop()
+                    if not bracket_stack:
+                        end_idx = i + 1
+                        break
+            elif char == ']':
+                if bracket_stack and bracket_stack[-1] == '[':
+                    bracket_stack.pop()
+                    if not bracket_stack:
+                        end_idx = i + 1
+                        break
+        
+        if end_idx > 0:
+            return text[:end_idx]
+        
+        return text
+    
+    @staticmethod
+    def _add_json_format_hint(original_prompt: str, failed_response: str, attempt: int) -> str:
+        """
+        重试时添加格式纠正提示
+        
+        Args:
+            original_prompt: 原始提示词
+            failed_response: 上次失败的响应（截断显示）
+            attempt: 当前尝试次数
+            
+        Returns:
+            增强后的提示词
+        """
+        error_preview = failed_response[:300] if failed_response else "无响应"
+        
+        return f"""{original_prompt}
+
+⚠️ 【第 {attempt} 次重试】上一次返回格式错误，请严格遵守以下规则：
+
+🔴 格式要求（必须严格遵守）：
+1. 只返回纯 JSON 对象或数组，不要有任何其他文字
+2. 不要使用 ```json``` 或 ``` 包裹 JSON
+3. 不要添加任何解释、说明或注释
+4. 确保 JSON 格式完全正确：
+   - 所有括号必须匹配 {{}} []
+   - 所有字符串必须用双引号 ""
+   - 键值对用冒号分隔 :
+   - 多个元素用逗号分隔 ,
+   - 不要有多余的逗号
+
+❌ 上一次的错误返回示例：
+{error_preview}...
+
+✅ 请现在重新生成正确的 JSON 格式内容。"""
+    
+    async def call_with_json_retry(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        max_retries: int = 3,
+        temperature: Optional[float] = None,
+        max_tokens: Optional[int] = None,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
+        expected_type: Optional[str] = None  # "object" 或 "array"
+    ) -> Dict[str, Any] | List[Dict[str, Any]]:
+        """
+        统一的 JSON 调用方法，自动重试和格式修复
+        
+        这是一个专门用于需要返回 JSON 格式的 AI 调用封装，会自动：
+        1. 清洗 AI 返回的内容（去除 markdown 标记等）
+        2. 解析 JSON 并验证格式
+        3. 失败时自动重试，并在提示词中添加纠正指引
+        
+        Args:
+            prompt: 用户提示词
+            system_prompt: 系统提示词（可选）
+            max_retries: 最大重试次数，默认 3 次
+            temperature: 温度参数（可选，使用默认值）
+            max_tokens: 最大 token 数（可选，使用默认值）
+            provider: AI 提供商（可选，使用默认值）
+            model: 模型名称（可选，使用默认值）
+            expected_type: 期望的 JSON 类型 "object" 或 "array"（可选，用于额外验证）
+            
+        Returns:
+            解析后的 JSON 对象（dict）或数组（list）
+            
+        Raises:
+            ValueError: 重试次数用尽仍未获得有效 JSON
+            
+        Examples:
+            >>> # 获取 JSON 对象
+            >>> result = await ai_service.call_with_json_retry(
+            ...     prompt="生成一个角色",
+            ...     expected_type="object"
+            ... )
+            >>> print(result["name"])
+            
+            >>> # 获取 JSON 数组
+            >>> results = await ai_service.call_with_json_retry(
+            ...     prompt="生成3个角色",
+            ...     expected_type="array"
+            ... )
+            >>> print(len(results))
+        """
+        last_error = None
+        last_response = ""
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                logger.info(f"🔄 JSON 调用尝试 {attempt}/{max_retries}")
+                
+                # 第一次使用原始提示词，之后使用增强提示词
+                current_prompt = prompt if attempt == 1 else self._add_json_format_hint(
+                    prompt, last_response, attempt
+                )
+                
+                # 调用 AI 生成内容
+                if provider == "openai" and self.openai_client:
+                    response = await self._generate_openai(
+                        prompt=current_prompt,
+                        model=model or self.default_model,
+                        temperature=temperature or self.default_temperature,
+                        max_tokens=max_tokens or self.default_max_tokens,
+                        system_prompt=system_prompt
+                    )
+                elif provider == "anthropic" and self.anthropic_client:
+                    response = await self._generate_anthropic(
+                        prompt=current_prompt,
+                        model=model or self.default_model,
+                        temperature=temperature or self.default_temperature,
+                        max_tokens=max_tokens or self.default_max_tokens,
+                        system_prompt=system_prompt
+                    )
+                else:
+                    # 使用默认提供商
+                    if self.api_provider == "openai":
+                        response = await self._generate_openai(
+                            prompt=current_prompt,
+                            model=model or self.default_model,
+                            temperature=temperature or self.default_temperature,
+                            max_tokens=max_tokens or self.default_max_tokens,
+                            system_prompt=system_prompt
+                        )
+                    else:
+                        response = await self._generate_anthropic(
+                            prompt=current_prompt,
+                            model=model or self.default_model,
+                            temperature=temperature or self.default_temperature,
+                            max_tokens=max_tokens or self.default_max_tokens,
+                            system_prompt=system_prompt
+                        )
+                
+                last_response = response
+                
+                # 清洗响应内容
+                cleaned = self._clean_json_response(response)
+                logger.debug(f"清洗后的内容: {cleaned[:200]}...")
+                
+                # 解析 JSON
+                try:
+                    data = json.loads(cleaned)
+                except json.JSONDecodeError as e:
+                    logger.warning(f"⚠️ JSON 解析失败: {e}")
+                    logger.debug(f"原始响应: {response[:500]}")
+                    logger.debug(f"清洗后: {cleaned[:500]}")
+                    raise
+                
+                # 可选：验证 JSON 类型
+                if expected_type:
+                    if expected_type == "object" and not isinstance(data, dict):
+                        raise ValueError(f"期望 JSON 对象，但得到 {type(data).__name__}")
+                    elif expected_type == "array" and not isinstance(data, list):
+                        raise ValueError(f"期望 JSON 数组，但得到 {type(data).__name__}")
+                
+                logger.info(f"✅ JSON 解析成功 (尝试 {attempt}/{max_retries})")
+                if isinstance(data, dict):
+                    logger.info(f"   返回对象，包含 {len(data)} 个键")
+                elif isinstance(data, list):
+                    logger.info(f"   返回数组，包含 {len(data)} 个元素")
+                
+                return data
+                
+            except json.JSONDecodeError as e:
+                last_error = e
+                logger.warning(f"⚠️ 第 {attempt} 次尝试失败: JSON 解析错误")
+                logger.warning(f"   错误位置: {e.msg} at line {e.lineno} column {e.colno}")
+                
+                if attempt < max_retries:
+                    logger.info(f"   准备第 {attempt + 1} 次重试...")
+                    continue
+                else:
+                    logger.error(f"❌ JSON 解析失败，已达到最大重试次数 {max_retries}")
+                    logger.error(f"   最后的响应内容:\n{last_response[:1000]}")
+                    raise ValueError(
+                        f"AI 返回内容无法解析为 JSON，已重试 {max_retries} 次。\n"
+                        f"最后错误: {e}\n"
+                        f"响应预览: {last_response[:200]}..."
+                    )
+            
+            except ValueError as e:
+                last_error = e
+                logger.warning(f"⚠️ 第 {attempt} 次尝试失败: {e}")
+                
+                if attempt < max_retries:
+                    logger.info(f"   准备第 {attempt + 1} 次重试...")
+                    continue
+                else:
+                    logger.error(f"❌ 验证失败，已达到最大重试次数 {max_retries}")
+                    raise ValueError(
+                        f"AI 返回的 JSON 格式不符合要求，已重试 {max_retries} 次。\n"
+                        f"错误: {e}"
+                    )
+            
+            except Exception as e:
+                logger.error(f"❌ 第 {attempt} 次调用出现未预期错误: {type(e).__name__}: {e}")
+                if attempt < max_retries:
+                    logger.info(f"   准备第 {attempt + 1} 次重试...")
+                    last_error = e
+                    continue
+                else:
+                    raise
+        
+        # 理论上不会到达这里，但以防万一
+        raise ValueError(f"JSON 调用失败，已重试 {max_retries} 次。最后错误: {last_error}")
 
 
 # 创建全局AI服务实例

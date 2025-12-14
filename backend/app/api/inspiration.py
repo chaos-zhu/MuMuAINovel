@@ -162,26 +162,10 @@ async def generate_options(
             content = response.get("content", "")
             logger.info(f"AI返回内容长度: {len(content)}")
             
-            # 解析JSON
+            # 解析JSON（使用统一的JSON清洗方法）
             try:
-                # 清理可能的markdown标记
-                cleaned_content = content.strip()
-                if cleaned_content.startswith('```json'):
-                    cleaned_content = cleaned_content[7:].lstrip('\n\r')
-                elif cleaned_content.startswith('```'):
-                    cleaned_content = cleaned_content[3:].lstrip('\n\r')
-                if cleaned_content.endswith('```'):
-                    cleaned_content = cleaned_content[:-3].rstrip('\n\r')
-                cleaned_content = cleaned_content.strip()
-                
-                # 检查JSON是否完整
-                if not cleaned_content.endswith('}'):
-                    logger.warning(f"⚠️ JSON可能被截断，尝试补全...")
-                    if '"options"' in cleaned_content:
-                        if cleaned_content.count('[') > cleaned_content.count(']'):
-                            cleaned_content += '"]}'
-                        elif cleaned_content.count('{') > cleaned_content.count('}'):
-                            cleaned_content += '}'
+                # 使用统一的JSON清洗方法
+                cleaned_content = ai_service._clean_json_response(content)
                 
                 result = json.loads(cleaned_content)
                 
@@ -305,16 +289,10 @@ async def quick_generate(
         
         content = response.get("content", "")
         
-        # 解析JSON
+        # 解析JSON（使用统一的JSON清洗方法）
         try:
-            cleaned_content = content.strip()
-            if cleaned_content.startswith('```json'):
-                cleaned_content = cleaned_content[7:].lstrip('\n\r')
-            elif cleaned_content.startswith('```'):
-                cleaned_content = cleaned_content[3:].lstrip('\n\r')
-            if cleaned_content.endswith('```'):
-                cleaned_content = cleaned_content[:-3].rstrip('\n\r')
-            cleaned_content = cleaned_content.strip()
+            # 使用统一的JSON清洗方法
+            cleaned_content = ai_service._clean_json_response(content)
             
             result = json.loads(cleaned_content)
             
