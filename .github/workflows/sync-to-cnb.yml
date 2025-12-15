@@ -18,7 +18,7 @@ jobs:
       - name: Sync to CNB Repository
         uses: docker://tencentcom/git-sync
         env:
-          PLUGIN_TARGET_URL: "https://cnb.cool/username/repo.git"
+          PLUGIN_TARGET_URL: "https://cnb.cool/chaoszhu/MuMuAINovel.git"
           PLUGIN_AUTH_TYPE: "https"
           PLUGIN_USERNAME: "cnb"
           PLUGIN_PASSWORD: ${{ secrets.CNB_ACCESS_TOKEN }}
