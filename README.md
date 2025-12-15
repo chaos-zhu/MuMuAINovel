@@ -43,6 +43,10 @@
 
 ## 📸 项目预览
 
+<details>
+
+<summary>多图预警</summary>
+
 <div align="center">
 
 ### 登录界面
@@ -58,6 +62,8 @@
 ![赞助我](images/4.png)
 
 </div>
+
+</details>
 
 ## 📋 TODO List
 
