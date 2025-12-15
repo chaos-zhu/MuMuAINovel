@@ -15,15 +15,11 @@ jobs:
       - uses: actions/checkout@v3
         with:
           fetch-depth: 0
-
       - name: Sync to CNB Repository
-        run: |
-          docker run --rm \
-            -v ${{ github.workspace }}:${{ github.workspace }} \
-            -w ${{ github.workspace }} \
-            -e PLUGIN_TARGET_URL="https://cnb.cool/chaoszhu/MuMuAINovel.git" \
-            -e PLUGIN_AUTH_TYPE="https" \
-            -e PLUGIN_USERNAME="cnb" \
-            -e PLUGIN_PASSWORD=${{ secrets.CNB_ACCESS_TOKEN }} \
-            -e PLUGIN_SYNC_MODE="rebase" \
-            tencentcom/git-sync
+        uses: docker://tencentcom/git-sync
+        env:
+          PLUGIN_TARGET_URL: "https://cnb.cool/username/repo.git"
+          PLUGIN_AUTH_TYPE: "https"
+          PLUGIN_USERNAME: "cnb"
+          PLUGIN_PASSWORD: ${{ secrets.CNB_ACCESS_TOKEN }}
+          PLUGIN_SYNC_MODE: "rebase"
