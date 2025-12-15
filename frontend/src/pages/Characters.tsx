@@ -612,8 +612,12 @@ export default function Characters() {
                   </Form.Item>
                 </Col>
                 <Col span={12}>
-                  <Form.Item label="主要成员" name="organization_members">
-                    <Input placeholder="如：张三、李四、王五" />
+                  <Form.Item
+                    label="势力等级"
+                    name="power_level"
+                    tooltip="0-100的数值，表示组织的影响力"
+                  >
+                    <InputNumber min={0} max={100} style={{ width: '100%' }} />
                   </Form.Item>
                 </Col>
               </Row>
@@ -624,6 +628,10 @@ export default function Characters() {
                 rules={[{ required: true, message: '请输入组织目的' }]}
               >
                 <TextArea rows={2} placeholder="描述组织的宗旨和目标..." />
+              </Form.Item>
+
+              <Form.Item label="主要成员" name="organization_members">
+                <Input placeholder="如：张三、李四、王五" />
               </Form.Item>
 
               <Row gutter={16}>

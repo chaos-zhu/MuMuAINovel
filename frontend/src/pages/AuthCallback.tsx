@@ -21,13 +21,13 @@ export default function AuthCallback() {
         // 后端会通过 Cookie 自动设置认证信息
         // 这里只需要验证登录状态
         await authApi.getCurrentUser();
-        
+
         // 检查密码状态
         const pwdStatus = await authApi.getPasswordStatus();
         setPasswordStatus(pwdStatus);
-        
+
         setStatus('success');
-        
+
         // 只有在用户完全没有密码时才显示密码设置提示
         // 如果已经有密码（无论是默认密码还是自定义密码），都不再提示
         if (!pwdStatus.has_password) {
@@ -36,16 +36,16 @@ export default function AuthCallback() {
           }, 1000);
           return;
         }
-        
+
         // 从 sessionStorage 获取重定向地址
         const redirect = sessionStorage.getItem('login_redirect') || '/';
         sessionStorage.removeItem('login_redirect');
-        
+
         // 检查是否永久隐藏公告或今日已隐藏
         const hideForever = localStorage.getItem('announcement_hide_forever');
         const hideToday = localStorage.getItem('announcement_hide_today');
         const today = new Date().toDateString();
-        
+
         if (hideForever === 'true' || hideToday === today) {
           // 延迟一下再跳转，让用户看到成功提示
           setTimeout(() => {
@@ -74,7 +74,7 @@ export default function AuthCallback() {
         justifyContent: 'center',
         alignItems: 'center',
         minHeight: '100vh',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        background: 'linear-gradient(135deg, #4D8088 0%, #5F9EA8 100%)',
       }}>
         <div style={{ textAlign: 'center' }}>
           <Spin size="large" />
@@ -93,7 +93,7 @@ export default function AuthCallback() {
         justifyContent: 'center',
         alignItems: 'center',
         minHeight: '100vh',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        background: 'linear-gradient(135deg, #4D8088 0%, #5F9EA8 100%)',
       }}>
         <Result
           status="error"
@@ -147,15 +147,15 @@ export default function AuthCallback() {
       await authApi.setPassword(newPassword);
       message.success('密码设置成功');
       setShowPasswordModal(false);
-      
+
       // 继续后续流程
       const redirect = sessionStorage.getItem('login_redirect') || '/';
       sessionStorage.removeItem('login_redirect');
-      
+
       const hideForever = localStorage.getItem('announcement_hide_forever');
       const hideToday = localStorage.getItem('announcement_hide_today');
       const today = new Date().toDateString();
-      
+
       if (hideForever === 'true' || hideToday === today) {
         setTimeout(() => {
           navigate(redirect);
@@ -174,15 +174,15 @@ export default function AuthCallback() {
 
   const handleSkipPasswordSetting = () => {
     setShowPasswordModal(false);
-    
+
     // 继续后续流程
     const redirect = sessionStorage.getItem('login_redirect') || '/';
     sessionStorage.removeItem('login_redirect');
-    
+
     const hideForever = localStorage.getItem('announcement_hide_forever');
     const hideToday = localStorage.getItem('announcement_hide_today');
     const today = new Date().toDateString();
-    
+
     if (hideForever === 'true' || hideToday === today) {
       setTimeout(() => {
         navigate(redirect);
@@ -202,7 +202,7 @@ export default function AuthCallback() {
         onDoNotShowToday={handleDoNotShowToday}
         onNeverShow={handleNeverShow}
       />
-      
+
       <Modal
         title="设置账号密码"
         open={showPasswordModal}
@@ -224,7 +224,7 @@ export default function AuthCallback() {
               borderRadius: 4,
               marginTop: 12
             }}>
-              <strong>账号：</strong>{passwordStatus.username}<br/>
+              <strong>账号：</strong>{passwordStatus.username}<br />
               <strong>默认密码：</strong><code style={{
                 background: '#fff',
                 padding: '2px 8px',
@@ -235,7 +235,7 @@ export default function AuthCallback() {
             </div>
           )}
         </div>
-        
+
         <div style={{ marginTop: 20 }}>
           <div style={{ marginBottom: 12 }}>
             <label>新密码（至少6个字符）：</label>
@@ -263,7 +263,7 @@ export default function AuthCallback() {
         justifyContent: 'center',
         alignItems: 'center',
         minHeight: '100vh',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+        background: 'linear-gradient(135deg, #4D8088 0%, #5F9EA8 100%)',
       }}>
         <Result
           status="success"

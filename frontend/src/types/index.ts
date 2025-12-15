@@ -36,6 +36,43 @@ export interface SettingsUpdate {
   preferences?: string;
 }
 
+// API预设相关类型定义
+export interface APIKeyPresetConfig {
+  api_provider: string;
+  api_key: string;
+  api_base_url?: string;
+  llm_model: string;
+  temperature: number;
+  max_tokens: number;
+}
+
+export interface APIKeyPreset {
+  id: string;
+  name: string;
+  description?: string;
+  is_active: boolean;
+  created_at: string;
+  config: APIKeyPresetConfig;
+}
+
+export interface PresetCreateRequest {
+  name: string;
+  description?: string;
+  config: APIKeyPresetConfig;
+}
+
+export interface PresetUpdateRequest {
+  name?: string;
+  description?: string;
+  config?: APIKeyPresetConfig;
+}
+
+export interface PresetListResponse {
+  presets: APIKeyPreset[];
+  total: number;
+  active_preset_id?: string;
+}
+
 // LinuxDO 授权 URL 响应
 export interface AuthUrlResponse {
   auth_url: string;
@@ -622,22 +659,22 @@ export interface MCPPlugin {
   description?: string;
   plugin_type: 'http' | 'stdio';
   category: string;
-  
+
   // HTTP类型字段
   server_url?: string;
   headers?: Record<string, string>;
-  
+
   // Stdio类型字段
   command?: string;
   args?: string[];
   env?: Record<string, string>;
-  
+
   // 状态字段
   enabled: boolean;
   status: 'active' | 'inactive' | 'error';
   last_error?: string;
   last_test_at?: string;
-  
+
   // 时间戳
   created_at: string;
 }

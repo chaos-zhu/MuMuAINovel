@@ -46,6 +46,10 @@ import type {
   MCPTool,
   MCPToolCallRequest,
   MCPToolCallResponse,
+  APIKeyPreset,
+  PresetCreateRequest,
+  PresetUpdateRequest,
+  PresetListResponse,
 } from '../types';
 
 const api = axios.create({
@@ -197,6 +201,41 @@ export const settingsApi = {
       error_type?: string;
       suggestions?: string[];
     }>('/settings/test', params),
+
+  // API配置预设管理
+  getPresets: () =>
+    api.get<unknown, PresetListResponse>('/settings/presets'),
+
+  createPreset: (data: PresetCreateRequest) =>
+    api.post<unknown, APIKeyPreset>('/settings/presets', data),
+
+  updatePreset: (presetId: string, data: PresetUpdateRequest) =>
+    api.put<unknown, APIKeyPreset>(`/settings/presets/${presetId}`, data),
+
+  deletePreset: (presetId: string) =>
+    api.delete<unknown, { message: string; preset_id: string }>(`/settings/presets/${presetId}`),
+
+  activatePreset: (presetId: string) =>
+    api.post<unknown, { message: string; preset_id: string; preset_name: string }>(`/settings/presets/${presetId}/activate`),
+
+  testPreset: (presetId: string) =>
+    api.post<unknown, {
+      success: boolean;
+      message: string;
+      response_time_ms?: number;
+      provider?: string;
+      model?: string;
+      response_preview?: string;
+      details?: Record<string, boolean>;
+      error?: string;
+      error_type?: string;
+      suggestions?: string[];
+    }>(`/settings/presets/${presetId}/test`),
+
+  createPresetFromCurrent: (name: string, description?: string) =>
+    api.post<unknown, APIKeyPreset>('/settings/presets/from-current', null, {
+      params: { name, description }
+    }),
 };
 
 export const projectApi = {

@@ -246,11 +246,50 @@ async def update_character(
     
     # 更新字段
     update_data = character_update.model_dump(exclude_unset=True)
+    
+    # 如果是组织，需要同步更新 Organization 表的字段
+    org_fields = {}
+    if character.is_organization:
+        # 提取需要同步到 Organization 表的字段
+        if 'power_level' in update_data:
+            org_fields['power_level'] = update_data.pop('power_level')
+        if 'location' in update_data:
+            org_fields['location'] = update_data.pop('location')
+        if 'motto' in update_data:
+            org_fields['motto'] = update_data.pop('motto')
+        if 'color' in update_data:
+            org_fields['color'] = update_data.pop('color')
+    
+    # 更新 Character 表字段
     for field, value in update_data.items():
         setattr(character, field, value)
     
+    # 如果是组织且有需要同步的字段，更新 Organization 表
+    if character.is_organization and org_fields:
+        org_result = await db.execute(
+            select(Organization).where(Organization.character_id == character_id)
+        )
+        org = org_result.scalar_one_or_none()
+        
+        if org:
+            for field, value in org_fields.items():
+                setattr(org, field, value)
+            logger.info(f"同步更新组织详情：{character.name}")
+        else:
+            # 如果 Organization 记录不存在，自动创建
+            org = Organization(
+                character_id=character_id,
+                project_id=character.project_id,
+                member_count=0,
+                **org_fields
+            )
+            db.add(org)
+            logger.info(f"自动创建组织详情：{character.name}")
+    
     await db.commit()
     await db.refresh(character)
+    
+    logger.info(f"更新角色/组织成功：{character.name} (ID: {character_id})")
     return character
 
 

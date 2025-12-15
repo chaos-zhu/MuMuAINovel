@@ -4,14 +4,21 @@
 from fastapi import APIRouter, HTTPException, Request, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from pathlib import Path
 from pydantic import BaseModel
+from datetime import datetime
 import httpx
+import json
+import time
 
 from app.database import get_db
 from app.models.settings import Settings
-from app.schemas.settings import SettingsCreate, SettingsUpdate, SettingsResponse
+from app.schemas.settings import (
+    SettingsCreate, SettingsUpdate, SettingsResponse,
+    APIKeyPreset, APIKeyPresetConfig, PresetCreateRequest,
+    PresetUpdateRequest, PresetResponse, PresetListResponse
+)
 from app.user_manager import User
 from app.logger import get_logger
 from app.config import settings as app_settings, PROJECT_ROOT
@@ -463,3 +470,328 @@ async def test_api_connection(data: ApiTestRequest):
             "error_type": error_type,
             "suggestions": suggestions
         }
+
+
+# ========== API配置预设管理（零数据库改动方案）==========
+
+async def get_user_settings(user_id: str, db: AsyncSession) -> Settings:
+    """获取用户settings，如果不存在则创建"""
+    result = await db.execute(
+        select(Settings).where(Settings.user_id == user_id)
+    )
+    settings = result.scalar_one_or_none()
+    
+    if not settings:
+        # 创建默认设置
+        env_defaults = read_env_defaults()
+        settings = Settings(
+            user_id=user_id,
+            **env_defaults,
+            preferences='{}'  # 初始化为空JSON
+        )
+        db.add(settings)
+        await db.commit()
+        await db.refresh(settings)
+        logger.info(f"用户 {user_id} 首次访问，已创建默认设置")
+    
+    return settings
+
+
+@router.get("/presets", response_model=PresetListResponse)
+async def get_presets(
+    user: User = Depends(require_login),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    获取所有API配置预设
+    
+    从preferences字段读取预设列表
+    """
+    settings = await get_user_settings(user.user_id, db)
+    
+    # 解析preferences
+    try:
+        prefs = json.loads(settings.preferences or '{}')
+    except json.JSONDecodeError:
+        logger.warning(f"用户 {user.user_id} 的preferences字段JSON格式错误，重置为空")
+        prefs = {}
+    
+    api_presets = prefs.get('api_presets', {'presets': [], 'version': '1.0'})
+    presets = api_presets.get('presets', [])
+    
+    # 找到激活的预设
+    active_preset_id = next(
+        (p['id'] for p in presets if p.get('is_active')),
+        None
+    )
+    
+    logger.info(f"用户 {user.user_id} 获取预设列表，共 {len(presets)} 个")
+    
+    return {
+        "presets": presets,
+        "total": len(presets),
+        "active_preset_id": active_preset_id
+    }
+
+
+@router.post("/presets", response_model=PresetResponse)
+async def create_preset(
+    data: PresetCreateRequest,
+    user: User = Depends(require_login),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    创建新预设
+    
+    将预设添加到preferences字段的JSON中
+    """
+    settings = await get_user_settings(user.user_id, db)
+    
+    # 解析preferences
+    try:
+        prefs = json.loads(settings.preferences or '{}')
+    except json.JSONDecodeError:
+        prefs = {}
+    
+    api_presets = prefs.get('api_presets', {'presets': [], 'version': '1.0'})
+    presets = api_presets.get('presets', [])
+    
+    # 创建新预设
+    new_preset = {
+        "id": f"preset_{int(datetime.now().timestamp() * 1000)}",
+        "name": data.name,
+        "description": data.description,
+        "is_active": False,
+        "created_at": datetime.now().isoformat(),
+        "config": data.config.model_dump()
+    }
+    
+    presets.append(new_preset)
+    
+    # 保存回preferences
+    api_presets['presets'] = presets
+    prefs['api_presets'] = api_presets
+    settings.preferences = json.dumps(prefs, ensure_ascii=False)
+    
+    await db.commit()
+    
+    logger.info(f"用户 {user.user_id} 创建预设: {data.name}")
+    return new_preset
+
+
+@router.put("/presets/{preset_id}", response_model=PresetResponse)
+async def update_preset(
+    preset_id: str,
+    data: PresetUpdateRequest,
+    user: User = Depends(require_login),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    更新预设
+    
+    在preferences字段的JSON中更新指定预设
+    """
+    settings = await get_user_settings(user.user_id, db)
+    
+    # 解析preferences
+    try:
+        prefs = json.loads(settings.preferences or '{}')
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="配置数据格式错误")
+    
+    api_presets = prefs.get('api_presets', {'presets': [], 'version': '1.0'})
+    presets = api_presets.get('presets', [])
+    
+    # 找到并更新预设
+    target_preset = next((p for p in presets if p['id'] == preset_id), None)
+    if not target_preset:
+        raise HTTPException(status_code=404, detail="预设不存在")
+    
+    # 更新字段
+    if data.name is not None:
+        target_preset['name'] = data.name
+    if data.description is not None:
+        target_preset['description'] = data.description
+    if data.config is not None:
+        target_preset['config'] = data.config.model_dump()
+    
+    # 保存回preferences
+    prefs['api_presets'] = api_presets
+    settings.preferences = json.dumps(prefs, ensure_ascii=False)
+    
+    await db.commit()
+    
+    logger.info(f"用户 {user.user_id} 更新预设: {preset_id}")
+    return target_preset
+
+
+@router.delete("/presets/{preset_id}")
+async def delete_preset(
+    preset_id: str,
+    user: User = Depends(require_login),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    删除预设
+    
+    从preferences字段的JSON中删除指定预设
+    """
+    settings = await get_user_settings(user.user_id, db)
+    
+    # 解析preferences
+    try:
+        prefs = json.loads(settings.preferences or '{}')
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="配置数据格式错误")
+    
+    api_presets = prefs.get('api_presets', {'presets': [], 'version': '1.0'})
+    presets = api_presets.get('presets', [])
+    
+    # 找到预设
+    target_preset = next((p for p in presets if p['id'] == preset_id), None)
+    if not target_preset:
+        raise HTTPException(status_code=404, detail="预设不存在")
+    
+    # 检查是否是激活的预设
+    if target_preset.get('is_active'):
+        raise HTTPException(status_code=400, detail="无法删除激活中的预设，请先激活其他预设")
+    
+    # 删除预设
+    presets = [p for p in presets if p['id'] != preset_id]
+    
+    # 保存回preferences
+    api_presets['presets'] = presets
+    prefs['api_presets'] = api_presets
+    settings.preferences = json.dumps(prefs, ensure_ascii=False)
+    
+    await db.commit()
+    
+    logger.info(f"用户 {user.user_id} 删除预设: {preset_id}")
+    return {"message": "预设已删除", "preset_id": preset_id}
+
+
+@router.post("/presets/{preset_id}/activate")
+async def activate_preset(
+    preset_id: str,
+    user: User = Depends(require_login),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    激活预设
+    
+    将预设的配置应用到Settings主字段
+    """
+    settings = await get_user_settings(user.user_id, db)
+    
+    # 解析preferences
+    try:
+        prefs = json.loads(settings.preferences or '{}')
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="配置数据格式错误")
+    
+    api_presets = prefs.get('api_presets', {'presets': [], 'version': '1.0'})
+    presets = api_presets.get('presets', [])
+    
+    # 找到目标预设
+    target_preset = next((p for p in presets if p['id'] == preset_id), None)
+    if not target_preset:
+        raise HTTPException(status_code=404, detail="预设不存在")
+    
+    # 应用配置到Settings主字段
+    config = target_preset['config']
+    settings.api_provider = config['api_provider']
+    settings.api_key = config['api_key']
+    settings.api_base_url = config.get('api_base_url')
+    settings.llm_model = config['llm_model']
+    settings.temperature = config['temperature']
+    settings.max_tokens = config['max_tokens']
+    
+    # 更新所有预设的is_active状态
+    for preset in presets:
+        preset['is_active'] = (preset['id'] == preset_id)
+    
+    # 保存回preferences
+    prefs['api_presets'] = api_presets
+    settings.preferences = json.dumps(prefs, ensure_ascii=False)
+    
+    await db.commit()
+    
+    logger.info(f"用户 {user.user_id} 激活预设: {target_preset['name']}")
+    return {
+        "message": "预设已激活",
+        "preset_id": preset_id,
+        "preset_name": target_preset['name']
+    }
+
+
+@router.post("/presets/{preset_id}/test")
+async def test_preset(
+    preset_id: str,
+    user: User = Depends(require_login),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    测试预设的API连接
+    """
+    settings = await get_user_settings(user.user_id, db)
+    
+    # 解析preferences
+    try:
+        prefs = json.loads(settings.preferences or '{}')
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="配置数据格式错误")
+    
+    api_presets = prefs.get('api_presets', {'presets': [], 'version': '1.0'})
+    presets = api_presets.get('presets', [])
+    
+    # 找到预设
+    target_preset = next((p for p in presets if p['id'] == preset_id), None)
+    if not target_preset:
+        raise HTTPException(status_code=404, detail="预设不存在")
+    
+    # 使用现有的test_api_connection逻辑
+    config = target_preset['config']
+    test_request = ApiTestRequest(
+        api_key=config['api_key'],
+        api_base_url=config.get('api_base_url', ''),
+        provider=config['api_provider'],
+        llm_model=config['llm_model']
+    )
+    
+    logger.info(f"用户 {user.user_id} 测试预设: {target_preset['name']}")
+    return await test_api_connection(test_request)
+
+
+@router.post("/presets/from-current", response_model=PresetResponse)
+async def create_preset_from_current(
+    name: str,
+    description: Optional[str] = None,
+    user: User = Depends(require_login),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    从当前配置创建新预设
+    
+    快捷方式：将当前激活的配置保存为新预设
+    """
+    settings = await get_user_settings(user.user_id, db)
+    
+    # 从当前Settings主字段读取配置
+    current_config = APIKeyPresetConfig(
+        api_provider=settings.api_provider,
+        api_key=settings.api_key,
+        api_base_url=settings.api_base_url,
+        llm_model=settings.llm_model,
+        temperature=settings.temperature,
+        max_tokens=settings.max_tokens
+    )
+    
+    # 创建预设
+    create_request = PresetCreateRequest(
+        name=name,
+        description=description,
+        config=current_config
+    )
+    
+    logger.info(f"用户 {user.user_id} 从当前配置创建预设: {name}")
+    return await create_preset(create_request, user, db)

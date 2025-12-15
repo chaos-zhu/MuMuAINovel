@@ -61,6 +61,12 @@ class CharacterUpdate(BaseModel):
     organization_purpose: Optional[str] = None
     organization_members: Optional[str] = None
     traits: Optional[str] = None
+    
+    # 组织额外字段（会同步到Organization表）
+    power_level: Optional[int] = Field(None, description="组织势力等级(0-100)")
+    location: Optional[str] = Field(None, description="组织所在地")
+    motto: Optional[str] = Field(None, description="组织格言/口号")
+    color: Optional[str] = Field(None, description="组织代表颜色")
 
 
 class CharacterResponse(CharacterBase):

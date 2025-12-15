@@ -194,7 +194,7 @@ async def update_organization(
     user_id = getattr(request.state, 'user_id', None)
     await verify_project_access(db_org.project_id, user_id, db)
     
-    # 更新字段
+    # 更新 Organization 表字段
     update_data = organization.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(db_org, field, value)

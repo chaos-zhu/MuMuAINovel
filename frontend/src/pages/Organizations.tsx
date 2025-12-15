@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import { Card, Table, Tag, Button, Space, message, Modal, Form, Select, InputNumber, Input, Descriptions } from 'antd';
 import { PlusOutlined, TeamOutlined, UserOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
+import { useCharacterSync } from '../store/hooks';
 import axios from 'axios';
 
 interface Organization {
@@ -41,6 +42,7 @@ interface Character {
 export default function Organizations() {
   const { projectId } = useParams<{ projectId: string }>();
   const { currentProject } = useStore();
+  const { refreshCharacters } = useCharacterSync();
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null);
   const [members, setMembers] = useState<OrganizationMember[]>([]);
@@ -216,7 +218,7 @@ export default function Organizations() {
           <span>{name}</span>
         </Space>
       ),
-      width: isMobile ? 80 : undefined,
+      width: isMobile ? 100 : undefined,
     },
     {
       title: '职位',
@@ -225,50 +227,53 @@ export default function Organizations() {
       render: (position: string, record: OrganizationMember) => (
         <Tag color="blue">{position} {!isMobile && `(级别 ${record.rank})`}</Tag>
       ),
+      width: isMobile ? 120 : undefined,
+    },
+    {
+      title: '忠诚度',
+      dataIndex: 'loyalty',
+      key: 'loyalty',
+      render: (loyalty: number) => (
+        <span style={{ color: loyalty >= 70 ? 'green' : loyalty >= 40 ? 'orange' : 'red' }}>
+          {loyalty}%
+        </span>
+      ),
       width: isMobile ? 80 : undefined,
     },
-    ...(!isMobile ? [
-      {
-        title: '忠诚度',
-        dataIndex: 'loyalty',
-        key: 'loyalty',
-        render: (loyalty: number) => (
-          <span style={{ color: loyalty >= 70 ? 'green' : loyalty >= 40 ? 'orange' : 'red' }}>
-            {loyalty}%
-          </span>
-        ),
-      },
-      {
-        title: '贡献度',
-        dataIndex: 'contribution',
-        key: 'contribution',
-        render: (contribution: number) => `${contribution}%`,
-      },
-      {
-        title: '状态',
-        dataIndex: 'status',
-        key: 'status',
-        render: (status: string) => (
-          <Tag color={getStatusColor(status)}>{getStatusText(status)}</Tag>
-        ),
-      },
-      {
-        title: '加入时间',
-        dataIndex: 'joined_at',
-        key: 'joined_at',
-        render: (time: string) => time || '-',
-      }
-    ] : []),
+    {
+      title: '贡献度',
+      dataIndex: 'contribution',
+      key: 'contribution',
+      render: (contribution: number) => `${contribution}%`,
+      width: isMobile ? 80 : undefined,
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      render: (status: string) => (
+        <Tag color={getStatusColor(status)}>{getStatusText(status)}</Tag>
+      ),
+      width: isMobile ? 80 : undefined,
+    },
+    {
+      title: '加入时间',
+      dataIndex: 'joined_at',
+      key: 'joined_at',
+      render: (time: string) => time || '-',
+      width: isMobile ? 120 : undefined,
+    },
     {
       title: '操作',
       key: 'action',
       render: (_: unknown, record: OrganizationMember) => (
-        <Space>
+        <Space size={isMobile ? 0 : 'small'}>
           <Button
             type="link"
             size="small"
             icon={<EditOutlined />}
             onClick={() => handleEditMember(record)}
+            style={isMobile ? { padding: '4px' } : undefined}
           >
             {isMobile ? '' : '编辑'}
           </Button>
@@ -278,12 +283,13 @@ export default function Organizations() {
             size="small"
             icon={<DeleteOutlined />}
             onClick={() => handleRemoveMember(record.id)}
+            style={isMobile ? { padding: '4px' } : undefined}
           >
-            {isMobile ? '删除' : '移除'}
+            {isMobile ? '' : '移除'}
           </Button>
         </Space>
       ),
-      width: isMobile ? 60 : undefined,
+      width: isMobile ? 50 : undefined,
       fixed: isMobile ? 'right' as const : undefined,
     },
   ];
@@ -419,9 +425,24 @@ export default function Organizations() {
                     columns={memberColumns}
                     dataSource={members}
                     rowKey="id"
-                    pagination={isMobile ? { simple: true, pageSize: 10 } : false}
+                    pagination={
+                      members.length > 5
+                        ? {
+                          defaultPageSize: 5,
+                          showSizeChanger: true,
+                          showQuickJumper: !isMobile,
+                          showTotal: (total) => `共 ${total} 名成员`,
+                          pageSizeOptions: [5, 10, 20],
+                          simple: isMobile,
+                          position: ['bottomCenter'],
+                        }
+                        : false
+                    }
                     size="small"
-                    scroll={isMobile ? { x: 'max-content', y: 400 } : undefined}
+                    scroll={{
+                      x: isMobile ? 'max-content' : undefined,
+                      y: members.length > 10 ? 500 : undefined,
+                    }}
                   />
                 </Card>
               </Space>
@@ -653,7 +674,20 @@ export default function Organizations() {
               await axios.put(`/api/organizations/${selectedOrg.id}`, values);
               message.success('组织信息更新成功');
               setIsEditOrgModalOpen(false);
-              loadOrganizations();
+              editOrgForm.resetFields();
+
+              // 重新获取更新后的组织列表
+              const res = await axios.get(`/api/organizations/project/${projectId}`);
+              setOrganizations(res.data);
+
+              // 更新当前选中的组织详情
+              const updatedOrg = res.data.find((org: Organization) => org.id === selectedOrg.id);
+              if (updatedOrg) {
+                setSelectedOrg(updatedOrg);
+              }
+
+              // 刷新全局 store
+              await refreshCharacters();
             } catch (error) {
               message.error('更新失败');
               console.error(error);
