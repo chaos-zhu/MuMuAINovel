@@ -356,7 +356,36 @@ async def update_chapter(
     
     await db.commit()
     await db.refresh(chapter)
-    return chapter
+    
+    chapter_dict = {
+        "id": chapter.id,
+        "project_id": chapter.project_id,
+        "chapter_number": chapter.chapter_number,
+        "title": chapter.title,
+        "content": chapter.content,
+        "summary": chapter.summary,
+        "word_count": chapter.word_count,
+        "status": chapter.status,
+        "outline_id": chapter.outline_id,
+        "sub_index": chapter.sub_index,
+        "expansion_plan": chapter.expansion_plan,
+        "created_at": chapter.created_at,
+        "updated_at": chapter.updated_at,
+        "outline_title": None,
+        "outline_order": None
+    }
+    
+    # 如果章节关联了大纲，查询大纲信息
+    if chapter.outline_id:
+        outline_result = await db.execute(
+            select(Outline).where(Outline.id == chapter.outline_id)
+        )
+        outline = outline_result.scalar_one_or_none()
+        if outline:
+            chapter_dict["outline_title"] = outline.title
+            chapter_dict["outline_order"] = outline.order_index
+    
+    return chapter_dict
 
 
 @router.delete("/{chapter_id}", summary="删除章节")

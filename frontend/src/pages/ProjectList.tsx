@@ -718,15 +718,15 @@ export default function ProjectList() {
                       border: '1px solid rgba(255, 255, 255, 0.3)',
                       backdropFilter: 'blur(10px)',
                       boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)',
-                      padding: isMobile ? '8px 4px' : '24px'
+                      padding: isMobile ? '8px 4px' : '12px'
                     }}
-                    styles={{ body: { padding: isMobile ? '4px' : '24px' } }}
+                    styles={{ body: { padding: isMobile ? '4px' : '12px' } }}
                   >
                     <Statistic
                       title={
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: isMobile ? 4 : 8 }}>
-                          <span style={{ fontSize: isMobile ? 16 : 14, color: 'rgba(255,255,255,0.9)', marginRight: isMobile ? 0 : 8 }}>📚</span>
-                          {!isMobile && <span style={{ color: 'rgba(255,255,255,0.8)' }}>总项目数</span>}
+                          <span style={{ fontSize: isMobile ? 16 : 24, color: 'rgba(255,255,255,0.9)', marginRight: isMobile ? 0 : 8 }}>📚</span>
+                          {!isMobile && <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: 16 }}>总项目数</span>}
                           {isMobile && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)', marginTop: 2 }}>项目</div>}
                         </div>
                       }
@@ -750,15 +750,15 @@ export default function ProjectList() {
                       border: '1px solid rgba(255, 255, 255, 0.3)',
                       backdropFilter: 'blur(10px)',
                       boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)',
-                      padding: isMobile ? '8px 4px' : '24px'
+                      padding: isMobile ? '8px 4px' : '12px'
                     }}
-                    styles={{ body: { padding: isMobile ? '4px' : '24px' } }}
+                    styles={{ body: { padding: isMobile ? '4px' : '12px' } }}
                   >
                     <Statistic
                       title={
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: isMobile ? 4 : 8 }}>
-                          <span style={{ fontSize: isMobile ? 16 : 14, color: 'rgba(255,255,255,0.9)', marginRight: isMobile ? 0 : 8 }}>✍️</span>
-                          {!isMobile && <span style={{ color: 'rgba(255,255,255,0.8)' }}>创作中</span>}
+                          <span style={{ fontSize: isMobile ? 16 : 24, color: 'rgba(255,255,255,0.9)', marginRight: isMobile ? 0 : 8 }}>✍️</span>
+                          {!isMobile && <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: 16 }}>创作中</span>}
                           {isMobile && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)', marginTop: 2 }}>创作</div>}
                         </div>
                       }
@@ -782,15 +782,15 @@ export default function ProjectList() {
                       border: '1px solid rgba(255, 255, 255, 0.3)',
                       backdropFilter: 'blur(10px)',
                       boxShadow: '0 4px 16px rgba(0, 0, 0, 0.08)',
-                      padding: isMobile ? '8px 4px' : '24px'
+                      padding: isMobile ? '8px 4px' : '12px'
                     }}
-                    styles={{ body: { padding: isMobile ? '4px' : '24px' } }}
+                    styles={{ body: { padding: isMobile ? '4px' : '12px' } }}
                   >
                     <Statistic
                       title={
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: isMobile ? 4 : 8 }}>
-                          <span style={{ fontSize: isMobile ? 16 : 14, color: 'rgba(255,255,255,0.9)', marginRight: isMobile ? 0 : 8 }}>📝</span>
-                          {!isMobile && <span style={{ color: 'rgba(255,255,255,0.8)' }}>总字数</span>}
+                          <span style={{ fontSize: isMobile ? 16 : 24, color: 'rgba(255,255,255,0.9)', marginRight: isMobile ? 0 : 8 }}>📝</span>
+                          {!isMobile && <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: 16 }}>总字数</span>}
                           {isMobile && <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.8)', marginTop: 2 }}>字数</div>}
                         </div>
                       }
