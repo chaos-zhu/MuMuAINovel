@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-1.1.3-blue.svg)
+![Version](https://img.shields.io/badge/version-1.1.4-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109.0-green.svg)
 ![React](https://img.shields.io/badge/react-18.3.1-blue.svg)
@@ -77,10 +77,10 @@
 - [x] **思维链与章节关系图谱** - 可视化章节逻辑关系
 - [x] **根据分析一键重写** - 根据分析建议重新生成
 - [x] **Linux DO 自动创建账号** - OAuth 登录自动生成账号
+- [x] **职业等级体系** - 自定义职业和等级系统，支持修仙境界、魔法等级等多种体系
 
 ### 📝 规划中功能
 
-- [ ] **职业等级体系** - 自定义职业和等级系统，支持修仙境界、魔法等级等多种体系
 - [ ] **角色/组织卡片导入导出** - 单独导出角色和组织卡片，支持跨项目数据共享
 - [ ] **伏笔管理** - 智能追踪剧情伏笔，提醒未回收线索，可视化伏笔时间线
 - [ ] **提示词工坊** - 社区驱动的 Prompt 模板分享平台，一键导入优质提示词

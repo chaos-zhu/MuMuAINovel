@@ -32,6 +32,7 @@ type GenerationStep = 'pending' | 'processing' | 'completed' | 'error';
 
 interface GenerationSteps {
   worldBuilding: GenerationStep;
+  careers: GenerationStep;
   characters: GenerationStep;
   outline: GenerationStep;
 }
@@ -55,6 +56,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
   const [errorDetails, setErrorDetails] = useState<string>('');
   const [generationSteps, setGenerationSteps] = useState<GenerationSteps>({
     worldBuilding: 'pending',
+    careers: 'pending',
     characters: 'pending',
     outline: 'pending'
   });
@@ -126,12 +128,12 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       if (wizardStep === 0) {
         // 从世界观开始
         message.info('从世界观步骤开始生成...');
-        setGenerationSteps({ worldBuilding: 'processing', characters: 'pending', outline: 'pending' });
+        setGenerationSteps({ worldBuilding: 'processing', careers: 'pending', characters: 'pending', outline: 'pending' });
         await resumeFromWorldBuilding(data);
       } else if (wizardStep === 1) {
         // 世界观已完成,从角色开始
         message.info('世界观已完成,从角色步骤继续...');
-        setGenerationSteps({ worldBuilding: 'completed', characters: 'processing', outline: 'pending' });
+        setGenerationSteps({ worldBuilding: 'completed', careers: 'completed', characters: 'processing', outline: 'pending' });
 
         // 获取世界观数据
         const worldResult = {
@@ -148,7 +150,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       } else if (wizardStep === 2) {
         // 世界观和角色已完成,从大纲开始
         message.info('世界观和角色已完成,从大纲步骤继续...');
-        setGenerationSteps({ worldBuilding: 'completed', characters: 'completed', outline: 'processing' });
+        setGenerationSteps({ worldBuilding: 'completed', careers: 'completed', characters: 'completed', outline: 'processing' });
         setProgress(66);
         await resumeFromOutline(data, projectIdParam);
       } else {
@@ -334,13 +336,31 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
         },
         {
           onProgress: (msg, prog) => {
-            setProgress(Math.floor(prog / 3));
+            // 世界观生成占0%-20%，职业生成占20%-30%
+            const baseProgress = Math.floor(prog / 5);
+            setProgress(baseProgress);
             setProgressMessage(msg);
+
+            // 检测职业体系生成阶段 - 必须包含"职业体系"才算职业阶段
+            if (msg.includes('职业体系')) {
+              if (msg.includes('开始') || msg.includes('生成')) {
+                // 职业开始时，世界观应该已完成
+                setGenerationSteps(prev => ({
+                  ...prev,
+                  worldBuilding: 'completed',
+                  careers: 'processing'
+                }));
+              }
+              if (msg.includes('完成') || msg.includes('✅')) {
+                setGenerationSteps(prev => ({ ...prev, careers: 'completed' }));
+              }
+            }
           },
           onResult: (result) => {
             setProjectId(result.project_id);
             setWorldBuildingResult(result);
             setGenerationSteps(prev => ({ ...prev, worldBuilding: 'completed' }));
+            // 职业体系状态已在onProgress中更新
           },
           onError: (error) => {
             console.error('世界观生成失败:', error);
@@ -383,7 +403,8 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
         },
         {
           onProgress: (msg, prog) => {
-            setProgress(33 + Math.floor(prog / 3));
+            // 角色生成占40%-70%
+            setProgress(40 + Math.floor(prog * 0.3));
             setProgressMessage(msg);
           },
           onResult: (result) => {
@@ -416,7 +437,8 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
         },
         {
           onProgress: (msg, prog) => {
-            setProgress(66 + Math.floor(prog / 3));
+            // 大纲生成占70%-100%
+            setProgress(70 + Math.floor(prog * 0.3));
             setProgressMessage(msg);
           },
           onResult: () => {
@@ -511,8 +533,23 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       },
       {
         onProgress: (msg, prog) => {
-          setProgress(Math.floor(prog / 3));
+          const baseProgress = Math.floor(prog / 5);
+          setProgress(baseProgress);
           setProgressMessage(msg);
+
+          // 检测职业体系生成阶段
+          if (msg.includes('职业体系')) {
+            if (msg.includes('开始') || msg.includes('生成')) {
+              setGenerationSteps(prev => ({
+                ...prev,
+                worldBuilding: 'completed',
+                careers: 'processing'
+              }));
+            }
+            if (msg.includes('完成') || msg.includes('✅')) {
+              setGenerationSteps(prev => ({ ...prev, careers: 'completed' }));
+            }
+          }
         },
         onResult: (result) => {
           setProjectId(result.project_id);
@@ -755,6 +792,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
   };
 
   const hasError = generationSteps.worldBuilding === 'error' ||
+    generationSteps.careers === 'error' ||
     generationSteps.characters === 'error' ||
     generationSteps.outline === 'error';
 
@@ -843,6 +881,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
         >
           {[
             { key: 'worldBuilding', label: '生成世界观', step: generationSteps.worldBuilding },
+            { key: 'careers', label: '生成职业体系', step: generationSteps.careers },
             { key: 'characters', label: '生成角色', step: generationSteps.characters },
             { key: 'outline', label: '生成大纲', step: generationSteps.outline },
           ].map(({ key, label, step }) => {

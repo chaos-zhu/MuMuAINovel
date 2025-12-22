@@ -15,6 +15,7 @@ import {
   EditOutlined,
   FundOutlined,
   HeartOutlined,
+  TrophyOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../store';
 import { useCharacterSync, useOutlineSync, useChapterSync } from '../store/hooks';
@@ -100,6 +101,11 @@ export default function ProjectDetail() {
       label: <Link to={`/project/${projectId}/world-setting`}>世界设定</Link>,
     },
     {
+      key: 'careers',
+      icon: <TrophyOutlined />,
+      label: <Link to={`/project/${projectId}/careers`}>职业管理</Link>,
+    },
+    {
       key: 'characters',
       icon: <TeamOutlined />,
       label: <Link to={`/project/${projectId}/characters`}>角色管理</Link>,
@@ -150,6 +156,7 @@ export default function ProjectDetail() {
   const selectedKey = useMemo(() => {
     const path = location.pathname;
     if (path.includes('/world-setting')) return 'world-setting';
+    if (path.includes('/careers')) return 'careers';
     if (path.includes('/relationships')) return 'relationships';
     if (path.includes('/organizations')) return 'organizations';
     if (path.includes('/outline')) return 'outline';

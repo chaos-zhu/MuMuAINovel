@@ -44,6 +44,11 @@ class CharacterCreate(BaseModel):
     location: Optional[str] = Field(None, description="组织所在地")
     motto: Optional[str] = Field(None, description="组织格言/口号")
     color: Optional[str] = Field(None, description="组织代表颜色")
+    
+    # 职业字段
+    main_career_id: Optional[str] = Field(None, description="主职业ID")
+    main_career_stage: Optional[int] = Field(None, description="主职业阶段")
+    sub_careers: Optional[str] = Field(None, description="副职业列表JSON字符串")
 
 
 class CharacterUpdate(BaseModel):
@@ -67,6 +72,11 @@ class CharacterUpdate(BaseModel):
     location: Optional[str] = Field(None, description="组织所在地")
     motto: Optional[str] = Field(None, description="组织格言/口号")
     color: Optional[str] = Field(None, description="组织代表颜色")
+    
+    # 职业字段（会同步到CharacterCareer表）
+    main_career_id: Optional[str] = Field(None, description="主职业ID")
+    main_career_stage: Optional[int] = Field(None, description="主职业阶段")
+    sub_careers: Optional[str] = Field(None, description="副职业列表JSON字符串")
 
 
 class CharacterResponse(CharacterBase):
@@ -82,6 +92,11 @@ class CharacterResponse(CharacterBase):
     location: Optional[str] = Field(None, description="组织所在地")
     motto: Optional[str] = Field(None, description="组织格言/口号")
     color: Optional[str] = Field(None, description="组织代表颜色")
+    
+    # 职业信息字段
+    main_career_id: Optional[str] = Field(None, description="主职业ID")
+    main_career_stage: Optional[int] = Field(None, description="主职业阶段")
+    sub_careers: Optional[List[Dict[str, Any]]] = Field(None, description="副职业列表")
     
     class Config:
         from_attributes = True

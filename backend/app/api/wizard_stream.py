@@ -11,6 +11,7 @@ from app.models.project import Project
 from app.models.character import Character
 from app.models.outline import Outline
 from app.models.chapter import Chapter
+from app.models.career import Career, CharacterCareer
 from app.models.relationship import CharacterRelationship, Organization, OrganizationMember, RelationshipType
 from app.models.writing_style import WritingStyle
 from app.models.project_default_style import ProjectDefaultStyle
@@ -239,6 +240,121 @@ async def world_building_generator(
         project.wizard_step = 1
         await db.commit()
         
+        # ===== 自动生成职业体系 =====
+        yield await SSEResponse.send_progress("🎯 开始生成职业体系框架...", 75)
+        logger.info(f"🎯 世界观已完成，开始为项目 {project.id} 自动生成职业体系")
+        
+        try:
+            # 获取职业生成提示词模板（支持用户自定义）
+            template = await PromptService.get_template("CAREER_SYSTEM_GENERATION", user_id, db)
+            career_prompt = PromptService.format_prompt(
+                template,
+                title=project.title,
+                genre=genre or '未设定',
+                theme=theme or '未设定',
+                time_period=world_data.get('time_period', '未设定'),
+                location=world_data.get('location', '未设定'),
+                atmosphere=world_data.get('atmosphere', '未设定'),
+                rules=world_data.get('rules', '未设定')
+            )
+            
+            yield await SSEResponse.send_progress("正在生成职业体系...", 78)
+            
+            # 调用AI生成职业
+            result = await user_ai_service.generate_text(prompt=career_prompt)
+            career_response = result.get('content', '') if isinstance(result, dict) else result
+            
+            if not career_response or not career_response.strip():
+                logger.warning("⚠️ AI返回空职业体系，跳过职业生成")
+                yield await SSEResponse.send_progress("职业体系生成跳过（AI返回为空）", 85)
+            else:
+                yield await SSEResponse.send_progress("解析职业体系数据...", 82)
+                
+                # 清洗并解析JSON
+                try:
+                    cleaned_response = user_ai_service._clean_json_response(career_response)
+                    career_data = json.loads(cleaned_response)
+                    logger.info(f"✅ 职业体系JSON解析成功")
+                    
+                    # 保存主职业
+                    main_careers_created = []
+                    for idx, career_info in enumerate(career_data.get("main_careers", [])):
+                        try:
+                            stages_json = json.dumps(career_info.get("stages", []), ensure_ascii=False)
+                            attribute_bonuses = career_info.get("attribute_bonuses")
+                            attribute_bonuses_json = json.dumps(attribute_bonuses, ensure_ascii=False) if attribute_bonuses else None
+                            
+                            career = Career(
+                                project_id=project.id,
+                                name=career_info.get("name", f"未命名主职业{idx+1}"),
+                                type="main",
+                                description=career_info.get("description"),
+                                category=career_info.get("category"),
+                                stages=stages_json,
+                                max_stage=career_info.get("max_stage", 10),
+                                requirements=career_info.get("requirements"),
+                                special_abilities=career_info.get("special_abilities"),
+                                worldview_rules=career_info.get("worldview_rules"),
+                                attribute_bonuses=attribute_bonuses_json,
+                                source="ai"
+                            )
+                            db.add(career)
+                            await db.flush()
+                            main_careers_created.append(career.name)
+                            logger.info(f"  ✅ 创建主职业：{career.name}")
+                        except Exception as e:
+                            logger.error(f"  ❌ 创建主职业失败：{str(e)}")
+                            continue
+                    
+                    # 保存副职业
+                    sub_careers_created = []
+                    for idx, career_info in enumerate(career_data.get("sub_careers", [])):
+                        try:
+                            stages_json = json.dumps(career_info.get("stages", []), ensure_ascii=False)
+                            attribute_bonuses = career_info.get("attribute_bonuses")
+                            attribute_bonuses_json = json.dumps(attribute_bonuses, ensure_ascii=False) if attribute_bonuses else None
+                            
+                            career = Career(
+                                project_id=project.id,
+                                name=career_info.get("name", f"未命名副职业{idx+1}"),
+                                type="sub",
+                                description=career_info.get("description"),
+                                category=career_info.get("category"),
+                                stages=stages_json,
+                                max_stage=career_info.get("max_stage", 5),
+                                requirements=career_info.get("requirements"),
+                                special_abilities=career_info.get("special_abilities"),
+                                worldview_rules=career_info.get("worldview_rules"),
+                                attribute_bonuses=attribute_bonuses_json,
+                                source="ai"
+                            )
+                            db.add(career)
+                            await db.flush()
+                            sub_careers_created.append(career.name)
+                            logger.info(f"  ✅ 创建副职业：{career.name}")
+                        except Exception as e:
+                            logger.error(f"  ❌ 创建副职业失败：{str(e)}")
+                            continue
+                    
+                    await db.commit()
+                    
+                    logger.info(f"🎉 职业体系生成完成：主职业{len(main_careers_created)}个，副职业{len(sub_careers_created)}个")
+                    yield await SSEResponse.send_progress(
+                        f"✅ 职业体系生成完成（主{len(main_careers_created)}+副{len(sub_careers_created)}）",
+                        90
+                    )
+                    
+                except json.JSONDecodeError as e:
+                    logger.error(f"❌ 职业体系JSON解析失败: {e}")
+                    yield await SSEResponse.send_progress("⚠️ 职业体系解析失败，已跳过", 85)
+                except Exception as e:
+                    logger.error(f"❌ 职业体系保存失败: {e}")
+                    yield await SSEResponse.send_progress("⚠️ 职业体系保存失败，已跳过", 85)
+        
+        except Exception as e:
+            logger.error(f"❌ 职业体系生成异常: {e}")
+            yield await SSEResponse.send_progress("⚠️ 职业体系生成失败，已跳过（不影响项目创建）", 85)
+        
         db_committed = True
         
         # 发送最终结果
@@ -381,6 +497,40 @@ async def characters_generator(
                 logger.warning(f"MCP工具调用失败（降级处理）: {e}")
                 yield await SSEResponse.send_progress("⚠️ MCP工具暂时不可用，使用基础模式", 12)
         
+        # 获取项目的职业列表，用于角色职业分配
+        yield await SSEResponse.send_progress("加载职业体系...", 13)
+        career_result = await db.execute(
+            select(Career).where(Career.project_id == project_id).order_by(Career.type, Career.id)
+        )
+        careers = career_result.scalars().all()
+        
+        main_careers = [c for c in careers if c.type == "main"]
+        sub_careers = [c for c in careers if c.type == "sub"]
+        
+        # 构建职业上下文
+        careers_context = ""
+        if main_careers or sub_careers:
+            careers_context = "\n\n【职业体系】\n"
+            if main_careers:
+                careers_context += "主职业：\n"
+                for career in main_careers:
+                    careers_context += f"- {career.name}: {career.description or '暂无描述'}\n"
+            if sub_careers:
+                careers_context += "\n副职业：\n"
+                for career in sub_careers:
+                    careers_context += f"- {career.name}: {career.description or '暂无描述'}\n"
+            
+            careers_context += "\n请为每个角色分配职业：\n"
+            careers_context += "- 每个角色必须有1个主职业（从上述主职业中选择）\n"
+            careers_context += "- 每个角色可以有0-2个副职业（从上述副职业中选择，可选）\n"
+            careers_context += "- 主职业初始阶段建议为1-3\n"
+            careers_context += "- 副职业初始阶段建议为1-2\n"
+            careers_context += "- 请在返回的JSON中包含 career_assignment 字段：\n"
+            careers_context += '  {"main_career": "职业名称", "main_stage": 2, "sub_careers": [{"career": "副职业名称", "stage": 1}]}\n'
+            logger.info(f"✅ 加载了{len(main_careers)}个主职业和{len(sub_careers)}个副职业")
+        else:
+            logger.warning("⚠️ 项目没有职业体系，跳过职业分配")
+        
         # 优化的分批策略:每批生成3个,平衡效率和成功率
         BATCH_SIZE = 3  # 每批生成3个角色
         MAX_RETRIES = 3  # 每批最多重试3次
@@ -445,7 +595,7 @@ async def characters_generator(
                         rules=world_context.get("rules", ""),
                         theme=theme or project.theme or "",
                         genre=genre or project.genre or "",
-                        requirements=batch_requirements
+                        requirements=batch_requirements + careers_context  # 添加职业上下文
                     )
                     
                     # 如果有MCP参考资料，增强提示词
@@ -626,14 +776,102 @@ async def characters_generator(
         
         await db.flush()  # 获取所有角色的ID
         
+        # 第二阶段：为角色分配职业并创建CharacterCareer关联
+        if main_careers or sub_careers:
+            yield await SSEResponse.send_progress("分配角色职业...", 86)
+            careers_assigned = 0
+            
+            # 构建职业名称到对象的映射
+            career_name_to_obj = {c.name: c for c in careers}
+            
+            for character, char_data in created_characters:
+                # 跳过组织
+                if character.is_organization:
+                    continue
+                
+                try:
+                    career_assignment = char_data.get("career_assignment", {})
+                    
+                    # 分配主职业
+                    main_career_name = career_assignment.get("main_career")
+                    main_career_stage = career_assignment.get("main_stage", 1)
+                    
+                    if main_career_name and main_career_name in career_name_to_obj:
+                        main_career = career_name_to_obj[main_career_name]
+                        
+                        # 创建CharacterCareer关联
+                        char_career = CharacterCareer(
+                            character_id=character.id,
+                            career_id=main_career.id,
+                            career_type="main",
+                            current_stage=min(main_career_stage, main_career.max_stage),
+                            stage_progress=0
+                        )
+                        db.add(char_career)
+                        
+                        # 更新Character冗余字段
+                        character.main_career_id = main_career.id
+                        character.main_career_stage = char_career.current_stage
+                        
+                        careers_assigned += 1
+                        logger.info(f"  ✅ 分配主职业：{character.name} -> {main_career.name} (阶段{char_career.current_stage})")
+                    else:
+                        if main_career_name:
+                            logger.warning(f"  ⚠️ 主职业不存在：{character.name} -> {main_career_name}")
+                    
+                    # 分配副职业
+                    sub_career_assignments = career_assignment.get("sub_careers", [])
+                    sub_career_list = []
+                    
+                    for sub_assign in sub_career_assignments[:2]:  # 最多2个副职业
+                        sub_career_name = sub_assign.get("career")
+                        sub_career_stage = sub_assign.get("stage", 1)
+                        
+                        if sub_career_name and sub_career_name in career_name_to_obj:
+                            sub_career = career_name_to_obj[sub_career_name]
+                            
+                            # 创建CharacterCareer关联
+                            char_career = CharacterCareer(
+                                character_id=character.id,
+                                career_id=sub_career.id,
+                                career_type="sub",
+                                current_stage=min(sub_career_stage, sub_career.max_stage),
+                                stage_progress=0
+                            )
+                            db.add(char_career)
+                            
+                            # 添加到副职业列表
+                            sub_career_list.append({
+                                "career_id": sub_career.id,
+                                "stage": char_career.current_stage
+                            })
+                            
+                            careers_assigned += 1
+                            logger.info(f"  ✅ 分配副职业：{character.name} -> {sub_career.name} (阶段{char_career.current_stage})")
+                        else:
+                            if sub_career_name:
+                                logger.warning(f"  ⚠️ 副职业不存在：{character.name} -> {sub_career_name}")
+                    
+                    # 更新Character冗余字段
+                    if sub_career_list:
+                        character.sub_careers = json.dumps(sub_career_list, ensure_ascii=False)
+                    
+                except Exception as e:
+                    logger.warning(f"  ❌ 分配职业失败：{character.name} - {str(e)}")
+                    continue
+            
+            await db.flush()
+            logger.info(f"💼 职业分配完成：共分配{careers_assigned}个职业")
+            yield await SSEResponse.send_progress(f"已分配{careers_assigned}个职业", 87)
+        
         # 刷新并建立名称映射
         for character, _ in created_characters:
             await db.refresh(character)
             character_name_to_obj[character.name] = character
             logger.info(f"向导创建角色：{character.name} (ID: {character.id}, 是否组织: {character.is_organization})")
         
-        # 为is_organization=True的角色创建Organization记录
-        yield await SSEResponse.send_progress("创建组织记录...", 87)
+        # 第三阶段：为is_organization=True的角色创建Organization记录
+        yield await SSEResponse.send_progress("创建组织记录...", 88)
         organization_name_to_obj = {}  # 组织名称到Organization对象的映射
         
         for character, char_data in created_characters:
@@ -669,8 +907,8 @@ async def characters_generator(
         for character, _ in created_characters:
             await db.refresh(character)
         
-        # 第三阶段：创建角色间的关系
-        yield await SSEResponse.send_progress("创建角色关系...", 90)
+        # 第四阶段：创建角色间的关系
+        yield await SSEResponse.send_progress("创建角色关系...", 91)
         relationships_created = 0
         
         for character, char_data in created_characters:
@@ -737,8 +975,8 @@ async def characters_generator(
                         logger.warning(f"  ❌ 向导创建关系失败：{character.name} - {str(e)}")
                         continue
             
-        # 第四阶段：创建组织成员关系
-        yield await SSEResponse.send_progress("创建组织成员关系...", 93)
+        # 第五阶段：创建组织成员关系
+        yield await SSEResponse.send_progress("创建组织成员关系...", 94)
         members_created = 0
         
         for character, char_data in created_characters:

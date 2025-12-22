@@ -85,7 +85,7 @@ async def get_characters(
     )
     characters = result.scalars().all()
     
-    # 为组织类型的角色填充Organization表的额外字段
+    # 为组织类型的角色填充Organization表的额外字段，并添加职业信息
     enriched_characters = []
     for char in characters:
         char_dict = {
@@ -110,7 +110,10 @@ async def get_characters(
             "power_level": None,
             "location": None,
             "motto": None,
-            "color": None
+            "color": None,
+            "main_career_id": char.main_career_id,
+            "main_career_stage": char.main_career_stage,
+            "sub_careers": json.loads(char.sub_careers) if char.sub_careers else None
         }
         
         if char.is_organization:
@@ -156,7 +159,7 @@ async def get_project_characters(
     )
     characters = result.scalars().all()
     
-    # 为组织类型的角色填充Organization表的额外字段
+    # 为组织类型的角色填充Organization表的额外字段，并添加职业信息
     enriched_characters = []
     for char in characters:
         char_dict = {
@@ -181,7 +184,10 @@ async def get_project_characters(
             "power_level": None,
             "location": None,
             "motto": None,
-            "color": None
+            "color": None,
+            "main_career_id": char.main_career_id,
+            "main_career_stage": char.main_career_stage,
+            "sub_careers": json.loads(char.sub_careers) if char.sub_careers else None
         }
         
         if char.is_organization:
@@ -232,6 +238,8 @@ async def update_character(
     db: AsyncSession = Depends(get_db)
 ):
     """更新角色信息"""
+    from app.models.career import CharacterCareer, Career
+    
     result = await db.execute(
         select(Character).where(Character.id == character_id)
     )
@@ -259,6 +267,139 @@ async def update_character(
             org_fields['motto'] = update_data.pop('motto')
         if 'color' in update_data:
             org_fields['color'] = update_data.pop('color')
+    
+    # 处理主职业和副职业更新
+    main_career_id = update_data.pop('main_career_id', None)
+    main_career_stage = update_data.pop('main_career_stage', None)
+    sub_careers_json = update_data.pop('sub_careers', None)
+    
+    if main_career_id is not None:
+        # 验证职业存在
+        if main_career_id:  # 不为空
+            career_result = await db.execute(
+                select(Career).where(
+                    Career.id == main_career_id,
+                    Career.project_id == character.project_id,
+                    Career.type == 'main'
+                )
+            )
+            career = career_result.scalar_one_or_none()
+            
+            if not career:
+                raise HTTPException(status_code=400, detail="主职业不存在或类型错误")
+            
+            # 验证阶段有效性
+            if main_career_stage and main_career_stage > career.max_stage:
+                raise HTTPException(status_code=400, detail=f"阶段超出范围，该职业最大阶段为{career.max_stage}")
+            
+            # 更新或创建CharacterCareer关联
+            char_career_result = await db.execute(
+                select(CharacterCareer).where(
+                    CharacterCareer.character_id == character_id,
+                    CharacterCareer.career_type == 'main'
+                )
+            )
+            char_career = char_career_result.scalar_one_or_none()
+            
+            if char_career:
+                # 更新现有关联
+                char_career.career_id = main_career_id
+                if main_career_stage:
+                    char_career.current_stage = main_career_stage
+                logger.info(f"更新主职业关联：{character.name} -> {career.name}")
+            else:
+                # 创建新关联
+                char_career = CharacterCareer(
+                    character_id=character_id,
+                    career_id=main_career_id,
+                    career_type='main',
+                    current_stage=main_career_stage or 1,
+                    stage_progress=0
+                )
+                db.add(char_career)
+                logger.info(f"创建主职业关联：{character.name} -> {career.name}")
+            
+            # 更新Character表的冗余字段
+            character.main_career_id = main_career_id
+            character.main_career_stage = main_career_stage or char_career.current_stage
+        else:
+            # 清空主职业
+            char_career_result = await db.execute(
+                select(CharacterCareer).where(
+                    CharacterCareer.character_id == character_id,
+                    CharacterCareer.career_type == 'main'
+                )
+            )
+            char_career = char_career_result.scalar_one_or_none()
+            if char_career:
+                await db.delete(char_career)
+                logger.info(f"移除主职业关联：{character.name}")
+            
+            character.main_career_id = None
+            character.main_career_stage = None
+    elif main_career_stage is not None and character.main_career_id:
+        # 只更新阶段
+        char_career_result = await db.execute(
+            select(CharacterCareer).where(
+                CharacterCareer.character_id == character_id,
+                CharacterCareer.career_type == 'main'
+            )
+        )
+        char_career = char_career_result.scalar_one_or_none()
+        if char_career:
+            char_career.current_stage = main_career_stage
+            character.main_career_stage = main_career_stage
+            logger.info(f"更新主职业阶段：{character.name} -> 阶段{main_career_stage}")
+    
+    # 处理副职业更新
+    if sub_careers_json is not None:
+        # 解析副职业JSON
+        try:
+            sub_careers_data = json.loads(sub_careers_json) if isinstance(sub_careers_json, str) else sub_careers_json
+        except:
+            sub_careers_data = []
+        
+        # 删除现有的所有副职业关联
+        existing_subs = await db.execute(
+            select(CharacterCareer).where(
+                CharacterCareer.character_id == character_id,
+                CharacterCareer.career_type == 'sub'
+            )
+        )
+        for sub_career in existing_subs.scalars():
+            await db.delete(sub_career)
+        
+        # 创建新的副职业关联
+        for sub_data in sub_careers_data[:2]:  # 最多2个副职业
+            career_id = sub_data.get('career_id')
+            if not career_id:
+                continue
+                
+            # 验证副职业存在
+            career_result = await db.execute(
+                select(Career).where(
+                    Career.id == career_id,
+                    Career.project_id == character.project_id,
+                    Career.type == 'sub'
+                )
+            )
+            career = career_result.scalar_one_or_none()
+            
+            if career:
+                # 创建副职业关联
+                char_career = CharacterCareer(
+                    character_id=character_id,
+                    career_id=career_id,
+                    career_type='sub',
+                    current_stage=sub_data.get('stage', 1),
+                    stage_progress=0
+                )
+                db.add(char_career)
+                logger.info(f"添加副职业关联：{character.name} -> {career.name}")
+        
+        # 更新Character表的sub_careers冗余字段
+        character.sub_careers = sub_careers_json if isinstance(sub_careers_json, str) else json.dumps(sub_careers_data, ensure_ascii=False)
+        logger.info(f"更新副职业信息：{character.name}")
     
     # 更新 Character 表字段
     for field, value in update_data.items():
@@ -290,7 +431,51 @@ async def update_character(
     await db.refresh(character)
     
     logger.info(f"更新角色/组织成功：{character.name} (ID: {character_id})")
-    return character
+    
+    # 构建响应，确保sub_careers是list类型
+    response_data = {
+        "id": character.id,
+        "project_id": character.project_id,
+        "name": character.name,
+        "age": character.age,
+        "gender": character.gender,
+        "is_organization": character.is_organization,
+        "role_type": character.role_type,
+        "personality": character.personality,
+        "background": character.background,
+        "appearance": character.appearance,
+        "relationships": character.relationships,
+        "organization_type": character.organization_type,
+        "organization_purpose": character.organization_purpose,
+        "organization_members": character.organization_members,
+        "traits": character.traits,
+        "avatar_url": character.avatar_url,
+        "created_at": character.created_at,
+        "updated_at": character.updated_at,
+        "main_career_id": character.main_career_id,
+        "main_career_stage": character.main_career_stage,
+        "sub_careers": json.loads(character.sub_careers) if character.sub_careers else None,
+        "power_level": None,
+        "location": None,
+        "motto": None,
+        "color": None
+    }
+    
+    # 如果是组织，添加组织额外字段
+    if character.is_organization:
+        org_result = await db.execute(
+            select(Organization).where(Organization.character_id == character_id)
+        )
+        org = org_result.scalar_one_or_none()
+        if org:
+            response_data.update({
+                "power_level": org.power_level,
+                "location": org.location,
+                "motto": org.motto,
+                "color": org.color
+            })
+    
+    return response_data
 
 
 @router.delete("/{character_id}", summary="删除角色")
@@ -330,7 +515,10 @@ async def create_character(
     - 可以创建普通角色（is_organization=False）
     - 也可以创建组织（is_organization=True）
     - 如果创建组织且提供了组织额外字段，会自动创建Organization详情记录
+    - 支持设置主职业和副职业
     """
+    from app.models.career import CharacterCareer, Career
+    
     # 验证用户权限
     user_id = getattr(request.state, 'user_id', None)
     await verify_project_access(character_data.project_id, user_id, db)
@@ -352,12 +540,77 @@ async def create_character(
             organization_purpose=character_data.organization_purpose,
             organization_members=character_data.organization_members,
             traits=character_data.traits,
-            avatar_url=character_data.avatar_url
+            avatar_url=character_data.avatar_url,
+            main_career_id=character_data.main_career_id,
+            main_career_stage=character_data.main_career_stage,
+            sub_careers=character_data.sub_careers
         )
         db.add(character)
         await db.flush()  # 获取character.id
         
         logger.info(f"✅ 手动创建角色成功：{character.name} (ID: {character.id}, 是否组织: {character.is_organization})")
+        
+        # 处理主职业关联
+        if character_data.main_career_id and not character.is_organization:
+            # 验证职业存在
+            career_result = await db.execute(
+                select(Career).where(
+                    Career.id == character_data.main_career_id,
+                    Career.project_id == character_data.project_id,
+                    Career.type == 'main'
+                )
+            )
+            career = career_result.scalar_one_or_none()
+            
+            if career:
+                # 创建主职业关联
+                char_career = CharacterCareer(
+                    character_id=character.id,
+                    career_id=character_data.main_career_id,
+                    career_type='main',
+                    current_stage=character_data.main_career_stage or 1,
+                    stage_progress=0
+                )
+                db.add(char_career)
+                logger.info(f"✅ 创建主职业关联：{character.name} -> {career.name}")
+            else:
+                logger.warning(f"⚠️ 主职业ID不存在或类型错误: {character_data.main_career_id}")
+        
+        # 处理副职业关联
+        if character_data.sub_careers and not character.is_organization:
+            try:
+                sub_careers_data = json.loads(character_data.sub_careers) if isinstance(character_data.sub_careers, str) else character_data.sub_careers
+                
+                for sub_data in sub_careers_data[:2]:  # 最多2个副职业
+                    career_id = sub_data.get('career_id')
+                    if not career_id:
+                        continue
+                    
+                    # 验证副职业存在
+                    career_result = await db.execute(
+                        select(Career).where(
+                            Career.id == career_id,
+                            Career.project_id == character_data.project_id,
+                            Career.type == 'sub'
+                        )
+                    )
+                    career = career_result.scalar_one_or_none()
+                    
+                    if career:
+                        # 创建副职业关联
+                        char_career = CharacterCareer(
+                            character_id=character.id,
+                            career_id=career_id,
+                            career_type='sub',
+                            current_stage=sub_data.get('stage', 1),
+                            stage_progress=0
+                        )
+                        db.add(char_career)
+                        logger.info(f"✅ 创建副职业关联：{character.name} -> {career.name}")
+                    else:
+                        logger.warning(f"⚠️ 副职业ID不存在或类型错误: {career_id}")
+            except Exception as e:
+                logger.warning(f"⚠️ 解析副职业数据失败: {e}")
         
         # 如果是组织，且提供了组织额外字段，自动创建Organization详情记录
         if character.is_organization and (
@@ -438,6 +691,50 @@ async def generate_character_stream(
                 if organization_list:
                     existing_chars_info += "\n\n已有组织：\n" + "\n".join(organization_list)
             
+            # 🎯 获取项目职业列表
+            from app.models.career import Career
+            careers_result = await db.execute(
+                select(Career)
+                .where(Career.project_id == request.project_id)
+                .order_by(Career.type, Career.name)
+            )
+            careers = careers_result.scalars().all()
+            
+            # 构建职业信息摘要
+            careers_info = ""
+            if careers:
+                main_careers = [c for c in careers if c.type == 'main']
+                sub_careers = [c for c in careers if c.type == 'sub']
+                
+                if main_careers:
+                    careers_info += "\n\n可用主职业列表（请在career_info中填写职业名称，系统会自动匹配ID）：\n"
+                    for career in main_careers:
+                        # 解析阶段信息
+                        import json as json_lib
+                        try:
+                            stages = json_lib.loads(career.stages) if career.stages else []
+                            stage_names = [s.get('name', f'阶段{s.get("level")}') for s in stages[:3]]  # 只显示前3个阶段
+                            stage_info = " → ".join(stage_names)
+                            if len(stages) > 3:
+                                stage_info += " → ..."
+                        except:
+                            stage_info = f"共{career.max_stage}个阶段"
+                        
+                        careers_info += f"- 名称: {career.name}"
+                        if career.description:
+                            careers_info += f", 描述: {career.description[:50]}"
+                        careers_info += f", 阶段: {stage_info}\n"
+                
+                if sub_careers:
+                    careers_info += "\n可用副职业列表（请在career_info中填写职业名称，系统会自动匹配ID）：\n"
+                    for career in sub_careers[:5]:  # 最多显示5个副职业
+                        careers_info += f"- 名称: {career.name}"
+                        if career.description:
+                            careers_info += f", 描述: {career.description[:50]}"
+                        careers_info += "\n"
+            else:
+                careers_info = "\n\n⚠️ 项目中暂无职业设定"
+            
             # 构建项目上下文
             project_context = f"""
 项目信息：
@@ -449,6 +746,7 @@ async def generate_character_stream(
 - 氛围基调：{project.world_atmosphere or '未设定'}
 - 世界规则：{project.world_rules or '未设定'}
 {existing_chars_info}
+{careers_info}
 """
             
             user_input = f"""
@@ -544,6 +842,62 @@ async def generate_character_stream(
             traits_json = json.dumps(character_data.get("traits", []), ensure_ascii=False) if character_data.get("traits") else None
             is_organization = character_data.get("is_organization", False)
             
+            # 提取职业信息（支持通过名称匹配）
+            career_info = character_data.get("career_info", {})
+            raw_main_career_name = career_info.get("main_career_name") if career_info else None
+            main_career_stage = career_info.get("main_career_stage", 1) if career_info else None
+            raw_sub_careers_data = career_info.get("sub_careers", []) if career_info else []
+            
+            # 调试日志：输出职业信息
+            logger.info(f"🔍 提取职业信息 - career_info: {career_info}")
+            logger.info(f"🔍 raw_main_career_name: {raw_main_career_name}, main_career_stage: {main_career_stage}")
+            logger.info(f"🔍 raw_sub_careers_data类型: {type(raw_sub_careers_data)}, 内容: {raw_sub_careers_data}")
+            
+            # 🔧 通过职业名称匹配数据库中的职业ID
+            from app.models.career import Career
+            main_career_id = None
+            sub_careers_data = []
+            
+            # 匹配主职业名称
+            if raw_main_career_name and not is_organization:
+                career_check = await db.execute(
+                    select(Career).where(
+                        Career.name == raw_main_career_name,
+                        Career.project_id == request.project_id,
+                        Career.type == 'main'
+                    )
+                )
+                matched_career = career_check.scalar_one_or_none()
+                if matched_career:
+                    main_career_id = matched_career.id
+                    logger.info(f"✅ 主职业名称匹配成功: {raw_main_career_name} -> ID: {main_career_id}")
+                else:
+                    logger.warning(f"⚠️ AI返回的主职业名称未找到: {raw_main_career_name}")
+            
+            # 匹配副职业名称
+            if raw_sub_careers_data and not is_organization and isinstance(raw_sub_careers_data, list):
+                for sub_data in raw_sub_careers_data[:2]:
+                    if isinstance(sub_data, dict):
+                        career_name = sub_data.get('career_name')
+                        if career_name:
+                            career_check = await db.execute(
+                                select(Career).where(
+                                    Career.name == career_name,
+                                    Career.project_id == request.project_id,
+                                    Career.type == 'sub'
+                                )
+                            )
+                            matched_career = career_check.scalar_one_or_none()
+                            if matched_career:
+                                # 转换为包含ID的格式
+                                sub_careers_data.append({
+                                    'career_id': matched_career.id,
+                                    'stage': sub_data.get('stage', 1)
+                                })
+                                logger.info(f"✅ 副职业名称匹配成功: {career_name} -> ID: {matched_career.id}")
+                            else:
+                                logger.warning(f"⚠️ AI返回的副职业名称未找到: {career_name}")
+            
             # 创建角色
             character = Character(
                 project_id=request.project_id,
@@ -559,12 +913,91 @@ async def generate_character_stream(
                 organization_type=character_data.get("organization_type") if is_organization else None,
                 organization_purpose=character_data.get("organization_purpose") if is_organization else None,
                 organization_members=json.dumps(character_data.get("organization_members", []), ensure_ascii=False) if is_organization else None,
-                traits=traits_json
+                traits=traits_json,
+                main_career_id=main_career_id,
+                main_career_stage=main_career_stage if main_career_id else None,
+                sub_careers=json.dumps(sub_careers_data, ensure_ascii=False) if sub_careers_data else None
             )
             db.add(character)
             await db.flush()
             
             logger.info(f"✅ 角色创建成功：{character.name} (ID: {character.id})")
+            
+            # 处理主职业关联
+            if main_career_id and not is_organization:
+                from app.models.career import CharacterCareer, Career
+                
+                career_result = await db.execute(
+                    select(Career).where(
+                        Career.id == main_career_id,
+                        Career.project_id == request.project_id,
+                        Career.type == 'main'
+                    )
+                )
+                career = career_result.scalar_one_or_none()
+                
+                if career:
+                    char_career = CharacterCareer(
+                        character_id=character.id,
+                        career_id=main_career_id,
+                        career_type='main',
+                        current_stage=main_career_stage,
+                        stage_progress=0
+                    )
+                    db.add(char_career)
+                    logger.info(f"✅ AI生成角色-创建主职业关联：{character.name} -> {career.name}")
+                else:
+                    logger.warning(f"⚠️ AI返回的主职业ID不存在: {main_career_id}")
+            
+            # 处理副职业关联
+            if sub_careers_data and not is_organization:
+                from app.models.career import CharacterCareer, Career
+                
+                logger.info(f"🔍 开始处理副职业关联，数据: {sub_careers_data}")
+                
+                # 确保sub_careers_data是列表
+                if not isinstance(sub_careers_data, list):
+                    logger.warning(f"⚠️ sub_careers_data不是列表类型: {type(sub_careers_data)}")
+                    sub_careers_data = []
+                
+                for idx, sub_data in enumerate(sub_careers_data[:2]):  # 最多2个副职业
+                    logger.info(f"🔍 处理第{idx+1}个副职业，数据: {sub_data}, 类型: {type(sub_data)}")
+                    
+                    # 兼容不同的数据格式
+                    if isinstance(sub_data, dict):
+                        career_id = sub_data.get('career_id')
+                        stage = sub_data.get('stage', 1)
+                    else:
+                        logger.warning(f"⚠️ 副职业数据格式错误，应为dict: {sub_data}")
+                        continue
+                    
+                    if not career_id:
+                        logger.warning(f"⚠️ 副职业数据缺少career_id字段")
+                        continue
+                    
+                    logger.info(f"🔍 查询副职业: career_id={career_id}, project_id={request.project_id}")
+                    
+                    career_result = await db.execute(
+                        select(Career).where(
+                            Career.id == career_id,
+                            Career.project_id == request.project_id,
+                            Career.type == 'sub'
+                        )
+                    )
+                    career = career_result.scalar_one_or_none()
+                    
+                    if career:
+                        char_career = CharacterCareer(
+                            character_id=character.id,
+                            career_id=career_id,
+                            career_type='sub',
+                            current_stage=stage,
+                            stage_progress=0
+                        )
+                        db.add(char_career)
+                        logger.info(f"✅ AI生成角色-创建副职业关联：{character.name} -> {career.name} (阶段{stage})")
+                    else:
+                        logger.warning(f"⚠️ AI返回的副职业ID不存在: {career_id} (项目ID: {request.project_id})")
             
             # 如果是组织，创建Organization详情
             if is_organization:

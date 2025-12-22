@@ -6,13 +6,21 @@ import { useCharacterSync } from '../store/hooks';
 import { characterGridConfig } from '../components/CardStyles';
 import { CharacterCard } from '../components/CharacterCard';
 import { SSELoadingOverlay } from '../components/SSELoadingOverlay';
-import type { Character, CharacterUpdate } from '../types';
+import type { Character } from '../types';
 import { characterApi } from '../services/api';
 import { SSEPostClient } from '../utils/sseClient';
+import axios from 'axios';
 
 const { Title } = Typography;
-
 const { TextArea } = Input;
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+
+interface Career {
+  id: string;
+  name: string;
+  type: 'main' | 'sub';
+  max_stage: number;
+}
 
 export default function Characters() {
   const { currentProject, characters } = useStore();
@@ -28,6 +36,8 @@ export default function Characters() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [createType, setCreateType] = useState<'character' | 'organization'>('character');
   const [editingCharacter, setEditingCharacter] = useState<Character | null>(null);
+  const [mainCareers, setMainCareers] = useState<Career[]>([]);
+  const [subCareers, setSubCareers] = useState<Career[]>([]);
 
   const {
     refreshCharacters,
@@ -37,10 +47,25 @@ export default function Characters() {
   useEffect(() => {
     if (currentProject?.id) {
       refreshCharacters();
+      fetchCareers();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProject?.id]);
   const [modal, contextHolder] = Modal.useModal();
+
+  const fetchCareers = async () => {
+    if (!currentProject?.id) return;
+    try {
+      const response = await axios.get(`${API_BASE_URL}/api/careers`, {
+        params: { project_id: currentProject.id },
+        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+      });
+      setMainCareers(response.data.main_careers || []);
+      setSubCareers(response.data.sub_careers || []);
+    } catch (error) {
+      console.error('获取职业列表失败:', error);
+    }
+  };
 
   if (!currentProject) return null;
 
@@ -170,6 +195,17 @@ export default function Characters() {
         createData.appearance = values.appearance;
         createData.relationships = values.relationships;
         createData.background = values.background;
+        
+        // 职业字段
+        if (values.main_career_id) {
+          createData.main_career_id = values.main_career_id;
+          createData.main_career_stage = values.main_career_stage || 1;
+        }
+        
+        // 处理副职业数据
+        if (values.sub_career_data && Array.isArray(values.sub_career_data) && values.sub_career_data.length > 0) {
+          createData.sub_careers = JSON.stringify(values.sub_career_data);
+        }
       } else {
         // 组织字段
         createData.organization_type = values.organization_type;
@@ -195,21 +231,45 @@ export default function Characters() {
 
   const handleEditCharacter = (character: Character) => {
     setEditingCharacter(character);
-    editForm.setFieldsValue(character);
+
+    // 提取副职业数据（包含职业ID和阶段）
+    const subCareerData = character.sub_careers?.map((sc: any) => ({
+      career_id: sc.career_id,
+      stage: sc.stage || 1
+    })) || [];
+
+    editForm.setFieldsValue({
+      ...character,
+      sub_career_data: subCareerData
+    });
     setIsEditModalOpen(true);
   };
 
-  const handleUpdateCharacter = async (values: CharacterUpdate) => {
+  const handleUpdateCharacter = async (values: any) => {
     if (!editingCharacter) return;
 
     try {
-      await characterApi.updateCharacter(editingCharacter.id, values);
+      const updateData: any = { ...values };
+
+      // 处理副职业数据
+      const subCareerData = updateData.sub_career_data;
+      delete updateData.sub_career_data;
+
+      // 转换为sub_careers格式
+      if (subCareerData && Array.isArray(subCareerData) && subCareerData.length > 0) {
+        updateData.sub_careers = JSON.stringify(subCareerData);
+      } else {
+        updateData.sub_careers = JSON.stringify([]);
+      }
+
+      await characterApi.updateCharacter(editingCharacter.id, updateData);
       message.success('更新成功');
       setIsEditModalOpen(false);
       editForm.resetFields();
       setEditingCharacter(null);
       await refreshCharacters();
-    } catch {
+    } catch (error) {
+      console.error('更新失败:', error);
       message.error('更新失败');
     }
   };
@@ -657,6 +717,109 @@ export default function Characters() {
             <TextArea rows={3} placeholder={`描述${editingCharacter?.is_organization ? '组织' : '角色'}的背景故事...`} />
           </Form.Item>
 
+          {!editingCharacter?.is_organization && (mainCareers.length > 0 || subCareers.length > 0) && (
+            <>
+              <Divider>职业信息</Divider>
+              {mainCareers.length > 0 && (
+                <Row gutter={16}>
+                  <Col span={16}>
+                    <Form.Item label="主职业" name="main_career_id" tooltip="角色的主要修炼职业">
+                      <Select placeholder="选择主职业" allowClear>
+                        {mainCareers.map(career => (
+                          <Select.Option key={career.id} value={career.id}>
+                            {career.name}（最高{career.max_stage}阶）
+                          </Select.Option>
+                        ))}
+                      </Select>
+                    </Form.Item>
+                  </Col>
+                  <Col span={8}>
+                    <Form.Item label="当前阶段" name="main_career_stage" tooltip="主职业当前修炼到的阶段">
+                      <InputNumber
+                        min={1}
+                        max={editForm.getFieldValue('main_career_id') ?
+                          mainCareers.find(c => c.id === editForm.getFieldValue('main_career_id'))?.max_stage || 10
+                          : 10}
+                        style={{ width: '100%' }}
+                        placeholder="阶段"
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              )}
+              {subCareers.length > 0 && (
+                <Form.List name="sub_career_data">
+                  {(fields, { add, remove }) => (
+                    <>
+                      <div style={{ marginBottom: 8 }}>
+                        <Typography.Text strong>副职业</Typography.Text>
+                      </div>
+                      <div style={{ maxHeight: '100px', overflowY: 'auto', overflowX: 'hidden', marginBottom: 8, paddingRight: 8 }}>
+                        {fields.map((field) => (
+                          <Row key={field.key} gutter={8} style={{ marginBottom: 8 }}>
+                            <Col span={16}>
+                              <Form.Item
+                                {...field}
+                                name={[field.name, 'career_id']}
+                                rules={[{ required: true, message: '请选择副职业' }]}
+                                style={{ marginBottom: 0 }}
+                              >
+                                <Select placeholder="选择副职业">
+                                  {subCareers.map(career => (
+                                    <Select.Option key={career.id} value={career.id}>
+                                      {career.name}（最高{career.max_stage}阶）
+                                    </Select.Option>
+                                  ))}
+                                </Select>
+                              </Form.Item>
+                            </Col>
+                            <Col span={6}>
+                              <Form.Item
+                                {...field}
+                                name={[field.name, 'stage']}
+                                rules={[{ required: true, message: '请输入阶段' }]}
+                                style={{ marginBottom: 0 }}
+                              >
+                                <InputNumber
+                                  min={1}
+                                  max={(() => {
+                                    const careerId = editForm.getFieldValue(['sub_career_data', field.name, 'career_id']);
+                                    const career = subCareers.find(c => c.id === careerId);
+                                    return career?.max_stage || 10;
+                                  })()}
+                                  placeholder="阶段"
+                                  style={{ width: '100%' }}
+                                />
+                              </Form.Item>
+                            </Col>
+                            <Col span={2}>
+                              <Button
+                                type="text"
+                                danger
+                                onClick={() => remove(field.name)}
+                                style={{ width: '100%' }}
+                              >
+                                删除
+                              </Button>
+                            </Col>
+                          </Row>
+                        ))}
+                      </div>
+                      <Button
+                        type="dashed"
+                        onClick={() => add({ career_id: undefined, stage: 1 })}
+                        block
+                        style={{ marginTop: 8 }}
+                      >
+                        + 添加副职业
+                      </Button>
+                    </>
+                  )}
+                </Form.List>
+              )}
+            </>
+          )}
+
           <Form.Item>
             <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
               <Button onClick={() => {
@@ -747,6 +910,110 @@ export default function Characters() {
               <Form.Item label="角色背景" name="background">
                 <TextArea rows={3} placeholder="描述角色的背景故事..." />
               </Form.Item>
+
+              {/* 职业信息 */}
+              {(mainCareers.length > 0 || subCareers.length > 0) && (
+                <>
+                  <Divider>职业信息（可选）</Divider>
+                  {mainCareers.length > 0 && (
+                    <Row gutter={16}>
+                      <Col span={16}>
+                        <Form.Item label="主职业" name="main_career_id" tooltip="角色的主要修炼职业">
+                          <Select placeholder="选择主职业" allowClear>
+                            {mainCareers.map(career => (
+                              <Select.Option key={career.id} value={career.id}>
+                                {career.name}（最高{career.max_stage}阶）
+                              </Select.Option>
+                            ))}
+                          </Select>
+                        </Form.Item>
+                      </Col>
+                      <Col span={8}>
+                        <Form.Item label="当前阶段" name="main_career_stage" tooltip="主职业当前修炼到的阶段">
+                          <InputNumber
+                            min={1}
+                            max={createForm.getFieldValue('main_career_id') ?
+                              mainCareers.find(c => c.id === createForm.getFieldValue('main_career_id'))?.max_stage || 10
+                              : 10}
+                            style={{ width: '100%' }}
+                            placeholder="阶段"
+                          />
+                        </Form.Item>
+                      </Col>
+                    </Row>
+                  )}
+                  {subCareers.length > 0 && (
+                    <Form.List name="sub_career_data">
+                      {(fields, { add, remove }) => (
+                        <>
+                          <div style={{ marginBottom: 8 }}>
+                            <Typography.Text strong>副职业</Typography.Text>
+                          </div>
+                          <div style={{ maxHeight: '100px', overflowY: 'auto', overflowX: 'hidden', marginBottom: 8, paddingRight: 8 }}>
+                            {fields.map((field) => (
+                              <Row key={field.key} gutter={8} style={{ marginBottom: 8 }}>
+                                <Col span={16}>
+                                  <Form.Item
+                                    {...field}
+                                    name={[field.name, 'career_id']}
+                                    rules={[{ required: true, message: '请选择副职业' }]}
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <Select placeholder="选择副职业">
+                                      {subCareers.map(career => (
+                                        <Select.Option key={career.id} value={career.id}>
+                                          {career.name}（最高{career.max_stage}阶）
+                                        </Select.Option>
+                                      ))}
+                                    </Select>
+                                  </Form.Item>
+                                </Col>
+                                <Col span={6}>
+                                  <Form.Item
+                                    {...field}
+                                    name={[field.name, 'stage']}
+                                    rules={[{ required: true, message: '请输入阶段' }]}
+                                    style={{ marginBottom: 0 }}
+                                  >
+                                    <InputNumber
+                                      min={1}
+                                      max={(() => {
+                                        const careerId = createForm.getFieldValue(['sub_career_data', field.name, 'career_id']);
+                                        const career = subCareers.find(c => c.id === careerId);
+                                        return career?.max_stage || 10;
+                                      })()}
+                                      placeholder="阶段"
+                                      style={{ width: '100%' }}
+                                    />
+                                  </Form.Item>
+                                </Col>
+                                <Col span={2}>
+                                  <Button
+                                    type="text"
+                                    danger
+                                    onClick={() => remove(field.name)}
+                                    style={{ width: '100%' }}
+                                  >
+                                    删除
+                                  </Button>
+                                </Col>
+                              </Row>
+                            ))}
+                          </div>
+                          <Button
+                            type="dashed"
+                            onClick={() => add({ career_id: undefined, stage: 1 })}
+                            block
+                            style={{ marginTop: 8 }}
+                          >
+                            + 添加副职业
+                          </Button>
+                        </>
+                      )}
+                    </Form.List>
+                  )}
+                </>
+              )}
             </>
           ) : (
             <>

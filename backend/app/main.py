@@ -143,7 +143,7 @@ from app.api import (
     wizard_stream, relationships, organizations,
     auth, users, settings, writing_styles, memories,
     mcp_plugins, admin, inspiration, prompt_templates,
-    changelog
+    changelog, careers
 )
 
 app.include_router(auth.router, prefix="/api")
@@ -156,6 +156,7 @@ app.include_router(wizard_stream.router, prefix="/api")
 app.include_router(inspiration.router, prefix="/api")
 app.include_router(outlines.router, prefix="/api")
 app.include_router(characters.router, prefix="/api")
+app.include_router(careers.router, prefix="/api")  # 职业管理API
 app.include_router(chapters.router, prefix="/api")
 app.include_router(relationships.router, prefix="/api")
 app.include_router(organizations.router, prefix="/api")

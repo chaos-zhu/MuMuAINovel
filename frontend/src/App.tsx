@@ -8,6 +8,7 @@ import ProjectDetail from './pages/ProjectDetail';
 import WorldSetting from './pages/WorldSetting';
 import Outline from './pages/Outline';
 import Characters from './pages/Characters';
+import Careers from './pages/Careers';
 import Relationships from './pages/Relationships';
 import Organizations from './pages/Organizations';
 import Chapters from './pages/Chapters';
@@ -51,6 +52,7 @@ function App() {
           <Route path="/project/:projectId" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>}>
             <Route index element={<Navigate to="world-setting" replace />} />
             <Route path="world-setting" element={<WorldSetting />} />
+            <Route path="careers" element={<Careers />} />
             <Route path="outline" element={<Outline />} />
             <Route path="characters" element={<Characters />} />
             <Route path="relationships" element={<Relationships />} />

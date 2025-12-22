@@ -261,6 +261,48 @@ export default function Chapters() {
     }
   };
 
+  // 🔔 显示浏览器通知
+  const showBrowserNotification = (title: string, body: string, type: 'success' | 'error' | 'info' = 'info') => {
+    // 检查浏览器是否支持通知
+    if (!('Notification' in window)) {
+      console.log('浏览器不支持通知功能');
+      return;
+    }
+
+    // 检查通知权限
+    if (Notification.permission === 'granted') {
+      // 选择图标
+      const icon = type === 'success' ? '/logo.svg' : type === 'error' ? '/favicon.ico' : '/logo.svg';
+      
+      const notification = new Notification(title, {
+        body,
+        icon,
+        badge: '/favicon.ico',
+        tag: 'batch-generation', // 相同tag会替换旧通知
+        requireInteraction: false, // 自动关闭
+        silent: false, // 播放提示音
+      });
+
+      // 点击通知时聚焦到窗口
+      notification.onclick = () => {
+        window.focus();
+        notification.close();
+      };
+
+      // 5秒后自动关闭
+      setTimeout(() => {
+        notification.close();
+      }, 5000);
+    } else if (Notification.permission !== 'denied') {
+      // 如果权限未被明确拒绝，尝试请求权限
+      Notification.requestPermission().then(permission => {
+        if (permission === 'granted') {
+          showBrowserNotification(title, body, type);
+        }
+      });
+    }
+  };
+
   if (!currentProject) return null;
 
   // 获取人称的中文显示文本
@@ -282,7 +324,24 @@ export default function Chapters() {
       c => c.chapter_number < chapter.chapter_number
     );
 
-    return previousChapters.every(c => c.content && c.content.trim() !== '');
+    // 检查所有前置章节是否有内容
+    const allHaveContent = previousChapters.every(c => c.content && c.content.trim() !== '');
+    if (!allHaveContent) {
+      return false;
+    }
+
+    // 检查所有前置章节是否分析成功
+    const allAnalyzed = previousChapters.every(c => {
+      const task = analysisTasksMap[c.id];
+      // 如果没有分析任务或分析失败，则不允许生成
+      if (!task || !task.has_task) {
+        return false;
+      }
+      // 只有completed状态才算分析成功
+      return task.status === 'completed';
+    });
+
+    return allAnalyzed;
   };
 
   const getGenerateDisabledReason = (chapter: Chapter): string => {
@@ -294,6 +353,7 @@ export default function Chapters() {
       c => c.chapter_number < chapter.chapter_number
     );
 
+    // 首先检查是否有未完成内容的章节
     const incompleteChapters = previousChapters.filter(
       c => !c.content || c.content.trim() === ''
     );
@@ -301,6 +361,36 @@ export default function Chapters() {
     if (incompleteChapters.length > 0) {
       const numbers = incompleteChapters.map(c => c.chapter_number).join('、');
       return `需要先完成前置章节：第 ${numbers} 章`;
+    }
+
+    // 检查是否有未分析或分析失败的章节
+    const unanalyzedChapters = previousChapters.filter(c => {
+      const task = analysisTasksMap[c.id];
+      if (!task || !task.has_task) {
+        return true; // 没有分析任务
+      }
+      return task.status !== 'completed'; // 分析未完成或失败
+    });
+
+    if (unanalyzedChapters.length > 0) {
+      const numbers = unanalyzedChapters.map(c => c.chapter_number).join('、');
+      const reasons = unanalyzedChapters.map(c => {
+        const task = analysisTasksMap[c.id];
+        if (!task || !task.has_task) {
+          return '未分析';
+        }
+        if (task.status === 'pending') {
+          return '等待分析';
+        }
+        if (task.status === 'running') {
+          return '分析中';
+        }
+        if (task.status === 'failed') {
+          return '分析失败';
+        }
+        return '状态未知';
+      });
+      return `需要先分析前置章节：第 ${numbers} 章 (${reasons.join('、')})`;
     }
 
     return '';
@@ -638,7 +728,7 @@ export default function Chapters() {
       const requestBody: any = {
         start_chapter_number: values.startChapterNumber,
         count: values.count,
-        enable_analysis: values.enableAnalysis,
+        enable_analysis: true,
         style_id: styleId,
         target_word_count: wordCount,
       };
@@ -677,6 +767,13 @@ export default function Chapters() {
       });
 
       message.success(`批量生成任务已创建，预计需要 ${result.estimated_time_minutes} 分钟`);
+
+      // 🔔 触发浏览器通知（任务开始）
+      showBrowserNotification(
+        '批量生成已启动',
+        `开始生成 ${result.chapters_to_generate.length} 章，预计需要 ${result.estimated_time_minutes} 分钟`,
+        'info'
+      );
 
       // 开始轮询任务状态
       startBatchPolling(result.batch_id);
@@ -740,8 +837,20 @@ export default function Chapters() {
 
           if (status.status === 'completed') {
             message.success(`批量生成完成！成功生成 ${status.completed} 章`);
+            // 🔔 触发浏览器通知
+            showBrowserNotification(
+              '批量生成完成',
+              `《${currentProject?.title || '项目'}》成功生成 ${status.completed} 章节`,
+              'success'
+            );
           } else if (status.status === 'failed') {
             message.error(`批量生成失败：${status.error_message || '未知错误'}`);
+            // 🔔 触发浏览器通知
+            showBrowserNotification(
+              '批量生成失败',
+              status.error_message || '未知错误',
+              'error'
+            );
           } else if (status.status === 'cancelled') {
             message.warning('批量生成已取消');
           }
@@ -2199,7 +2308,7 @@ export default function Chapters() {
             initialValues={{
               startChapterNumber: sortedChapters.find(ch => !ch.content || ch.content.trim() === '')?.chapter_number || 1,
               count: 5,
-              enableAnalysis: false,
+              enableAnalysis: true,  // 强制启用同步分析
               styleId: selectedStyleId,
               targetWordCount: 3000,
               model: selectedModel,
@@ -2323,19 +2432,20 @@ export default function Chapters() {
             <Form.Item
               label="同步分析"
               name="enableAnalysis"
-              tooltip="开启后每章生成完立即分析，会增加约50%耗时，但能提升后续章节质量"
+              tooltip="批量生成必须开启同步分析，确保角色职业信息和剧情状态的连贯性"
             >
-              <Radio.Group>
-                <Radio value={false}>
-                  <Space direction="vertical" size={0}>
-                    <span>不分析（推荐）</span>
-                    <span style={{ fontSize: 12, color: '#666' }}>生成更快，后续可手动分析</span>
-                  </Space>
-                </Radio>
+              <Radio.Group disabled>
                 <Radio value={true}>
                   <Space direction="vertical" size={0}>
-                    <span>同步分析</span>
-                    <span style={{ fontSize: 12, color: '#ff9800' }}>增加约50%耗时，提升质量</span>
+                    <span style={{ fontSize: 12, color: '#52c41a' }}>
+                      ✓ 确保职业信息自动更新
+                    </span>
+                    <span style={{ fontSize: 12, color: '#52c41a' }}>
+                      ✓ 保证剧情状态连贯
+                    </span>
+                    <span style={{ fontSize: 12, color: '#ff9800' }}>
+                      ⏱ 增加约50%耗时
+                    </span>
                   </Space>
                 </Radio>
               </Radio.Group>

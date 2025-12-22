@@ -297,6 +297,39 @@ class AutoCharacterService:
     ) -> Dict[str, Any]:
         """生成角色详细信息"""
         
+        # 🎯 获取项目职业列表
+        from app.models.career import Career
+        careers_result = await db.execute(
+            select(Career)
+            .where(Career.project_id == project.id)
+            .order_by(Career.type, Career.name)
+        )
+        careers = careers_result.scalars().all()
+        
+        # 构建职业信息摘要（包含最高阶段信息）
+        careers_info = ""
+        if careers:
+            main_careers = [c for c in careers if c.type == 'main']
+            sub_careers = [c for c in careers if c.type == 'sub']
+            
+            if main_careers:
+                careers_info += "\n\n可用主职业列表（请在career_info中填写职业名称和阶段）：\n"
+                for career in main_careers:
+                    careers_info += f"- 名称: {career.name}, 最高阶段: {career.max_stage}阶"
+                    if career.description:
+                        careers_info += f", 描述: {career.description[:50]}"
+                    careers_info += "\n"
+            
+            if sub_careers:
+                careers_info += "\n可用副职业列表（请在career_info中填写职业名称和阶段）：\n"
+                for career in sub_careers[:5]:
+                    careers_info += f"- 名称: {career.name}, 最高阶段: {career.max_stage}阶"
+                    if career.description:
+                        careers_info += f", 描述: {career.description[:50]}"
+                    careers_info += "\n"
+            
+            careers_info += "\n⚠️ 重要提示：生成角色时，职业阶段不能超过该职业的最高阶段！\n"
+        
         # 构建角色生成提示词
         template = await PromptService.get_template(
             "AUTO_CHARACTER_GENERATION",
@@ -315,7 +348,7 @@ class AutoCharacterService:
             location=project.world_location or "未设定",
             atmosphere=project.world_atmosphere or "未设定",
             rules=project.world_rules or "未设定",
-            existing_characters=existing_chars_summary,
+            existing_characters=existing_chars_summary + careers_info,
             plot_context="根据剧情需要引入的新角色",
             character_specification=json.dumps(spec, ensure_ascii=False, indent=2),
             mcp_references=""  # 暂时不使用MCP增强
@@ -367,6 +400,66 @@ class AutoCharacterService:
         
         is_organization = character_data.get("is_organization", False)
         
+        # 提取职业信息（支持通过名称匹配）
+        career_info = character_data.get("career_info", {})
+        raw_main_career_name = career_info.get("main_career_name") if career_info else None
+        main_career_stage = career_info.get("main_career_stage", 1) if career_info else None
+        raw_sub_careers_data = career_info.get("sub_careers", []) if career_info else []
+        
+        # 🔧 通过职业名称匹配数据库中的职业ID
+        from app.models.career import Career, CharacterCareer
+        main_career_id = None
+        sub_careers_data = []
+        
+        # 匹配主职业名称
+        if raw_main_career_name and not is_organization:
+            career_check = await db.execute(
+                select(Career).where(
+                    Career.name == raw_main_career_name,
+                    Career.project_id == project_id,
+                    Career.type == 'main'
+                )
+            )
+            matched_career = career_check.scalar_one_or_none()
+            if matched_career:
+                main_career_id = matched_career.id
+                # ✅ 验证阶段不超过最高阶段
+                if main_career_stage and main_career_stage > matched_career.max_stage:
+                    logger.warning(f"    ⚠️ AI返回的主职业阶段({main_career_stage})超过最高阶段({matched_career.max_stage})，自动修正为最高阶段")
+                    main_career_stage = matched_career.max_stage
+                logger.info(f"    ✅ 主职业名称匹配成功: {raw_main_career_name} -> ID: {main_career_id}, 阶段: {main_career_stage}/{matched_career.max_stage}")
+            else:
+                logger.warning(f"    ⚠️ AI返回的主职业名称未找到: {raw_main_career_name}")
+        
+        # 匹配副职业名称
+        if raw_sub_careers_data and not is_organization and isinstance(raw_sub_careers_data, list):
+            for sub_data in raw_sub_careers_data[:2]:
+                if isinstance(sub_data, dict):
+                    career_name = sub_data.get('career_name')
+                    if career_name:
+                        career_check = await db.execute(
+                            select(Career).where(
+                                Career.name == career_name,
+                                Career.project_id == project_id,
+                                Career.type == 'sub'
+                            )
+                        )
+                        matched_career = career_check.scalar_one_or_none()
+                        if matched_career:
+                            sub_stage = sub_data.get('stage', 1)
+                            # ✅ 验证阶段不超过最高阶段
+                            if sub_stage > matched_career.max_stage:
+                                logger.warning(f"    ⚠️ AI返回的副职业阶段({sub_stage})超过最高阶段({matched_career.max_stage})，自动修正为最高阶段")
+                                sub_stage = matched_career.max_stage
+                            
+                            sub_careers_data.append({
+                                'career_id': matched_career.id,
+                                'stage': sub_stage
+                            })
+                            logger.info(f"    ✅ 副职业名称匹配成功: {career_name} -> ID: {matched_career.id}, 阶段: {sub_stage}/{matched_career.max_stage}")
+                        else:
+                            logger.warning(f"    ⚠️ AI返回的副职业名称未找到: {career_name}")
+        
         # 创建角色
         character = Character(
             project_id=project_id,
@@ -381,11 +474,39 @@ class AutoCharacterService:
             relationships=character_data.get("relationships_text", ""),
             organization_type=character_data.get("organization_type") if is_organization else None,
             organization_purpose=character_data.get("organization_purpose") if is_organization else None,
-            traits=json.dumps(character_data.get("traits", []), ensure_ascii=False) if character_data.get("traits") else None
+            traits=json.dumps(character_data.get("traits", []), ensure_ascii=False) if character_data.get("traits") else None,
+            main_career_id=main_career_id,
+            main_career_stage=main_career_stage if main_career_id else None,
+            sub_careers=json.dumps(sub_careers_data, ensure_ascii=False) if sub_careers_data else None
         )
         
         db.add(character)
         await db.flush()
+        
+        # 处理主职业关联
+        if main_career_id and not is_organization:
+            char_career = CharacterCareer(
+                character_id=character.id,
+                career_id=main_career_id,
+                career_type='main',
+                current_stage=main_career_stage,
+                stage_progress=0
+            )
+            db.add(char_career)
+            logger.info(f"    ✅ 创建主职业关联: {character.name} -> {raw_main_career_name}")
+        
+        # 处理副职业关联
+        if sub_careers_data and not is_organization:
+            for sub_data in sub_careers_data:
+                char_career = CharacterCareer(
+                    character_id=character.id,
+                    career_id=sub_data['career_id'],
+                    career_type='sub',
+                    current_stage=sub_data['stage'],
+                    stage_progress=0
+                )
+                db.add(char_career)
+            logger.info(f"    ✅ 创建副职业关联: {character.name}, 数量: {len(sub_careers_data)}")
         
         # 如果是组织，创建Organization记录
         if is_organization:

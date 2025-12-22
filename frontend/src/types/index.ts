@@ -217,6 +217,13 @@ export interface Character {
   location?: string;
   motto?: string;
   color?: string;
+  // 职业相关字段
+  main_career_id?: string;
+  main_career_stage?: number;
+  sub_careers?: Array<{
+    career_id: string;
+    stage: number;
+  }>;
   created_at: string;
   updated_at: string;
 }
