@@ -2,13 +2,11 @@ import { useState, useEffect } from 'react';
 import { Button, Modal, Form, Input, Select, message, Row, Col, Empty, Tabs, Card, Tag, Space, Divider, Typography, InputNumber } from 'antd';
 import { ThunderboltOutlined, PlusOutlined, EditOutlined, DeleteOutlined, TrophyOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
-import axios from 'axios';
+import api from '../services/api';
 import SSEProgressModal from '../components/SSEProgressModal';
 
 const { TextArea } = Input;
 const { Title, Text, Paragraph } = Typography;
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
 
 interface CareerStage {
     level: number;
@@ -56,14 +54,13 @@ export default function Careers() {
     const fetchCareers = async () => {
         try {
             setLoading(true);
-            const response = await axios.get(`${API_BASE_URL}/api/careers`, {
-                params: { project_id: projectId },
-                headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
+            const response: any = await api.get('/careers', {
+                params: { project_id: projectId }
             });
-            setMainCareers(response.data.main_careers || []);
-            setSubCareers(response.data.sub_careers || []);
+            setMainCareers(response.main_careers || []);
+            setSubCareers(response.sub_careers || []);
         } catch (error: any) {
-            message.error(error.response?.data?.detail || '获取职业列表失败');
+            console.error('获取职业列表失败:', error);
         } finally {
             setLoading(false);
         }
@@ -112,17 +109,13 @@ export default function Careers() {
             };
 
             if (editingCareer) {
-                await axios.put(`${API_BASE_URL}/api/careers/${editingCareer.id}`, data, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                });
+                await api.put(`/careers/${editingCareer.id}`, data);
                 message.success('职业更新成功');
             } else {
-                await axios.post(`${API_BASE_URL}/api/careers`, {
+                await api.post('/careers', {
                     ...data,
                     project_id: projectId,
                     source: 'manual'
-                }, {
-                    headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
                 });
                 message.success('职业创建成功');
             }
@@ -141,9 +134,7 @@ export default function Careers() {
             content: '确定要删除这个职业吗？如果有角色使用了该职业，将无法删除。',
             onOk: async () => {
                 try {
-                    await axios.delete(`${API_BASE_URL}/api/careers/${id}`, {
-                        headers: { Authorization: `Bearer ${localStorage.getItem('token')}` }
-                    });
+                    await api.delete(`/careers/${id}`);
                     message.success('职业删除成功');
                     fetchCareers();
                 } catch (error: any) {
@@ -161,13 +152,14 @@ export default function Careers() {
 
         try {
             const eventSource = new EventSource(
-                `${API_BASE_URL}/api/careers/generate-system?` +
+                `/api/careers/generate-system?` +
                 new URLSearchParams({
                     project_id: projectId || '',
                     main_career_count: values.main_career_count.toString(),
                     sub_career_count: values.sub_career_count.toString(),
                     enable_mcp: 'false'
-                }).toString()
+                }).toString(),
+                { withCredentials: true }
             );
 
             eventSource.onmessage = (event) => {

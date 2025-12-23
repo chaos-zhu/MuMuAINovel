@@ -360,6 +360,14 @@ MuMuAINovel/
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 提交 Pull Request
 
+### 贡献者
+
+感谢所有为本项目做出贡献的开发者！
+
+<a href="https://github.com/xiamuceer-j/MuMuAINovel/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=xiamuceer-j/MuMuAINovel" />
+</a>
+
 ## 📝 许可证
 
 本项目采用 [GNU General Public License v3.0](LICENSE)
