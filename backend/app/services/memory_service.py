@@ -18,21 +18,52 @@ from pathlib import Path
 if 'SENTENCE_TRANSFORMERS_HOME' not in os.environ:
     # 根据运行环境确定模型目录
     if getattr(sys, 'frozen', False):
-        # PyInstaller 打包后
-        base_dir = Path(sys.executable).parent
+        # PyInstaller 打包后 - 需要检查多个可能的位置
+        exe_dir = Path(sys.executable).parent
+        
+        # 检查顺序：
+        # 1. _MEIPASS/backend/embedding (临时解压目录)
+        # 2. exe同级/_internal/backend/embedding
+        # 3. exe同级/backend/embedding
+        possible_paths = []
+        
+        if hasattr(sys, '_MEIPASS'):
+            possible_paths.append(Path(sys._MEIPASS) / 'backend' / 'embedding')
+        
+        possible_paths.extend([
+            exe_dir / '_internal' / 'backend' / 'embedding',
+            exe_dir / 'backend' / 'embedding',
+            exe_dir / '_internal' / 'embedding',
+            exe_dir / 'embedding'
+        ])
+        
+        model_dir = None
+        for path in possible_paths:
+            if path.exists():
+                model_dir = path
+                logger.info(f"🔧 找到打包环境模型目录: {model_dir}")
+                break
+        
+        if model_dir:
+            os.environ['SENTENCE_TRANSFORMERS_HOME'] = str(model_dir)
+        else:
+            # 最后降级方案
+            fallback_dir = exe_dir / 'embedding'
+            os.environ['SENTENCE_TRANSFORMERS_HOME'] = str(fallback_dir)
+            logger.warning(f"⚠️ 未找到预打包模型，使用降级目录: {fallback_dir}")
+            logger.warning(f"   检查过的路径: {[str(p) for p in possible_paths]}")
     else:
         # 开发模式，从当前文件位置向上找到项目根目录
         base_dir = Path(__file__).parent.parent.parent
-    
-    model_dir = base_dir / 'backend' / 'embedding'
-    if model_dir.exists():
-        os.environ['SENTENCE_TRANSFORMERS_HOME'] = str(model_dir)
-        logger.info(f"🔧 设置模型目录: {model_dir}")
-    else:
-        # 降级到项目根目录的 embedding
-        fallback_dir = base_dir / 'embedding'
-        os.environ['SENTENCE_TRANSFORMERS_HOME'] = str(fallback_dir)
-        logger.info(f"🔧 使用降级模型目录: {fallback_dir}")
+        model_dir = base_dir / 'backend' / 'embedding'
+        if model_dir.exists():
+            os.environ['SENTENCE_TRANSFORMERS_HOME'] = str(model_dir)
+            logger.info(f"🔧 设置开发环境模型目录: {model_dir}")
+        else:
+            # 降级到项目根目录的 embedding
+            fallback_dir = base_dir / 'embedding'
+            os.environ['SENTENCE_TRANSFORMERS_HOME'] = str(fallback_dir)
+            logger.info(f"🔧 使用降级模型目录: {fallback_dir}")
 
 
 class MemoryService:

@@ -4,7 +4,8 @@ from openai import AsyncOpenAI
 from anthropic import AsyncAnthropic
 from app.config import settings as app_settings
 from app.logger import get_logger
-from app.mcp.adapters import UniversalMCPAdapter, PromptInjectionAdapter
+from app.mcp.adapters import PromptInjectionAdapter
+from app.mcp.adapters.universal import universal_mcp_adapter
 import httpx
 import json
 import hashlib
@@ -145,11 +146,11 @@ class AIService:
         self.default_temperature = default_temperature or app_settings.default_temperature
         self.default_max_tokens = default_max_tokens or app_settings.default_max_tokens
         
-        # 初始化MCP适配器
+        # 使用全局MCP适配器单例
         self.enable_mcp_adapter = enable_mcp_adapter
         if enable_mcp_adapter:
-            self.mcp_adapter = UniversalMCPAdapter()
-            logger.info("✅ MCP通用适配器已启用")
+            self.mcp_adapter = universal_mcp_adapter
+            logger.info("✅ MCP通用适配器已启用（使用全局单例）")
         else:
             self.mcp_adapter = None
             logger.info("⚠️ MCP适配器已禁用")

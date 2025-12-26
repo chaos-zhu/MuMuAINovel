@@ -32,9 +32,11 @@ WORKDIR /app
 RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources \
     && sed -i 's/security.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources
 
-# 安装系统依赖
+# 安装系统依赖（添加数据库工具）
 RUN apt-get update && apt-get install -y \
     gcc \
+    postgresql-client \
+    netcat-traditional \
     && rm -rf /var/lib/apt/lists/*
 
 # 复制后端依赖文件
@@ -51,6 +53,15 @@ COPY backend/ ./
 
 # 从前端构建阶段复制构建好的静态文件
 COPY --from=frontend-builder /frontend/dist ./static
+
+# 复制 Alembic 迁移配置和脚本（PostgreSQL）
+COPY backend/alembic-postgres.ini ./alembic.ini
+COPY backend/alembic/postgres ./alembic
+COPY backend/scripts/entrypoint.sh /app/entrypoint.sh
+COPY backend/scripts/migrate.py ./scripts/migrate.py
+
+# 赋予执行权限
+RUN chmod +x /app/entrypoint.sh
 
 # 创建必要的目录
 RUN mkdir -p /app/data /app/logs
@@ -73,5 +84,5 @@ ENV SENTENCE_TRANSFORMERS_HOME=/app/embedding
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
-# 启动命令
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 使用 entrypoint 脚本启动（自动执行迁移）
+ENTRYPOINT ["/app/entrypoint.sh"]

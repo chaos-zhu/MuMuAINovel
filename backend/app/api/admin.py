@@ -8,7 +8,7 @@ from datetime import datetime
 import hashlib
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.database import get_db, init_db
+from app.database import get_db
 from app.models.user import User
 from app.user_manager import user_manager
 from app.user_password import password_manager
@@ -160,12 +160,7 @@ async def create_user(
             password=data.password
         )
         
-        # 初始化用户数据库
-        try:
-            await init_db(new_user.user_id)
-            logger.info(f"用户 {new_user.user_id} 数据库初始化成功")
-        except Exception as e:
-            logger.error(f"用户 {new_user.user_id} 数据库初始化失败: {e}")
+        # Settings 将在首次访问设置页面时自动创建（延迟初始化）
         
         logger.info(f"管理员 {admin.user_id} 创建了新用户 {new_user.user_id} ({data.username})")
         

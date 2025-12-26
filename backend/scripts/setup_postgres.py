@@ -36,7 +36,8 @@ except ImportError:
     from psycopg2 import sql
     from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
 
-from app.database import init_db
+# 注意: 表结构应由 Alembic 管理
+from pathlib import Path
 
 # 设置日志
 logging.basicConfig(
@@ -277,12 +278,26 @@ class PostgreSQLSetup:
             return False
     
     async def initialize_tables(self) -> bool:
-        """初始化数据库表结构"""
+        """初始化数据库表结构（使用 Alembic）"""
         try:
-            logger.info(f"📋 初始化数据库表结构...")
-            await init_db('system')
-            logger.info(f"✅ 表结构初始化成功")
-            return True
+            import subprocess
+            logger.info(f"📋 使用 Alembic 初始化数据库表结构...")
+            
+            # 运行 Alembic 迁移
+            result = subprocess.run(
+                ["alembic", "upgrade", "head"],
+                capture_output=True,
+                text=True,
+                cwd=Path(__file__).parent.parent
+            )
+            
+            if result.returncode == 0:
+                logger.info(f"✅ 表结构初始化成功")
+                return True
+            else:
+                logger.error(f"❌ Alembic 迁移失败: {result.stderr}")
+                return False
+                
         except Exception as e:
             logger.error(f"❌ 初始化表结构失败: {e}")
             return False

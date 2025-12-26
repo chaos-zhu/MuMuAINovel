@@ -27,23 +27,7 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
-    logger.info("应用启动，初始化数据库表结构...")
-    
-    # 在应用启动时初始化数据库表结构
-    try:
-        from app.database import get_engine, Base
-        
-        # 使用全局引擎创建所有表
-        engine = await get_engine("_global_init_")
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        
-        logger.info("✅ 数据库表结构初始化成功")
-    except Exception as e:
-        logger.error(f"❌ 数据库表结构初始化失败: {str(e)}", exc_info=True)
-        # 不阻止应用启动，允许在后续操作中重试
-    
-    logger.info("应用启动完成，等待用户登录...")
+    logger.info("应用启动完成")
     
     yield
     

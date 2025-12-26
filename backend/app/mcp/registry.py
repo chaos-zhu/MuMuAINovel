@@ -149,13 +149,23 @@ class MCPPluginRegistry:
                         session.status = "active"
                         logger.info(f"✅ 会话 {plugin_id} 恢复正常")
                 
-                # 检查长时间无活动的会话
+                # 检查即将过期的会话（最后1分钟提醒）
                 idle_time = time.time() - session.last_access
-                if idle_time > mcp_config.IDLE_TIMEOUT_SECONDS:
-                    logger.info(
-                        f"💤 会话 {plugin_id} 空闲 {idle_time/60:.1f} 分钟，"
-                        f"准备清理"
-                    )
+                time_until_expiry = self._client_ttl - idle_time
+                
+                # 仅在最后1分钟（60秒）内提醒一次
+                if 0 < time_until_expiry <= 60:
+                    # 使用会话属性避免重复提醒
+                    if not hasattr(session, '_expiry_warned') or not session._expiry_warned:
+                        logger.warning(
+                            f"⏰ 会话 {plugin_id} 即将过期 "
+                            f"(剩余 {time_until_expiry:.0f} 秒)"
+                        )
+                        session._expiry_warned = True
+                elif time_until_expiry > 60:
+                    # 重置警告标志（如果会话被重新使用）
+                    if hasattr(session, '_expiry_warned'):
+                        session._expiry_warned = False
     
     async def _get_user_lock(self, user_id: str) -> asyncio.Lock:
         """

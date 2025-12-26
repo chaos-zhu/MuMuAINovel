@@ -10,7 +10,6 @@ from datetime import datetime, timedelta, timezone
 from app.services.oauth_service import LinuxDOOAuthService
 from app.user_manager import user_manager
 from app.user_password import password_manager
-from app.database import init_db
 from app.logger import get_logger
 from app.config import settings
 
@@ -152,12 +151,7 @@ async def local_login(request: LocalLoginRequest, response: Response):
             
             logger.info(f"[本地登录] 管理员用户 {user.user_id} 登录成功")
     
-    # 初始化用户数据库
-    try:
-        await init_db(user.user_id)
-        logger.info(f"本地用户 {user.user_id} 数据库初始化成功")
-    except Exception as e:
-        logger.error(f"本地用户 {user.user_id} 数据库初始化失败: {e}")
+    # Settings 将在首次访问设置页面时自动创建（延迟初始化）
     
     # 设置 Cookie（2小时有效）
     max_age = settings.SESSION_EXPIRE_MINUTES * 60
@@ -261,13 +255,7 @@ async def _handle_callback(
         default_password = await password_manager.set_password(user.user_id, username)
         logger.info(f"用户 {user.user_id} ({username}) 自动绑定默认密码: {default_password}")
     
-    # 3.5. 初始化用户数据库（如果是新用户）
-    try:
-        await init_db(user.user_id)
-        logger.info(f"用户 {user.user_id} 数据库初始化成功")
-    except Exception as e:
-        logger.error(f"用户 {user.user_id} 数据库初始化失败: {e}")
-        # 继续执行，不影响登录流程（可能是已存在的用户）
+    # Settings 将在首次访问设置页面时自动创建（延迟初始化）
     
     # 4. 设置 Cookie 并重定向到前端回调页面
     # 使用配置的前端URL，支持不同的部署环境
@@ -495,12 +483,7 @@ async def bind_account_login(request: LocalLoginRequest, response: Response):
     if not is_valid:
         raise HTTPException(status_code=401, detail="用户名或密码错误")
     
-    # 初始化用户数据库
-    try:
-        await init_db(target_user.user_id)
-        logger.info(f"绑定账号用户 {target_user.user_id} 数据库初始化成功")
-    except Exception as e:
-        logger.error(f"绑定账号用户 {target_user.user_id} 数据库初始化失败: {e}")
+    # Settings 将在首次访问设置页面时自动创建（延迟初始化）
     
     # 设置 Cookie（2小时有效）
     max_age = settings.SESSION_EXPIRE_MINUTES * 60
