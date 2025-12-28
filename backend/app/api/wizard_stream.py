@@ -99,7 +99,7 @@ async def world_building_generator(
                         user_id=user_id,
                         db_session=db,
                         enable_mcp=True,
-                        max_tool_rounds=1,
+                        max_tool_rounds=2,
                         tool_choice="auto",
                         provider=None,
                         model=None
@@ -139,51 +139,118 @@ async def world_building_generator(
             final_prompt = base_prompt
             yield await SSEResponse.send_progress("正在调用AI生成...", 30)
         
-        # 流式生成世界观
-        accumulated_text = ""
-        chunk_count = 0
-        
-        async for chunk in user_ai_service.generate_text_stream(
-            prompt=final_prompt,
-            provider=provider,
-            model=model
-        ):
-            chunk_count += 1
-            accumulated_text += chunk
-            
-            # 发送内容块
-            yield await SSEResponse.send_chunk(chunk)
-            
-            # 定期更新进度
-            if chunk_count % 5 == 0:
-                progress = min(30 + (chunk_count // 5), 70)
-                yield await SSEResponse.send_progress(f"生成中... ({len(accumulated_text)}字符)", progress)
-            
-            # 每20个块发送心跳
-            if chunk_count % 20 == 0:
-                yield await SSEResponse.send_heartbeat()
-        
-        # 解析结果 - 使用统一的JSON清洗方法
-        yield await SSEResponse.send_progress("解析AI返回结果...", 80)
-        
+        # ===== 流式生成世界观（带重试机制） =====
+        MAX_WORLD_RETRIES = 3  # 最多重试3次
+        world_retry_count = 0
+        world_generation_success = False
         world_data = {}
-        try:
-            # ✅ 使用 AIService 的统一清洗方法
-            cleaned_text = user_ai_service._clean_json_response(accumulated_text)
-            world_data = json.loads(cleaned_text)
-            logger.info(f"✅ 世界观JSON解析成功")
+        
+        while world_retry_count < MAX_WORLD_RETRIES and not world_generation_success:
+            try:
+                retry_suffix = f" (重试{world_retry_count}/{MAX_WORLD_RETRIES})" if world_retry_count > 0 else ""
+                yield await SSEResponse.send_progress(f"生成世界观{retry_suffix}...", 30 + world_retry_count * 5)
+                
+                # 流式生成世界观
+                accumulated_text = ""
+                chunk_count = 0
+                
+                async for chunk in user_ai_service.generate_text_stream(
+                    prompt=final_prompt,
+                    provider=provider,
+                    model=model
+                ):
+                    chunk_count += 1
+                    accumulated_text += chunk
                     
-        except json.JSONDecodeError as e:
-            logger.error(f"❌ 世界构建JSON解析失败: {e}")
-            logger.error(f"   原始内容预览: {accumulated_text[:200]}")
-            world_data = {
-                "time_period": "AI返回格式错误，请重试",
-                "location": "AI返回格式错误，请重试",
-                "atmosphere": "AI返回格式错误，请重试",
-                "rules": "AI返回格式错误，请重试"
-            }
+                    # 发送内容块
+                    yield await SSEResponse.send_chunk(chunk)
+                    
+                    # 世界观生成独立进度：5-95%
+                    if chunk_count % 5 == 0:
+                        progress = min(5 + (chunk_count // 3), 95)
+                        yield await SSEResponse.send_progress(f"世界观生成中... ({len(accumulated_text)}字符)", progress)
+                    
+                    # 每20个块发送心跳
+                    if chunk_count % 20 == 0:
+                        yield await SSEResponse.send_heartbeat()
+                
+                # 检查是否返回空响应
+                if not accumulated_text or not accumulated_text.strip():
+                    logger.warning(f"⚠️ AI返回空世界观（尝试{world_retry_count+1}/{MAX_WORLD_RETRIES}）")
+                    world_retry_count += 1
+                    if world_retry_count < MAX_WORLD_RETRIES:
+                        yield await SSEResponse.send_progress(
+                            f"⚠️ AI返回为空，准备重试...",
+                            30 + world_retry_count * 5,
+                            "warning"
+                        )
+                        continue
+                    else:
+                        # 达到最大重试次数，使用默认值
+                        logger.error("❌ 世界观生成多次返回空响应")
+                        world_data = {
+                            "time_period": "AI多次返回为空，请稍后重试",
+                            "location": "AI多次返回为空，请稍后重试",
+                            "atmosphere": "AI多次返回为空，请稍后重试",
+                            "rules": "AI多次返回为空，请稍后重试"
+                        }
+                        world_generation_success = True  # 标记为成功以继续流程
+                        break
+                
+                # 解析结果 - 使用统一的JSON清洗方法
+                yield await SSEResponse.send_progress("解析世界观数据...", 96)
+                
+                try:
+                    logger.info(f"🔍 开始清洗JSON，原始长度: {len(accumulated_text)}")
+                    logger.info(f"   原始内容预览: {accumulated_text[:300]}...")
+                    
+                    # ✅ 使用 AIService 的统一清洗方法
+                    cleaned_text = user_ai_service._clean_json_response(accumulated_text)
+                    logger.info(f"✅ JSON清洗完成，清洗后长度: {len(cleaned_text)}")
+                    logger.info(f"   清洗后预览: {cleaned_text[:300]}...")
+                    
+                    world_data = json.loads(cleaned_text)
+                    logger.info(f"✅ 世界观JSON解析成功（尝试{world_retry_count+1}/{MAX_WORLD_RETRIES}）")
+                    world_generation_success = True  # 解析成功，标记完成
+                            
+                except json.JSONDecodeError as e:
+                    logger.error(f"❌ 世界构建JSON解析失败（尝试{world_retry_count+1}/{MAX_WORLD_RETRIES}）: {e}")
+                    logger.error(f"   原始内容长度: {len(accumulated_text)}")
+                    logger.error(f"   原始内容预览: {accumulated_text[:200]}")
+                    world_retry_count += 1
+                    if world_retry_count < MAX_WORLD_RETRIES:
+                        yield await SSEResponse.send_progress(
+                            f"⚠️ JSON解析失败，准备重试...",
+                            30 + world_retry_count * 5,
+                            "warning"
+                        )
+                        continue
+                    else:
+                        # 达到最大重试次数，使用默认值
+                        world_data = {
+                            "time_period": "AI返回格式错误，请重试",
+                            "location": "AI返回格式错误，请重试",
+                            "atmosphere": "AI返回格式错误，请重试",
+                            "rules": "AI返回格式错误，请重试"
+                        }
+                        world_generation_success = True  # 标记为成功以继续流程
+                        
+            except Exception as e:
+                logger.error(f"❌ 世界构建生成异常（尝试{world_retry_count+1}/{MAX_WORLD_RETRIES}）: {type(e).__name__}: {e}")
+                world_retry_count += 1
+                if world_retry_count < MAX_WORLD_RETRIES:
+                    yield await SSEResponse.send_progress(
+                        f"⚠️ 生成异常，准备重试...",
+                        30 + world_retry_count * 5,
+                        "warning"
+                    )
+                    continue
+                else:
+                    # 最后一次重试仍失败，抛出异常
+                    logger.error(f"   accumulated_text 长度: {len(accumulated_text) if 'accumulated_text' in locals() else 'N/A'}")
+                    raise
         # 保存到数据库
-        yield await SSEResponse.send_progress("保存到数据库...", 90)
+        yield await SSEResponse.send_progress("保存世界观到数据库...", 99)
         
         # 确保user_id存在
         if not user_id:
@@ -240,41 +307,81 @@ async def world_building_generator(
         project.wizard_step = 1
         await db.commit()
         
-        # ===== 自动生成职业体系 =====
-        yield await SSEResponse.send_progress("🎯 开始生成职业体系框架...", 75)
+        # ===== 自动生成职业体系（带重试机制+流式） =====
+        yield await SSEResponse.send_progress("世界观完成！", 100, "success")
+        yield await SSEResponse.send_progress("🎯 开始生成职业体系框架...", 5)
         logger.info(f"🎯 世界观已完成，开始为项目 {project.id} 自动生成职业体系")
         
-        try:
-            # 获取职业生成提示词模板（支持用户自定义）
-            template = await PromptService.get_template("CAREER_SYSTEM_GENERATION", user_id, db)
-            career_prompt = PromptService.format_prompt(
-                template,
-                title=project.title,
-                genre=genre or '未设定',
-                theme=theme or '未设定',
-                time_period=world_data.get('time_period', '未设定'),
-                location=world_data.get('location', '未设定'),
-                atmosphere=world_data.get('atmosphere', '未设定'),
-                rules=world_data.get('rules', '未设定')
-            )
-            
-            yield await SSEResponse.send_progress("正在生成职业体系...", 78)
-            
-            # 调用AI生成职业
-            result = await user_ai_service.generate_text(prompt=career_prompt)
-            career_response = result.get('content', '') if isinstance(result, dict) else result
-            
-            if not career_response or not career_response.strip():
-                logger.warning("⚠️ AI返回空职业体系，跳过职业生成")
-                yield await SSEResponse.send_progress("职业体系生成跳过（AI返回为空）", 85)
-            else:
-                yield await SSEResponse.send_progress("解析职业体系数据...", 82)
+        MAX_CAREER_RETRIES = 3  # 最多重试3次
+        career_retry_count = 0
+        career_generation_success = False
+        
+        while career_retry_count < MAX_CAREER_RETRIES and not career_generation_success:
+            try:
+                retry_suffix = f" (重试{career_retry_count}/{MAX_CAREER_RETRIES})" if career_retry_count > 0 else ""
+                yield await SSEResponse.send_progress(f"正在生成职业体系{retry_suffix}...", 10)
+                
+                # 获取职业生成提示词模板（支持用户自定义）
+                template = await PromptService.get_template("CAREER_SYSTEM_GENERATION", user_id, db)
+                career_prompt = PromptService.format_prompt(
+                    template,
+                    title=project.title,
+                    genre=genre or '未设定',
+                    theme=theme or '未设定',
+                    time_period=world_data.get('time_period', '未设定'),
+                    location=world_data.get('location', '未设定'),
+                    atmosphere=world_data.get('atmosphere', '未设定'),
+                    rules=world_data.get('rules', '未设定')
+                )
+                
+                # ✅ 使用流式生成职业体系
+                career_response = ""
+                chunk_count = 0
+                
+                async for chunk in user_ai_service.generate_text_stream(
+                    prompt=career_prompt,
+                    provider=provider,
+                    model=model
+                ):
+                    chunk_count += 1
+                    career_response += chunk
+                    
+                    # 发送内容块
+                    yield await SSEResponse.send_chunk(chunk)
+                    
+                    # 职业体系生成独立进度：10-95%
+                    if chunk_count % 5 == 0:
+                        progress = min(10 + (chunk_count // 3), 95)
+                        yield await SSEResponse.send_progress(
+                            f"生成职业体系中... ({len(career_response)}字符)",
+                            progress
+                        )
+                    
+                    # 每20个块发送心跳
+                    if chunk_count % 20 == 0:
+                        yield await SSEResponse.send_heartbeat()
+                
+                if not career_response or not career_response.strip():
+                    logger.warning(f"⚠️ AI返回空职业体系（尝试{career_retry_count+1}/{MAX_CAREER_RETRIES}）")
+                    career_retry_count += 1
+                    if career_retry_count < MAX_CAREER_RETRIES:
+                        yield await SSEResponse.send_progress(
+                            f"⚠️ AI返回为空，准备重试...",
+                            10,
+                            "warning"
+                        )
+                        continue
+                    else:
+                        yield await SSEResponse.send_progress("职业体系生成跳过（AI多次返回为空）", 99)
+                        break
+                
+                yield await SSEResponse.send_progress("解析职业体系数据...", 96)
                 
                 # 清洗并解析JSON
                 try:
                     cleaned_response = user_ai_service._clean_json_response(career_response)
                     career_data = json.loads(cleaned_response)
-                    logger.info(f"✅ 职业体系JSON解析成功")
+                    logger.info(f"✅ 职业体系JSON解析成功（尝试{career_retry_count+1}/{MAX_CAREER_RETRIES}）")
                     
                     # 保存主职业
                     main_careers_created = []
@@ -338,22 +445,51 @@ async def world_building_generator(
                     
                     await db.commit()
                     
+                    # 标记成功
+                    career_generation_success = True
                     logger.info(f"🎉 职业体系生成完成：主职业{len(main_careers_created)}个，副职业{len(sub_careers_created)}个")
                     yield await SSEResponse.send_progress(
                         f"✅ 职业体系生成完成（主{len(main_careers_created)}+副{len(sub_careers_created)}）",
-                        90
+                        99
                     )
                     
                 except json.JSONDecodeError as e:
-                    logger.error(f"❌ 职业体系JSON解析失败: {e}")
-                    yield await SSEResponse.send_progress("⚠️ 职业体系解析失败，已跳过", 85)
+                    logger.error(f"❌ 职业体系JSON解析失败（尝试{career_retry_count+1}/{MAX_CAREER_RETRIES}）: {e}")
+                    career_retry_count += 1
+                    if career_retry_count < MAX_CAREER_RETRIES:
+                        yield await SSEResponse.send_progress(
+                            f"⚠️ JSON解析失败，准备重试...",
+                            10,
+                            "warning"
+                        )
+                        continue
+                    else:
+                        yield await SSEResponse.send_progress("⚠️ 职业体系解析失败（已达最大重试次数），已跳过", 99)
                 except Exception as e:
-                    logger.error(f"❌ 职业体系保存失败: {e}")
-                    yield await SSEResponse.send_progress("⚠️ 职业体系保存失败，已跳过", 85)
-        
-        except Exception as e:
-            logger.error(f"❌ 职业体系生成异常: {e}")
-            yield await SSEResponse.send_progress("⚠️ 职业体系生成失败，已跳过（不影响项目创建）", 85)
+                    logger.error(f"❌ 职业体系保存失败（尝试{career_retry_count+1}/{MAX_CAREER_RETRIES}）: {e}")
+                    career_retry_count += 1
+                    if career_retry_count < MAX_CAREER_RETRIES:
+                        yield await SSEResponse.send_progress(
+                            f"⚠️ 保存失败，准备重试...",
+                            10,
+                            "warning"
+                        )
+                        continue
+                    else:
+                        yield await SSEResponse.send_progress("⚠️ 职业体系保存失败（已达最大重试次数），已跳过", 99)
+            
+            except Exception as e:
+                logger.error(f"❌ 职业体系生成异常（尝试{career_retry_count+1}/{MAX_CAREER_RETRIES}）: {e}")
+                career_retry_count += 1
+                if career_retry_count < MAX_CAREER_RETRIES:
+                    yield await SSEResponse.send_progress(
+                        f"⚠️ 生成异常，准备重试...",
+                        10,
+                        "warning"
+                    )
+                    continue
+                else:
+                    yield await SSEResponse.send_progress("⚠️ 职业体系生成失败（已达最大重试次数），已跳过（不影响项目创建）", 99)
         
         db_committed = True
         
@@ -366,7 +502,8 @@ async def world_building_generator(
             "rules": world_data.get("rules")
         })
         
-        yield await SSEResponse.send_progress("完成!", 100, "success")
+        yield await SSEResponse.send_progress("职业体系完成！", 100, "success")
+        yield await SSEResponse.send_progress("🎉 所有步骤已完成！", 100, "success")
         yield await SSEResponse.send_done()
         
     except GeneratorExit:
@@ -473,7 +610,7 @@ async def characters_generator(
                         user_id=user_id,
                         db_session=db,
                         enable_mcp=True,
-                        max_tool_rounds=1,  # ✅ 优化: 从2轮减少到1轮
+                        max_tool_rounds=2,  # ✅ 优化: 从2轮减少到1轮
                         tool_choice="auto",
                         provider=None,
                         model=None
@@ -611,15 +748,32 @@ async def characters_generator(
                     else:
                         prompt = base_prompt
                     
-                    # 流式生成
+                    # 流式生成（带字数统计）
                     accumulated_text = ""
+                    chunk_count = 0
+                    
                     async for chunk in user_ai_service.generate_text_stream(
                         prompt=prompt,
                         provider=provider,
                         model=model
                     ):
+                        chunk_count += 1
                         accumulated_text += chunk
+                        
+                        # 发送内容块
                         yield await SSEResponse.send_chunk(chunk)
+                        
+                        # 定期更新进度和字数
+                        if chunk_count % 5 == 0:
+                            progress = min(batch_progress + 5 + (chunk_count // 10), batch_progress + 15)
+                            yield await SSEResponse.send_progress(
+                                f"生成角色中... ({len(accumulated_text)}字符)",
+                                progress
+                            )
+                        
+                        # 每20个块发送心跳
+                        if chunk_count % 20 == 0:
+                            yield await SSEResponse.send_heartbeat()
                     
                     # 解析批次结果 - 使用统一的JSON清洗方法
                     cleaned_text = user_ai_service._clean_json_response(accumulated_text)
@@ -1184,18 +1338,35 @@ async def outline_generator(
             requirements=outline_requirements
         )
         
-        # 流式生成大纲
+        # 流式生成大纲（带字数统计）
         accumulated_text = ""
+        chunk_count = 0
+        
         async for chunk in user_ai_service.generate_text_stream(
             prompt=outline_prompt,
             provider=provider,
             model=model
         ):
+            chunk_count += 1
             accumulated_text += chunk
+            
+            # 发送内容块
             yield await SSEResponse.send_chunk(chunk)
+            
+            # 定期更新进度和字数（5-95%，AI生成占90%）
+            if chunk_count % 5 == 0:
+                progress = min(5 + (chunk_count // 3), 95)
+                yield await SSEResponse.send_progress(
+                    f"生成大纲中... ({len(accumulated_text)}字符)",
+                    progress
+                )
+            
+            # 每20个块发送心跳
+            if chunk_count % 20 == 0:
+                yield await SSEResponse.send_heartbeat()
         
         # 解析大纲结果 - 使用统一的JSON清洗方法
-        yield await SSEResponse.send_progress("解析大纲...", 40)
+        yield await SSEResponse.send_progress("解析大纲...", 96)
         
         try:
             cleaned_text = user_ai_service._clean_json_response(accumulated_text)
@@ -1208,7 +1379,7 @@ async def outline_generator(
             return
         
         # 保存大纲到数据库
-        yield await SSEResponse.send_progress("保存大纲到数据库...", 45)
+        yield await SSEResponse.send_progress("保存大纲到数据库...", 97)
         created_outlines = []
         for index, outline_item in enumerate(outline_data[:outline_count], 1):
             outline = Outline(
@@ -1231,7 +1402,7 @@ async def outline_generator(
         created_chapters = []
         if project.outline_mode == 'one-to-one':
             # 一对一模式：自动为每个大纲创建对应的章节
-            yield await SSEResponse.send_progress("一对一模式：自动创建章节...", 50)
+            yield await SSEResponse.send_progress("一对一模式：自动创建章节...", 98)
             
             for outline in created_outlines:
                 chapter = Chapter(
@@ -1250,10 +1421,10 @@ async def outline_generator(
                 await db.refresh(chapter)
             
             logger.info(f"✅ 一对一模式：自动创建了{len(created_chapters)}个章节")
-            yield await SSEResponse.send_progress(f"已自动创建{len(created_chapters)}个章节", 85)
+            yield await SSEResponse.send_progress(f"已自动创建{len(created_chapters)}个章节", 99)
         else:
             # 一对多模式：跳过自动创建，用户可手动展开
-            yield await SSEResponse.send_progress("细化模式：跳过自动创建章节", 85)
+            yield await SSEResponse.send_progress("细化模式：跳过自动创建章节", 99)
             logger.info(f"📝 细化模式：跳过章节创建，用户可在大纲页面手动展开")
         
         # 更新项目信息
@@ -1396,7 +1567,7 @@ async def world_building_regenerate_generator(
                         user_id=user_id,
                         db_session=db,
                         enable_mcp=True,
-                        max_tool_rounds=1,
+                        max_tool_rounds=2,
                         tool_choice="auto",
                         provider=None,
                         model=None
@@ -1433,44 +1604,109 @@ async def world_building_regenerate_generator(
             final_prompt = base_prompt
             yield await SSEResponse.send_progress("正在调用AI生成...", 30)
         
-        # 流式生成世界观
-        accumulated_text = ""
-        chunk_count = 0
-        
-        async for chunk in user_ai_service.generate_text_stream(
-            prompt=final_prompt,
-            provider=provider,
-            model=model
-        ):
-            chunk_count += 1
-            accumulated_text += chunk
-            
-            yield await SSEResponse.send_chunk(chunk)
-            
-            if chunk_count % 5 == 0:
-                progress = min(30 + (chunk_count // 5), 70)
-                yield await SSEResponse.send_progress(f"生成中... ({len(accumulated_text)}字符)", progress)
-            
-            if chunk_count % 20 == 0:
-                yield await SSEResponse.send_heartbeat()
-        
-        # 解析结果 - 使用统一的JSON清洗方法
-        yield await SSEResponse.send_progress("解析AI返回结果...", 80)
-        
+        # ===== 流式生成世界观（带重试机制） =====
+        MAX_WORLD_RETRIES = 3  # 最多重试3次
+        world_retry_count = 0
+        world_generation_success = False
         world_data = {}
-        try:
-            cleaned_text = user_ai_service._clean_json_response(accumulated_text)
-            world_data = json.loads(cleaned_text)
-            logger.info(f"✅ 世界观重新生成JSON解析成功")
+        
+        while world_retry_count < MAX_WORLD_RETRIES and not world_generation_success:
+            try:
+                retry_suffix = f" (重试{world_retry_count}/{MAX_WORLD_RETRIES})" if world_retry_count > 0 else ""
+                yield await SSEResponse.send_progress(f"重新生成世界观{retry_suffix}...", 30 + world_retry_count * 5)
+                
+                # 流式生成世界观
+                accumulated_text = ""
+                chunk_count = 0
+                
+                async for chunk in user_ai_service.generate_text_stream(
+                    prompt=final_prompt,
+                    provider=provider,
+                    model=model
+                ):
+                    chunk_count += 1
+                    accumulated_text += chunk
                     
-        except json.JSONDecodeError as e:
-            logger.error(f"世界构建JSON解析失败: {e}")
-            world_data = {
-                "time_period": "AI返回格式错误，请重试",
-                "location": "AI返回格式错误，请重试",
-                "atmosphere": "AI返回格式错误，请重试",
-                "rules": "AI返回格式错误，请重试"
-            }
+                    yield await SSEResponse.send_chunk(chunk)
+                    
+                    if chunk_count % 5 == 0:
+                        progress = min(30 + (chunk_count // 5), 85)
+                        yield await SSEResponse.send_progress(f"生成中... ({len(accumulated_text)}字符)", progress)
+                    
+                    if chunk_count % 20 == 0:
+                        yield await SSEResponse.send_heartbeat()
+                
+                # 检查是否返回空响应
+                if not accumulated_text or not accumulated_text.strip():
+                    logger.warning(f"⚠️ AI返回空世界观（尝试{world_retry_count+1}/{MAX_WORLD_RETRIES}）")
+                    world_retry_count += 1
+                    if world_retry_count < MAX_WORLD_RETRIES:
+                        yield await SSEResponse.send_progress(
+                            f"⚠️ AI返回为空，准备重试...",
+                            30 + world_retry_count * 5,
+                            "warning"
+                        )
+                        continue
+                    else:
+                        # 达到最大重试次数，使用默认值
+                        logger.error("❌ 世界观重新生成多次返回空响应")
+                        world_data = {
+                            "time_period": "AI多次返回为空，请稍后重试",
+                            "location": "AI多次返回为空，请稍后重试",
+                            "atmosphere": "AI多次返回为空，请稍后重试",
+                            "rules": "AI多次返回为空，请稍后重试"
+                        }
+                        world_generation_success = True
+                        break
+                
+                # 解析结果 - 使用统一的JSON清洗方法
+                yield await SSEResponse.send_progress("解析AI返回结果...", 80)
+                
+                try:
+                    logger.info(f"🔍 开始清洗JSON，原始长度: {len(accumulated_text)}")
+                    cleaned_text = user_ai_service._clean_json_response(accumulated_text)
+                    logger.info(f"✅ JSON清洗完成，清洗后长度: {len(cleaned_text)}")
+                    
+                    world_data = json.loads(cleaned_text)
+                    logger.info(f"✅ 世界观重新生成JSON解析成功（尝试{world_retry_count+1}/{MAX_WORLD_RETRIES}）")
+                    world_generation_success = True
+                            
+                except json.JSONDecodeError as e:
+                    logger.error(f"❌ 世界构建JSON解析失败（尝试{world_retry_count+1}/{MAX_WORLD_RETRIES}）: {e}")
+                    logger.error(f"   原始内容长度: {len(accumulated_text)}")
+                    logger.error(f"   原始内容预览: {accumulated_text[:200]}")
+                    world_retry_count += 1
+                    if world_retry_count < MAX_WORLD_RETRIES:
+                        yield await SSEResponse.send_progress(
+                            f"⚠️ JSON解析失败，准备重试...",
+                            30 + world_retry_count * 5,
+                            "warning"
+                        )
+                        continue
+                    else:
+                        # 达到最大重试次数，使用默认值
+                        world_data = {
+                            "time_period": "AI返回格式错误，请重试",
+                            "location": "AI返回格式错误，请重试",
+                            "atmosphere": "AI返回格式错误，请重试",
+                            "rules": "AI返回格式错误，请重试"
+                        }
+                        world_generation_success = True
+                        
+            except Exception as e:
+                logger.error(f"❌ 世界观重新生成异常（尝试{world_retry_count+1}/{MAX_WORLD_RETRIES}）: {type(e).__name__}: {e}")
+                world_retry_count += 1
+                if world_retry_count < MAX_WORLD_RETRIES:
+                    yield await SSEResponse.send_progress(
+                        f"⚠️ 生成异常，准备重试...",
+                        30 + world_retry_count * 5,
+                        "warning"
+                    )
+                    continue
+                else:
+                    # 最后一次重试仍失败，抛出异常
+                    logger.error(f"   accumulated_text 长度: {len(accumulated_text) if 'accumulated_text' in locals() else 'N/A'}")
+                    raise
         
         # 不保存到数据库，仅返回生成结果供用户预览
         yield await SSEResponse.send_progress("生成完成，等待用户确认...", 90)

@@ -190,7 +190,8 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       },
       {
         onProgress: (msg, prog) => {
-          setProgress(Math.floor(prog / 3));
+          // 直接使用后端返回的进度值
+          setProgress(prog);
           setProgressMessage(msg);
         },
         onResult: (result) => {
@@ -236,7 +237,8 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       },
       {
         onProgress: (msg, prog) => {
-          setProgress(33 + Math.floor(prog / 3));
+          // 直接使用后端返回的进度值
+          setProgress(prog);
           setProgressMessage(msg);
         },
         onResult: (result) => {
@@ -273,7 +275,8 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       },
       {
         onProgress: (msg, prog) => {
-          setProgress(66 + Math.floor(prog / 3));
+          // 直接使用后端返回的进度值
+          setProgress(prog);
           setProgressMessage(msg);
         },
         onResult: () => {
@@ -336,15 +339,13 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
         },
         {
           onProgress: (msg, prog) => {
-            // 世界观生成占0%-20%，职业生成占20%-30%
-            const baseProgress = Math.floor(prog / 5);
-            setProgress(baseProgress);
+            // 直接使用后端返回的进度值
+            setProgress(prog);
             setProgressMessage(msg);
 
-            // 检测职业体系生成阶段 - 必须包含"职业体系"才算职业阶段
+            // 检测职业体系生成阶段
             if (msg.includes('职业体系')) {
               if (msg.includes('开始') || msg.includes('生成')) {
-                // 职业开始时，世界观应该已完成
                 setGenerationSteps(prev => ({
                   ...prev,
                   worldBuilding: 'completed',
@@ -403,8 +404,8 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
         },
         {
           onProgress: (msg, prog) => {
-            // 角色生成占40%-70%
-            setProgress(40 + Math.floor(prog * 0.3));
+            // 直接使用后端返回的进度值
+            setProgress(prog);
             setProgressMessage(msg);
           },
           onResult: (result) => {
@@ -437,8 +438,8 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
         },
         {
           onProgress: (msg, prog) => {
-            // 大纲生成占70%-100%
-            setProgress(70 + Math.floor(prog * 0.3));
+            // 直接使用后端返回的进度值
+            setProgress(prog);
             setProgressMessage(msg);
           },
           onResult: () => {
@@ -533,8 +534,8 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       },
       {
         onProgress: (msg, prog) => {
-          const baseProgress = Math.floor(prog / 5);
-          setProgress(baseProgress);
+          // 直接使用后端返回的进度值
+          setProgress(prog);
           setProgressMessage(msg);
 
           // 检测职业体系生成阶段
@@ -604,7 +605,8 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       },
       {
         onProgress: (msg, prog) => {
-          setProgress(33 + Math.floor(prog / 3));
+          // 直接使用后端返回的进度值
+          setProgress(prog);
           setProgressMessage(msg);
         },
         onResult: (result) => {
@@ -647,7 +649,8 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       },
       {
         onProgress: (msg, prog) => {
-          setProgress(66 + Math.floor(prog / 3));
+          // 直接使用后端返回的进度值
+          setProgress(prog);
           setProgressMessage(msg);
         },
         onResult: () => {
@@ -707,7 +710,8 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       },
       {
         onProgress: (msg, prog) => {
-          setProgress(33 + Math.floor(prog / 3));
+          // 直接使用后端返回的进度值
+          setProgress(prog);
           setProgressMessage(msg);
         },
         onResult: (result) => {
@@ -746,7 +750,8 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       },
       {
         onProgress: (msg, prog) => {
-          setProgress(66 + Math.floor(prog / 3));
+          // 直接使用后端返回的进度值
+          setProgress(prog);
           setProgressMessage(msg);
         },
         onResult: () => {

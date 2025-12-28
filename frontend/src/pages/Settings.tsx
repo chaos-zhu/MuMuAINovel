@@ -150,10 +150,9 @@ export default function SettingsPage() {
   };
 
   const apiProviders = [
-    { value: 'openai', label: 'OpenAl Compatible', defaultUrl: 'https://api.openai.com/v1' },
-    // { value: 'azure', label: 'Azure OpenAI', defaultUrl: 'https://YOUR-RESOURCE.openai.azure.com' },
-    // { value: 'anthropic', label: 'Anthropic', defaultUrl: 'https://api.anthropic.com' },
-    // { value: 'custom', label: '自定义', defaultUrl: '' },
+    { value: 'openai', label: 'OpenAI Compatible', defaultUrl: 'https://api.openai.com/v1' },
+    // { value: 'anthropic', label: 'Anthropic (Claude)', defaultUrl: 'https://api.anthropic.com' },
+    { value: 'gemini', label: 'Google Gemini', defaultUrl: 'https://generativelanguage.googleapis.com/v1beta' },
   ];
 
   const handleProviderChange = (value: string) => {
@@ -483,8 +482,8 @@ export default function SettingsPage() {
     switch (provider) {
       case 'openai':
         return 'blue';
-      case 'anthropic':
-        return 'purple';
+      // case 'anthropic':
+      //   return 'purple';
       case 'gemini':
         return 'green';
       default:
@@ -973,6 +972,26 @@ export default function SettingsPage() {
                             />
                           </Form.Item>
 
+                          <Form.Item
+                            label={
+                              <Space size={4}>
+                                <span>系统提示词</span>
+                                <Tooltip title="设置全局系统提示词，每次AI调用时都会自动使用。可用于设定AI的角色、语言风格等">
+                                  <InfoCircleOutlined style={{ color: 'var(--color-text-secondary)', fontSize: isMobile ? '12px' : '14px' }} />
+                                </Tooltip>
+                              </Space>
+                            }
+                            name="system_prompt"
+                          >
+                            <TextArea
+                              rows={4}
+                              placeholder="例如：你是一个专业的小说创作助手，请用生动、细腻的文字进行创作..."
+                              maxLength={10000}
+                              showCount
+                              style={{ fontSize: isMobile ? '13px' : '14px' }}
+                            />
+                          </Form.Item>
+
                           {/* 测试结果展示 */}
                           {showTestResult && testResult && (
                             <Alert
@@ -1247,7 +1266,7 @@ export default function SettingsPage() {
             >
               <Select>
                 <Select.Option value="openai">OpenAI</Select.Option>
-                <Select.Option value="anthropic">Anthropic (Claude)</Select.Option>
+                {/* <Select.Option value="anthropic">Anthropic (Claude)</Select.Option> */}
                 <Select.Option value="gemini">Google Gemini</Select.Option>
               </Select>
             </Form.Item>
@@ -1296,6 +1315,18 @@ export default function SettingsPage() {
                 max={100000}
                 style={{ width: '100%' }}
                 placeholder="2000"
+              />
+            </Form.Item>
+
+            <Form.Item
+              name="system_prompt"
+              label="系统提示词"
+            >
+              <TextArea
+                rows={3}
+                placeholder="例如：你是一个专业的小说创作助手...（可选）"
+                maxLength={10000}
+                showCount
               />
             </Form.Item>
           </Form>

@@ -386,17 +386,30 @@ class MCPToolService:
         
         try:
             # 解析插件名和工具名
+            logger.debug(f"🔍 解析工具名称: {function_name}")
             if "_" in function_name:
                 plugin_name, tool_name = function_name.split("_", 1)
+                logger.debug(f"  插件: {plugin_name}, 工具: {tool_name}")
             else:
                 raise ValueError(f"无效的工具名称格式: {function_name}")
             
             # 解析参数
             arguments_str = tool_call["function"]["arguments"]
+            logger.debug(f"🔍 解析参数:")
+            logger.debug(f"  原始类型: {type(arguments_str)}")
+            logger.debug(f"  原始内容: {arguments_str}")
+            
             if isinstance(arguments_str, str):
-                arguments = json.loads(arguments_str)
+                try:
+                    arguments = json.loads(arguments_str)
+                    logger.debug(f"  ✅ JSON解析成功: {arguments}")
+                except json.JSONDecodeError as je:
+                    logger.error(f"  ❌ JSON解析失败: {je}")
+                    logger.error(f"  原始字符串: '{arguments_str}'")
+                    raise ValueError(f"参数JSON解析失败: {je}")
             else:
                 arguments = arguments_str
+                logger.debug(f"  直接使用dict类型参数")
             
             logger.info(
                 f"执行工具: {plugin_name}.{tool_name}, "

@@ -73,14 +73,15 @@ async def get_user_ai_service(
         await db.refresh(settings)
         logger.info(f"用户 {user.user_id} 首次使用AI服务，已从.env同步设置到数据库")
     
-    # 使用用户设置创建AI服务实例
+    # 使用用户设置创建AI服务实例（包括系统提示词）
     return create_user_ai_service(
         api_provider=settings.api_provider,
         api_key=settings.api_key,
         api_base_url=settings.api_base_url or "",
         model_name=settings.llm_model,
         temperature=settings.temperature,
-        max_tokens=settings.max_tokens
+        max_tokens=settings.max_tokens,
+        system_prompt=settings.system_prompt  # 传递系统提示词
     )
 
 
@@ -271,17 +272,30 @@ async def get_available_models(
                 }
                 
             elif provider == "anthropic":
-                # Anthropic 没有公开的模型列表API
-                raise HTTPException(
-                    status_code=400,
-                    detail="Anthropic 不支持自动获取模型列表，请手动输入模型名称"
-                )
+                # Anthropic models API
+                url = f"{api_base_url.rstrip('/')}/v1/models"
+                headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01"}
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+                data = response.json()
+                models = [{"value": m["id"], "label": m["id"], "description": m.get("display_name", "")} for m in data.get("data", [])]
+                return {"provider": provider, "models": models, "count": len(models)}
+            
+            elif provider == "gemini":
+                # Gemini models API
+                url = f"{api_base_url.rstrip('/')}/models?key={api_key}"
+                response = await client.get(url)
+                response.raise_for_status()
+                data = response.json()
+                models = []
+                for m in data.get("models", []):
+                    if "generateContent" in m.get("supportedGenerationMethods", []):
+                        mid = m.get("name", "").replace("models/", "")
+                        models.append({"value": mid, "label": m.get("displayName", mid), "description": ""})
+                return {"provider": provider, "models": models, "count": len(models)}
             
             else:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"不支持的提供商: {provider}"
-                )
+                raise HTTPException(status_code=400, detail=f"不支持的提供商: {provider}")
             
     except httpx.HTTPStatusError as e:
         logger.error(f"获取模型列表失败 (HTTP {e.response.status_code}): {e.response.text}")

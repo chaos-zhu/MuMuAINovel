@@ -557,6 +557,24 @@ export const inspirationApi = {
       error?: string;
     }>('/inspiration/generate-options', data),
 
+  // 基于用户反馈重新生成选项（新增）
+  refineOptions: (data: {
+    step: 'title' | 'description' | 'theme' | 'genre';
+    context: {
+      initial_idea?: string;
+      title?: string;
+      description?: string;
+      theme?: string;
+    };
+    feedback: string;
+    previous_options?: string[];
+  }) =>
+    api.post<unknown, {
+      prompt?: string;
+      options: string[];
+      error?: string;
+    }>('/inspiration/refine-options', data),
+
   // 智能补全缺失信息
   quickGenerate: (data: {
     title?: string;

@@ -263,7 +263,7 @@ class AutoCharacterService:
                     user_id=user_id,
                     db_session=db,
                     enable_mcp=True,
-                    max_tool_rounds=1
+                    max_tool_rounds=2
                 )
                 content = result.get("content", "")
                 # 使用统一的JSON清洗方法
@@ -362,7 +362,7 @@ class AutoCharacterService:
                     user_id=user_id,
                     db_session=db,
                     enable_mcp=True,
-                    max_tool_rounds=1
+                    max_tool_rounds=2
                 )
                 content = result.get("content", "")
                 # 使用统一的JSON清洗方法

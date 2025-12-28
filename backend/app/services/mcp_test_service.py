@@ -175,20 +175,34 @@ class MCPTestService:
                 db=db_session
             )
             
-            ai_response = await ai_service.generate_text(
+            # 注意: generate_text_stream 返回的是异步生成器，但在 tool_choice="required" 模式下
+            # AI服务会直接返回包含 tool_calls 的完整响应，而不是流式chunks
+            # 因此这里需要特殊处理
+            accumulated_text = ""
+            tool_calls = None
+            
+            async for chunk in ai_service.generate_text_stream(
                 prompt=prompts["user"],
                 system_prompt=prompts["system"],
                 tools=openai_tools,
                 tool_choice="required"
-            )
+            ):
+                # 在 function calling 模式下，chunk 可能是字典格式包含 tool_calls
+                if isinstance(chunk, dict):
+                    if "tool_calls" in chunk:
+                        tool_calls = chunk["tool_calls"]
+                    if "content" in chunk:
+                        accumulated_text += chunk.get("content", "")
+                else:
+                    accumulated_text += chunk
             
             # 5. 检查AI是否返回工具调用
-            if not ai_response.get("tool_calls"):
+            if not tool_calls:
                 logger.error(f"❌ AI未返回工具调用")
                 return MCPTestResult(
                     success=False,
                     message="❌ AI Function Calling失败",
-                    error=f"AI未返回工具调用请求。响应: {ai_response.get('content', 'N/A')[:200]}",
+                    error=f"AI未返回工具调用请求。响应: {accumulated_text[:200] if accumulated_text else 'N/A'}",
                     tools_count=len(tools),
                     suggestions=[
                         "请确认使用的AI模型支持Function Calling",
@@ -198,7 +212,7 @@ class MCPTestService:
                 )
             
             # 6. 解析工具调用
-            tool_call = ai_response["tool_calls"][0]
+            tool_call = tool_calls[0]
             function = tool_call["function"]
             tool_name = function["name"]
             test_arguments = function["arguments"]

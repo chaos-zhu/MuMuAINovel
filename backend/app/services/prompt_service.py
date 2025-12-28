@@ -6,142 +6,6 @@ import json
 class WritingStyleManager:
     """写作风格管理器"""
     
-    # 预设风格配置
-    PRESET_STYLES = {
-        "natural": {
-            "name": "自然沉浸 (Natural & Immersive)",
-            "description": "祛除翻译腔，强调生活质感，像呼吸一样自然的叙事",
-            "prompt_content": """
-### 核心指令：自然沉浸风格
-请模拟人类作家在放松状态下的写作，通过以下规则消除“AI味”：
-
-1.  **拒绝翻译腔与书面化**：
-    -   严禁使用“一种...的感觉”、“随着...”、“与此同时”等连接词。
-    -   多用短句和“流水句”，模拟人类视线的移动和思维的跳跃。
-    -   口语化叙述，但不要滥用语气词，而是通过句子的长短节奏来体现语气。
-
-2.  **生活化的颗粒度**：
-    -   描写不要宏大，要聚焦在具体的、微小的生活细节（如：杯子上的水渍、衣服的褶皱）。
-    -   允许逻辑上的适度“松散”，不要让每句话都像说明书一样严丝合缝。
-
-3.  **具体的“展示”**：
-    -   不要写“他很生气”，要写他“把烟头按灭在还没吃完的米饭里”。
-    -   避免使用抽象的形容词（如：巨大的、美丽的、悲伤的），必须用名词和动词来承载画面。
-"""
-        },
-        "classical": {
-            "name": "古典雅致 (Classical & Elegant)",
-            "description": "白话文与古典韵味的结合，强调留白与炼字",
-            "prompt_content": """
-### 核心指令：古典雅致风格
-请模仿民国时期或古典白话小说的笔触，构建端庄且富有余味的叙事：
-
-1.  **炼字与韵律**：
-    -   尽量使用双音节词或四字短语，但严禁堆砌辞藻。
-    -   注重句子的声调韵律，读起来要有金石之声或流水之韵。
-    -   适当使用倒装句或定语后置，增加古雅感。
-
-2.  **克制的修辞**：
-    -   少用现代的比喻（如“像机器一样”），多用取自自然的比喻（如“如风过林”）。
-    -   **意在言外**：不要把话说透，留三分余地。写景即是写情，不要将情感直接剖白。
-
-3.  **禁忌**：
-    -   严禁使用现代科技词汇（除非题材需要）、网络用语或过于西化的句式（如长定语从句）。
-    -   避免滥用“之乎者也”，追求的是“神似”而非生硬的半文半白。
-"""
-        },
-        "modern": {
-            "name": "冷硬现代 (Modern & Hard-boiled)",
-            "description": "海明威式的冰山理论，节奏极快，零度情感",
-            "prompt_content": """
-### 核心指令：冷硬现代风格
-请采用“极简主义”和“零度写作”手法，去除所有矫饰：
-
-1.  **冰山理论**：
-    -   **只写动作和对话，完全剔除心理描写和形容词堆砌。**
-    -   不要告诉读者角色感觉如何，通过角色的反应和环境的冷峻反馈来体现。
-
-2.  **电影蒙太奇节奏**：
-    -   句子要短、脆、硬。像手术刀一样切开场景。
-    -   段落之间快速切换，不要用过渡句连接，直接跳切。
-
-3.  **高信息密度**：
-    -   删除所有废话。如果一个词删掉不影响理解，就删掉它。
-    -   多用名词和强动词（Strong Verbs），少用副词（Adverbs）。例如：不要写“他重重地关上门”，写“他摔上了门”。
-"""
-        },
-        "poetic": {
-            "name": "意识流 (Stream of Consciousness)",
-            "description": "注重感官通感与内心独白，打破现实与幻想的边界",
-            "prompt_content": """
-### 核心指令：意识流/诗意风格
-请侧重于主观感受的流动，而非客观事实的记录：
-
-1.  **通感与陌生化**：
-    -   打通五感（如：听到了颜色的声音，闻到了悲伤的气味）。
-    -   使用“陌生化”的语言，把熟悉的事物写得陌生，迫使读者重新审视。
-
-2.  **情绪的具象化**：
-    -   **绝对禁止**直接出现“开心”、“痛苦”等抽象词汇。
-    -   必须寻找“客观对应物”（Objective Correlative），将情绪投射到具体的景物上（如：生锈的铁轨、发霉的橘子）。
-
-3.  **流动的句式**：
-    -   句子可以很长，包含多重意象的叠加。
-    -   允许思维的非线性跳跃，模拟梦境或深层潜意识的逻辑。
-"""
-        },
-        "concise": {
-            "name": "白描速写 (Sketch & Concise)",
-            "description": "只有骨架的叙事，强调绝对的精准和功能性",
-            "prompt_content": """
-### 核心指令：白描速写风格
-请像速写画家一样，只勾勒线条，不涂抹色彩：
-
-1.  **功能性第一**：
-    -   每一句话必须推动情节，或者揭示关键信息。
-    -   如果一句话只是为了渲染气氛，删掉它。
-
-2.  **主谓宾结构**：
-    -   尽量使用简单的主谓宾结构，减少修饰语。
-    -   避免复杂的从句和嵌套结构。
-
-3.  **直击核心**：
-    -   对话直接进入主题，去除寒暄和废话。
-    -   环境描写仅限于对情节有物理影响的物体（如：挡路的石头、藏在桌下的枪）。
-"""
-        },
-        "vivid": {
-            "name": "感官特写 (Sensory & Vivid)",
-            "description": "高分辨率的描写，强调材质、光影和微观细节",
-            "prompt_content": """
-### 核心指令：感官特写风格
-请将镜头推到特写级别（Macro Lens），捕捉常人忽略的细节：
-
-1.  **反套路细节**：
-    -   不要写大众化的细节（如：蓝天白云），要写具有**独特性**的细节（如：云层边缘那抹像淤青一样的灰紫色）。
-    -   关注物体的**质感（Texture）**：粗糙的、粘稠的、冰凉的、颗粒感的。
-
-2.  **动态捕捉**：
-    -   不要写静止的画面，要写光影的流变、灰尘的飞舞、肌肉的抽动。
-    -   让读者产生生理性的反应（如：痛感、饥饿感、窒息感）。
-
-3.  **禁用词汇**：
-    -   禁止使用“映入眼帘”、“宛如画卷”等陈词滥调。
-    -   必须用具体的动词带动感官描写。
-"""
-        }
-    }
-    
-    @classmethod
-    def get_preset_style(cls, preset_id: str) -> Optional[Dict[str, str]]:
-        """获取预设风格配置"""
-        return cls.PRESET_STYLES.get(preset_id)
-    
-    @classmethod
-    def get_all_presets(cls) -> Dict[str, Dict[str, str]]:
-        """获取所有预设风格"""
-        return cls.PRESET_STYLES
-    
     @staticmethod
     def apply_style_to_prompt(base_prompt: str, style_content: str) -> str:
         """
@@ -692,9 +556,8 @@ class PromptService:
 
 6. **承上启下**：
    - 开头自然衔接上一章结尾（但不重复上一章内容）
-   - 结尾为下一章做好铺垫
 
-6. **记忆系统使用指南**：
+7. **记忆系统使用指南**：
    - **最近章节记忆**：保持情节连贯，注意角色状态和剧情发展
    - **语义相关记忆**：参考相似情节的处理方式
    - **未完结伏笔**：适当时机可以回收伏笔，制造呼应效果
@@ -1308,16 +1171,15 @@ class PromptService:
 - 如果参数名是 snake_case（如 next_thought），就使用 snake_case
 - 保持与 schema 中定义的完全一致，包括大小写和命名风格"""
     
-    # 灵感模式提示词字典
-    INSPIRATION_PROMPTS = {
-        "title": {
-            "system": """你是一位专业的小说创作顾问。
+    # 灵感模式 - 书名生成（系统提示词）
+    INSPIRATION_TITLE_SYSTEM = """你是一位专业的小说创作顾问。
 用户的原始想法：{initial_idea}
 
 请根据用户的想法，生成6个吸引人的书名建议，要求：
 1. 紧扣用户的原始想法和核心故事构思
 2. 富有创意和吸引力
 3. 涵盖不同的风格倾向
+4. 书名中不要带有"《》"符号
 
 返回JSON格式：
 {{
@@ -1325,11 +1187,13 @@ class PromptService:
     "options": ["书名1", "书名2", "书名3", "书名4", "书名5", "书名6"]
 }}
 
-只返回纯JSON，不要有其他文字。""",
-            "user": "用户的想法：{initial_idea}\n请生成6个书名建议"
-        },
-        "description": {
-            "system": """你是一位专业的小说创作顾问。
+只返回纯JSON，不要有其他文字。"""
+
+    # 灵感模式 - 书名生成（用户提示词）
+    INSPIRATION_TITLE_USER = "用户的想法：{initial_idea}\n请生成6个书名建议"
+
+    # 灵感模式 - 简介生成（系统提示词）
+    INSPIRATION_DESCRIPTION_SYSTEM = """你是一位专业的小说创作顾问。
 用户的原始想法：{initial_idea}
 已确定的书名：{title}
 
@@ -1343,11 +1207,13 @@ class PromptService:
 返回JSON格式：
 {{"prompt":"选择一个简介：","options":["简介1","简介2","简介3","简介4","简介5","简介6"]}}
 
-只返回纯JSON，不要有其他文字，不要换行。""",
-            "user": "原始想法：{initial_idea}\n书名：{title}\n请生成6个简介选项"
-        },
-        "theme": {
-            "system": """你是一位专业的小说创作顾问。
+只返回纯JSON，不要有其他文字，不要换行。"""
+
+    # 灵感模式 - 简介生成（用户提示词）
+    INSPIRATION_DESCRIPTION_USER = "原始想法：{initial_idea}\n书名：{title}\n请生成6个简介选项"
+
+    # 灵感模式 - 主题生成（系统提示词）
+    INSPIRATION_THEME_SYSTEM = """你是一位专业的小说创作顾问。
 用户的原始想法：{initial_idea}
 小说信息：
 - 书名：{title}
@@ -1363,11 +1229,13 @@ class PromptService:
 返回JSON格式：
 {{"prompt":"这本书的核心主题是什么？","options":["主题1","主题2","主题3","主题4","主题5","主题6"]}}
 
-只返回纯JSON，不要有其他文字，不要换行。""",
-            "user": "原始想法：{initial_idea}\n书名：{title}\n简介：{description}\n请生成6个主题选项"
-        },
-        "genre": {
-            "system": """你是一位专业的小说创作顾问。
+只返回纯JSON，不要有其他文字，不要换行。"""
+
+    # 灵感模式 - 主题生成（用户提示词）
+    INSPIRATION_THEME_USER = "原始想法：{initial_idea}\n书名：{title}\n简介：{description}\n请生成6个主题选项"
+
+    # 灵感模式 - 类型生成（系统提示词）
+    INSPIRATION_GENRE_SYSTEM = """你是一位专业的小说创作顾问。
 用户的原始想法：{initial_idea}
 小说信息：
 - 书名：{title}
@@ -1384,10 +1252,10 @@ class PromptService:
 返回JSON格式：
 {{"prompt":"选择类型标签（可多选）：","options":["类型1","类型2","类型3","类型4","类型5","类型6"]}}
 
-只返回紧凑的纯JSON，不要换行，不要有其他文字。""",
-            "user": "原始想法：{initial_idea}\n书名：{title}\n简介：{description}\n主题：{theme}\n请生成6个类型标签"
-        }
-    }
+只返回紧凑的纯JSON，不要换行，不要有其他文字。"""
+
+    # 灵感模式 - 类型生成（用户提示词）
+    INSPIRATION_GENRE_USER = "原始想法：{initial_idea}\n书名：{title}\n简介：{description}\n主题：{theme}\n请生成6个类型标签"
 
     # 灵感模式智能补全提示词
     INSPIRATION_QUICK_COMPLETE = """你是一位专业的小说创作顾问。用户提供了部分小说信息，请补全缺失的字段。
@@ -1887,7 +1755,26 @@ class PromptService:
     @classmethod
     def get_inspiration_prompt(cls, step: str) -> Optional[Dict[str, str]]:
         """获取灵感模式指定步骤的提示词"""
-        return cls.INSPIRATION_PROMPTS.get(step)
+        # 根据步骤名称返回对应的system和user提示词
+        step_map = {
+            "title": {
+                "system": cls.INSPIRATION_TITLE_SYSTEM,
+                "user": cls.INSPIRATION_TITLE_USER
+            },
+            "description": {
+                "system": cls.INSPIRATION_DESCRIPTION_SYSTEM,
+                "user": cls.INSPIRATION_DESCRIPTION_USER
+            },
+            "theme": {
+                "system": cls.INSPIRATION_THEME_SYSTEM,
+                "user": cls.INSPIRATION_THEME_USER
+            },
+            "genre": {
+                "system": cls.INSPIRATION_GENRE_SYSTEM,
+                "user": cls.INSPIRATION_GENRE_USER
+            }
+        }
+        return step_map.get(step)
 
     @classmethod
     def get_inspiration_quick_complete_prompt(cls, existing: str) -> Dict[str, str]:
@@ -1997,17 +1884,12 @@ class PromptService:
         # 2. 降级到系统默认模板
         logger.info(f"⚪ 使用系统默认提示词: user_id={user_id}, template_key={template_key} (未找到自定义模板)")
         
-        # 特殊处理灵感模式的提示词（存储在INSPIRATION_PROMPTS字典中）
+        # 特殊处理灵感模式的提示词（直接从类属性获取）
         if template_key.startswith("INSPIRATION_"):
-            # 提取步骤名称（如 INSPIRATION_TITLE -> title）
-            step = template_key.replace("INSPIRATION_", "").lower()
-            inspiration_prompt = cls.INSPIRATION_PROMPTS.get(step)
-            if inspiration_prompt:
-                # 返回JSON格式的提示词
-                return json.dumps(inspiration_prompt, ensure_ascii=False)
-            # 如果是INSPIRATION_QUICK_COMPLETE
-            if template_key == "INSPIRATION_QUICK_COMPLETE":
-                return cls.INSPIRATION_QUICK_COMPLETE
+            # 直接从类属性获取
+            template_content = getattr(cls, template_key, None)
+            if template_content:
+                return template_content
         
         # 其他模板直接从类属性获取
         template_content = getattr(cls, template_key, None)
@@ -2182,6 +2064,60 @@ class PromptService:
                 "category": "世界构建",
                 "description": "根据世界观自动生成完整的职业体系，包括主职业和副职业",
                 "parameters": ["title", "genre", "theme", "time_period", "location", "atmosphere", "rules"]
+            },
+            "INSPIRATION_TITLE_SYSTEM": {
+                "name": "灵感模式-书名生成(系统提示词)",
+                "category": "灵感模式",
+                "description": "根据用户的原始想法生成6个书名建议的系统提示词",
+                "parameters": ["initial_idea"]
+            },
+            "INSPIRATION_TITLE_USER": {
+                "name": "灵感模式-书名生成(用户提示词)",
+                "category": "灵感模式",
+                "description": "根据用户的原始想法生成6个书名建议的用户提示词",
+                "parameters": ["initial_idea"]
+            },
+            "INSPIRATION_DESCRIPTION_SYSTEM": {
+                "name": "灵感模式-简介生成(系统提示词)",
+                "category": "灵感模式",
+                "description": "根据用户想法和书名生成6个简介选项的系统提示词",
+                "parameters": ["initial_idea", "title"]
+            },
+            "INSPIRATION_DESCRIPTION_USER": {
+                "name": "灵感模式-简介生成(用户提示词)",
+                "category": "灵感模式",
+                "description": "根据用户想法和书名生成6个简介选项的用户提示词",
+                "parameters": ["initial_idea", "title"]
+            },
+            "INSPIRATION_THEME_SYSTEM": {
+                "name": "灵感模式-主题生成(系统提示词)",
+                "category": "灵感模式",
+                "description": "根据书名和简介生成6个深刻的主题选项的系统提示词",
+                "parameters": ["initial_idea", "title", "description"]
+            },
+            "INSPIRATION_THEME_USER": {
+                "name": "灵感模式-主题生成(用户提示词)",
+                "category": "灵感模式",
+                "description": "根据书名和简介生成6个深刻的主题选项的用户提示词",
+                "parameters": ["initial_idea", "title", "description"]
+            },
+            "INSPIRATION_GENRE_SYSTEM": {
+                "name": "灵感模式-类型生成(系统提示词)",
+                "category": "灵感模式",
+                "description": "根据小说信息生成6个合适的类型标签的系统提示词",
+                "parameters": ["initial_idea", "title", "description", "theme"]
+            },
+            "INSPIRATION_GENRE_USER": {
+                "name": "灵感模式-类型生成(用户提示词)",
+                "category": "灵感模式",
+                "description": "根据小说信息生成6个合适的类型标签的用户提示词",
+                "parameters": ["initial_idea", "title", "description", "theme"]
+            },
+            "INSPIRATION_QUICK_COMPLETE": {
+                "name": "灵感模式-智能补全",
+                "category": "灵感模式",
+                "description": "根据用户提供的部分信息智能补全完整的小说方案",
+                "parameters": ["existing"]
             }
         }
         

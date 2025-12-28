@@ -309,13 +309,37 @@ async def generate_career_system(
 7. 只返回纯JSON，不要添加任何解释文字
 """
             
-            yield await SSEResponse.send_progress("调用AI生成新职业...", 30)
+            yield await SSEResponse.send_progress("调用AI生成新职业...", 10)
             logger.info(f"🎯 开始为项目 {project_id} 生成新职业（增量式，已有{len(existing_careers)}个职业）")
             
             try:
-                # 调用AI生成
-                result = await user_ai_service.generate_text(prompt=prompt)
-                ai_response = result.get('content', '') if isinstance(result, dict) else result
+                # 使用流式生成替代非流式
+                ai_response = ""
+                chunk_count = 0
+                last_progress = 10
+                
+                async for chunk in user_ai_service.generate_text_stream(prompt=prompt):
+                    chunk_count += 1
+                    ai_response += chunk
+                    
+                    # 发送内容块
+                    yield await SSEResponse.send_chunk(chunk)
+                    
+                    # 平滑更新进度（10-90%，AI生成占60%）
+                    # 每10个chunk增加约1%的进度，最多到90%
+                    if chunk_count % 10 == 0:
+                        # 计算进度：10% + (chunk_count / 10) * 1%，但不超过90%
+                        current_progress = min(10 + (chunk_count // 10), 90)
+                        if current_progress > last_progress:
+                            last_progress = current_progress
+                            yield await SSEResponse.send_progress(
+                                f"AI生成职业体系中... (已生成 {len(ai_response)} 字符)",
+                                current_progress
+                            )
+                    
+                    # 心跳
+                    if chunk_count % 20 == 0:
+                        yield await SSEResponse.send_heartbeat()
                 
             except Exception as ai_error:
                 logger.error(f"❌ AI服务调用异常：{str(ai_error)}")
@@ -326,7 +350,7 @@ async def generate_career_system(
                 yield await SSEResponse.send_error("AI服务返回空响应")
                 return
             
-            yield await SSEResponse.send_progress("解析AI响应...", 50)
+            yield await SSEResponse.send_progress("解析AI响应...", 91)
             
             # 清洗并解析JSON
             try:
@@ -339,7 +363,7 @@ async def generate_career_system(
                 yield await SSEResponse.send_error(f"AI返回的内容无法解析为JSON：{str(e)}")
                 return
             
-            yield await SSEResponse.send_progress("保存主职业...", 60)
+            yield await SSEResponse.send_progress("保存主职业到数据库...", 93)
             
             # 保存主职业
             main_careers_created = []
@@ -371,7 +395,7 @@ async def generate_career_system(
                     logger.error(f"  ❌ 创建主职业失败：{str(e)}")
                     continue
             
-            yield await SSEResponse.send_progress("保存副职业...", 80)
+            yield await SSEResponse.send_progress("保存副职业到数据库...", 96)
             
             # 保存副职业
             sub_careers_created = []

@@ -21,6 +21,7 @@ export interface Settings {
   llm_model: string;
   temperature: number;
   max_tokens: number;
+  system_prompt?: string;
   preferences?: string;
   created_at: string;
   updated_at: string;
@@ -33,6 +34,7 @@ export interface SettingsUpdate {
   llm_model?: string;
   temperature?: number;
   max_tokens?: number;
+  system_prompt?: string;
   preferences?: string;
 }
 
@@ -44,6 +46,7 @@ export interface APIKeyPresetConfig {
   llm_model: string;
   temperature: number;
   max_tokens: number;
+  system_prompt?: string;
 }
 
 export interface APIKeyPreset {

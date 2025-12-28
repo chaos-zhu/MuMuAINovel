@@ -15,7 +15,6 @@ from ..schemas.writing_style import (
     WritingStyleListResponse,
     SetDefaultStyleRequest
 )
-from ..services.prompt_service import WritingStyleManager
 from ..logger import get_logger
 
 router = APIRouter(prefix="/writing-styles", tags=["writing-styles"])
@@ -31,21 +30,36 @@ def get_current_user_id(request: Request) -> str:
 
 
 @router.get("/presets/list", response_model=List[dict])
-async def get_preset_styles():
+async def get_preset_styles(db: AsyncSession = Depends(get_db)):
     """
-    获取所有预设风格列表
+    获取所有预设风格列表（从数据库读取）
     
     返回格式：数组形式的预设风格列表
     [
-        {"id": "natural", "name": "自然流畅", "description": "...", "prompt_content": "..."},
-        {"id": "classical", "name": "古典优雅", ...}
+        {"id": 1, "preset_id": "natural", "name": "自然流畅", "description": "...", "prompt_content": "..."},
+        {"id": 2, "preset_id": "classical", "name": "古典优雅", ...}
     ]
     """
-    presets = WritingStyleManager.get_all_presets()
-    # 将字典转换为数组，添加 id 字段
+    # 从数据库获取全局预设风格（user_id 为 NULL）
+    result = await db.execute(
+        select(WritingStyle)
+        .where(WritingStyle.user_id.is_(None))
+        .order_by(WritingStyle.order_index)
+    )
+    preset_styles = result.scalars().all()
+    
+    # 转换为响应格式
     return [
-        {"id": preset_id, **preset_data}
-        for preset_id, preset_data in presets.items()
+        {
+            "id": style.id,
+            "preset_id": style.preset_id,
+            "name": style.name,
+            "description": style.description,
+            "prompt_content": style.prompt_content,
+            "style_type": style.style_type,
+            "order_index": style.order_index
+        }
+        for style in preset_styles
     ]
 
 
@@ -58,25 +72,33 @@ async def create_writing_style(
     """
     创建新的写作风格（用户级别）
     
-    - **基于预设创建**：提供 preset_id，系统会自动填充预设内容
+    - **基于预设创建**：提供 preset_id，系统会从数据库查询预设内容自动填充
     - **完全自定义**：不提供 preset_id，需要手动填写所有字段
     """
     # 获取当前用户ID
     user_id = get_current_user_id(request)
     
-    # 如果基于预设创建，获取预设内容
+    # 如果基于预设创建，从数据库获取预设内容
     if style_data.preset_id:
-        preset = WritingStyleManager.get_preset_style(style_data.preset_id)
+        result = await db.execute(
+            select(WritingStyle)
+            .where(
+                WritingStyle.user_id.is_(None),
+                WritingStyle.preset_id == style_data.preset_id
+            )
+        )
+        preset = result.scalar_one_or_none()
+        
         if not preset:
             raise HTTPException(status_code=400, detail=f"预设风格 '{style_data.preset_id}' 不存在")
         
         # 使用预设内容填充（如果用户未提供）
         if not style_data.name:
-            style_data.name = preset["name"]
+            style_data.name = preset.name
         if not style_data.description:
-            style_data.description = preset["description"]
+            style_data.description = preset.description
         if not style_data.prompt_content:
-            style_data.prompt_content = preset["prompt_content"]
+            style_data.prompt_content = preset.prompt_content
     
     # 验证必填字段
     if not style_data.name or not style_data.prompt_content:

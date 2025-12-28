@@ -133,14 +133,16 @@ class PlotExpansionService:
         
         # 调用AI生成章节规划
         logger.info(f"调用AI生成章节规划...")
-        ai_response = await self.ai_service.generate_text(
+        accumulated_text = ""
+        async for chunk in self.ai_service.generate_text_stream(
             prompt=prompt,
             provider=provider,
             model=model
-        )
+        ):
+            accumulated_text += chunk
         
         # 提取内容
-        ai_content = ai_response.get("content", "") if isinstance(ai_response, dict) else ai_response
+        ai_content = accumulated_text
         
         # 解析AI响应
         chapter_plans = self._parse_expansion_response(ai_content, outline.id)
@@ -236,14 +238,16 @@ class PlotExpansionService:
             
             # 调用AI生成当前批次
             logger.info(f"调用AI生成第{batch_num + 1}批...")
-            ai_response = await self.ai_service.generate_text(
+            accumulated_text = ""
+            async for chunk in self.ai_service.generate_text_stream(
                 prompt=prompt,
                 provider=provider,
                 model=model
-            )
+            ):
+                accumulated_text += chunk
             
             # 提取内容
-            ai_content = ai_response.get("content", "") if isinstance(ai_response, dict) else ai_response
+            ai_content = accumulated_text
             
             # 解析AI响应
             batch_plans = self._parse_expansion_response(ai_content, outline.id)

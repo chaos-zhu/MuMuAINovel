@@ -23,11 +23,22 @@ class SSEResponse:
         Returns:
             格式化后的SSE消息字符串
         """
-        message = ""
-        if event:
-            message += f"event: {event}\n"
-        message += f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
-        return message
+        try:
+            message = ""
+            if event:
+                message += f"event: {event}\n"
+            message += f"data: {json.dumps(data, ensure_ascii=False)}\n\n"
+            return message
+        except Exception as e:
+            logger.error(f"❌ SSE格式化失败: {type(e).__name__}: {e}")
+            logger.error(f"   data类型: {type(data)}")
+            logger.error(f"   data内容: {str(data)[:500]}")
+            # 返回错误消息而不是崩溃
+            error_message = ""
+            if event:
+                error_message += f"event: {event}\n"
+            error_message += f'data: {{"type": "error", "error": "SSE格式化失败: {str(e)}", "code": 500}}\n\n'
+            return error_message
     
     @staticmethod
     async def send_progress(

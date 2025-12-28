@@ -71,24 +71,15 @@ class PlotAnalyzer:
             # 调用AI进行分析
             # 注意：不指定max_tokens，使用用户在设置中配置的值
             logger.info(f"  调用AI分析(内容长度: {len(analysis_content)}字)...")
-            response = await self.ai_service.generate_text(
+            accumulated_text = ""
+            async for chunk in self.ai_service.generate_text_stream(
                 prompt=prompt,
                 temperature=0.3  # 降低温度以获得更稳定的JSON输出
-            )
+            ):
+                accumulated_text += chunk
             
-            # 🔍 添加调试日志：查看AI返回的原始内容
-            # logger.info(f"🔍 AI返回类型: {type(response)}")
-            # logger.info(f"🔍 AI返回内容(前500字符): {str(response)}")
-            
-            # 从返回的字典中提取content字段
-            if isinstance(response, dict):
-                response_text = response.get('content', '')
-                if not response_text:
-                    logger.error("❌ AI返回的字典中没有content字段或content为空")
-                    return None
-            else:
-                # 兼容旧的字符串返回格式
-                response_text = response
+            # 提取内容
+            response_text = accumulated_text
             
             # 解析JSON结果
             analysis_result = self._parse_analysis_response(response_text)

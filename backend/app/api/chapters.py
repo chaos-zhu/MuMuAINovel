@@ -1070,8 +1070,7 @@ async def analyze_chapter_background(
                 
                 if career_update_result['updated_count'] > 0:
                     logger.info(
-                        f"✅ 更新了 {career_update_result['updated_count']} 个角色的职业信息: "
-                        f"{', '.join(career_update_result['updated_characters'])}"
+                        f"✅ 更新了 {career_update_result['updated_count']} 个角色的职业信息"
                     )
                     if career_update_result['changes']:
                         for change in career_update_result['changes']:
@@ -1445,7 +1444,7 @@ async def generate_chapter_content_stream(
                                 user_id=current_user_id,
                                 db_session=db_session,
                                 enable_mcp=True,
-                                max_tool_rounds=1,  # ✅ 减少为1轮，避免超时
+                                max_tool_rounds=2,  # ✅ 减少为1轮，避免超时
                                 tool_choice="auto",
                                 provider=None,
                                 model=None
@@ -1596,10 +1595,24 @@ async def generate_chapter_content_stream(
                 logger.info(f"开始AI流式创作章节 {chapter_id}")
                 
                 # 发送开始生成的进度
-                yield f"data: {json.dumps({'type': 'progress', 'progress': 35, 'message': '开始AI创作...', 'status': 'processing'}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'progress', 'progress': 10, 'message': '开始AI创作...', 'status': 'processing'}, ensure_ascii=False)}\n\n"
+                
+                # 🎨 方案一：将写作风格注入到系统提示词（最高优先级）
+                system_prompt_with_style = None
+                if style_content:
+                    system_prompt_with_style = f"""【🎨 写作风格要求 - 最高优先级】
+
+{style_content}
+
+⚠️ 请严格遵循上述写作风格要求进行创作，这是最重要的指令！
+确保在整个章节创作过程中始终保持风格的一致性。"""
+                    logger.info(f"✅ 已将写作风格注入系统提示词（{len(style_content)}字符）")
                 
                 # 准备生成参数
-                generate_kwargs = {"prompt": prompt}
+                generate_kwargs = {
+                    "prompt": prompt,
+                    "system_prompt": system_prompt_with_style  # 🔑 关键：使用系统提示词传递风格
+                }
                 if custom_model:
                     logger.info(f"  使用自定义模型: {custom_model}")
                     generate_kwargs["model"] = custom_model
@@ -1618,11 +1631,14 @@ async def generate_chapter_content_stream(
                     # 发送内容块
                     yield f"data: {json.dumps({'type': 'content', 'content': chunk}, ensure_ascii=False)}\n\n"
                     
-                    # 每20个chunk发送一次进度更新（提高频率）
-                    if chunk_count % 20 == 0:
+                    # 每5个chunk发送一次进度更新（10-95%，更平滑）
+                    if chunk_count % 5 == 0:
                         current_word_count = len(full_content)
-                        # 根据目标字数估算进度（40%起步，最高95%，为后续保存留5%）
-                        estimated_progress = min(95, 40 + int((current_word_count / target_word_count) * 55))
+                        # 优化进度计算：使用更平滑的递增方式
+                        # 基于chunk数量和字数的混合计算，避免大幅跳跃
+                        chunk_progress = min(40, chunk_count // 5)  # chunk贡献最多40%
+                        word_progress = min(45, int((current_word_count / target_word_count) * 45))  # 字数贡献最多45%
+                        estimated_progress = min(95, 10 + chunk_progress + word_progress)
                         
                         # 只在进度变化时发送
                         if estimated_progress > last_progress:
@@ -1636,10 +1652,14 @@ async def generate_chapter_content_stream(
                             yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
                             last_progress = estimated_progress
                     
+                    # 每20个chunk发送心跳
+                    if chunk_count % 20 == 0:
+                        yield f"data: {json.dumps({'type': 'heartbeat'}, ensure_ascii=False)}\n\n"
+                    
                     await asyncio.sleep(0)  # 让出控制权
                 
                 # 发送保存进度
-                yield f"data: {json.dumps({'type': 'progress', 'progress': 98, 'message': '正在保存章节...', 'status': 'processing'}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'progress', 'progress': 97, 'message': '正在保存章节...', 'status': 'processing'}, ensure_ascii=False)}\n\n"
                 
                 # 更新章节内容到数据库
                 old_word_count = current_chapter.word_count or 0
@@ -1696,7 +1716,7 @@ async def generate_chapter_content_stream(
                 )
                 
                 # 发送最终进度100%
-                yield f"data: {json.dumps({'type': 'progress', 'progress': 100, 'message': '创作完成！', 'word_count': new_word_count, 'status': 'success'}, ensure_ascii=False)}\n\n"
+                yield f"data: {json.dumps({'type': 'progress', 'progress': 99, 'message': '创作完成！', 'word_count': new_word_count, 'status': 'success'}, ensure_ascii=False)}\n\n"
                 
                 # 发送完成事件（包含分析任务ID）
                 completion_data = {
@@ -2880,15 +2900,30 @@ async def generate_single_chapter_for_batch(
         else:
             prompt = base_prompt
     
+    # 🎨 方案一：将写作风格注入到系统提示词（批量生成）
+    system_prompt_with_style = None
+    if style_content:
+        system_prompt_with_style = f"""【🎨 写作风格要求 - 最高优先级】
+
+{style_content}
+
+⚠️ 请严格遵循上述写作风格要求进行创作，这是最重要的指令！
+确保在整个章节创作过程中始终保持风格的一致性。"""
+        logger.info(f"✅ 批量生成 - 已将写作风格注入系统提示词（{len(style_content)}字符）")
+    
     # 非流式生成内容
     full_content = ""
     # 准备生成参数
-    generate_kwargs = {"prompt": prompt}
+    generate_kwargs = {
+        "prompt": prompt,
+        "system_prompt": system_prompt_with_style  # 🔑 关键：使用系统提示词传递风格
+    }
     # 如果传入了自定义模型，使用指定的模型
     if custom_model:
         generate_kwargs["model"] = custom_model
         logger.info(f"  批量生成使用自定义模型: {custom_model}")
     
+    # 批量生成中的流式生成（非SSE，不需要修改进度显示）
     async for chunk in ai_service.generate_text_stream(**generate_kwargs):
         full_content += chunk
     

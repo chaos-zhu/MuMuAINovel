@@ -512,8 +512,29 @@ async def generate_organization_stream(
             logger.info(f"🎯 开始为项目 {gen_request.project_id} 生成组织（SSE流式）")
             
             try:
-                ai_response = await user_ai_service.generate_text(prompt=prompt)
-                ai_content = ai_response.get("content", "") if isinstance(ai_response, dict) else str(ai_response)
+                # 使用流式生成替代非流式
+                ai_content = ""
+                chunk_count = 0
+                
+                async for chunk in user_ai_service.generate_text_stream(prompt=prompt):
+                    chunk_count += 1
+                    ai_content += chunk
+                    
+                    # 发送内容块
+                    yield await SSEResponse.send_chunk(chunk)
+                    
+                    # 定期更新字数（5-95%，AI生成占90%）
+                    if chunk_count % 5 == 0:
+                        progress = min(5 + (chunk_count // 5), 95)
+                        yield await SSEResponse.send_progress(
+                            f"AI生成组织中... ({len(ai_content)}字符)",
+                            progress
+                        )
+                    
+                    # 心跳
+                    if chunk_count % 20 == 0:
+                        yield await SSEResponse.send_heartbeat()
+                        
             except Exception as ai_error:
                 logger.error(f"❌ AI服务调用异常：{str(ai_error)}")
                 yield await SSEResponse.send_error(f"AI服务调用失败：{str(ai_error)}")
@@ -523,7 +544,7 @@ async def generate_organization_stream(
                 yield await SSEResponse.send_error("AI服务返回空响应")
                 return
             
-            yield await SSEResponse.send_progress("解析AI响应...", 60)
+            yield await SSEResponse.send_progress("解析AI响应...", 96)
             
             # ✅ 使用统一的 JSON 清洗方法
             try:
@@ -536,7 +557,7 @@ async def generate_organization_stream(
                 yield await SSEResponse.send_error(f"AI返回的内容无法解析为JSON：{str(e)}")
                 return
             
-            yield await SSEResponse.send_progress("创建组织记录...", 75)
+            yield await SSEResponse.send_progress("创建组织记录...", 97)
             
             # 创建角色记录（组织也是角色的一种）
             character = Character(
@@ -563,7 +584,7 @@ async def generate_organization_stream(
             
             logger.info(f"✅ 组织角色创建成功：{character.name} (ID: {character.id})")
             
-            yield await SSEResponse.send_progress("创建组织详情...", 85)
+            yield await SSEResponse.send_progress("创建组织详情...", 98)
             
             # 自动创建Organization详情记录
             organization = Organization(
@@ -580,7 +601,7 @@ async def generate_organization_stream(
             
             logger.info(f"✅ 组织详情创建成功：{character.name} (Org ID: {organization.id})")
             
-            yield await SSEResponse.send_progress("保存生成历史...", 95)
+            yield await SSEResponse.send_progress("保存生成历史...", 99)
             
             # 记录生成历史
             history = GenerationHistory(

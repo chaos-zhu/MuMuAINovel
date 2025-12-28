@@ -17,6 +17,7 @@ class Settings(Base):
     llm_model = Column(String(100), default="gpt-4", comment="模型名称")
     temperature = Column(Float, default=0.7, comment="温度参数")
     max_tokens = Column(Integer, default=2000, comment="最大token数")
+    system_prompt = Column(Text, comment="系统级别提示词，每次AI调用都会使用")
     preferences = Column(Text, comment="其他偏好设置(JSON)")
     created_at = Column(DateTime, server_default=func.now(), comment="创建时间")
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now(), comment="更新时间")

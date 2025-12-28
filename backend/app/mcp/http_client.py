@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from mcp import ClientSession, types
 from mcp.client.streamable_http import streamablehttp_client
 from pydantic import AnyUrl
+from anyio import ClosedResourceError
 
 from app.logger import get_logger
 
@@ -141,51 +142,89 @@ class HTTPMCPClient:
     async def call_tool(
         self,
         tool_name: str,
-        arguments: Dict[str, Any]
+        arguments: Dict[str, Any],
+        max_reconnect_attempts: int = 2
     ) -> Any:
         """
-        调用工具
+        调用工具（带自动重连）
         
         Args:
             tool_name: 工具名称
             arguments: 工具参数
+            max_reconnect_attempts: 最大重连尝试次数
             
         Returns:
             工具执行结果
         """
-        try:
-            await self._ensure_connected()
-            
-            logger.info(f"调用工具: {tool_name}")
-            logger.debug(f"参数: {arguments}")
-            
-            result = await self._session.call_tool(tool_name, arguments)
-            
-            # 处理返回结果
-            # MCP SDK 返回 CallToolResult 对象
-            if result.content:
-                # 提取第一个content的文本
-                for content in result.content:
-                    if isinstance(content, types.TextContent):
-                        return content.text
-                    elif isinstance(content, types.ImageContent):
-                        return {
-                            "type": "image",
-                            "data": content.data,
-                            "mimeType": content.mimeType
-                        }
-                # 如果没有文本内容，返回原始内容
-                return result.content[0] if result.content else None
-            
-            # 如果有结构化内容（2025-06-18规范）
-            if hasattr(result, 'structuredContent') and result.structuredContent:
-                return result.structuredContent
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"调用工具失败: {tool_name}, 错误: {e}")
-            raise MCPError(f"调用工具失败: {str(e)}")
+        for attempt in range(max_reconnect_attempts + 1):
+            try:
+                await self._ensure_connected()
+                
+                logger.info(f"调用工具: {tool_name}")
+                logger.debug(f"  参数类型: {type(arguments)}")
+                logger.debug(f"  参数内容: {arguments}")
+                logger.debug(f"  会话状态: initialized={self._initialized}, session={self._session is not None}")
+                
+                result = await self._session.call_tool(tool_name, arguments)
+                
+                logger.debug(f"  工具返回类型: {type(result)}")
+                logger.debug(f"  返回内容: {result}")
+                
+                # 处理返回结果
+                # MCP SDK 返回 CallToolResult 对象
+                if result.content:
+                    logger.debug(f"  返回content数量: {len(result.content)}")
+                    # 提取第一个content的文本
+                    for idx, content in enumerate(result.content):
+                        logger.debug(f"  content[{idx}]类型: {type(content)}")
+                        if isinstance(content, types.TextContent):
+                            logger.debug(f"  ✅ 返回TextContent: {content.text[:100] if len(content.text) > 100 else content.text}")
+                            return content.text
+                        elif isinstance(content, types.ImageContent):
+                            logger.debug(f"  ✅ 返回ImageContent")
+                            return {
+                                "type": "image",
+                                "data": content.data,
+                                "mimeType": content.mimeType
+                            }
+                    # 如果没有文本内容，返回原始内容
+                    logger.debug(f"  ⚠️ 返回原始content[0]")
+                    return result.content[0] if result.content else None
+                
+                # 如果有结构化内容（2025-06-18规范）
+                if hasattr(result, 'structuredContent') and result.structuredContent:
+                    logger.debug(f"  ✅ 返回structuredContent")
+                    return result.structuredContent
+                
+                logger.warning(f"  ⚠️ 工具返回为None")
+                return None
+                
+            except ClosedResourceError as e:
+                # 连接已关闭，尝试重连
+                if attempt < max_reconnect_attempts:
+                    logger.warning(
+                        f"⚠️ MCP连接已关闭，尝试重新连接 "
+                        f"(第{attempt + 1}/{max_reconnect_attempts}次重连)"
+                    )
+                    await self._cleanup()
+                    await asyncio.sleep(0.5)  # 短暂延迟后重连
+                    continue
+                else:
+                    logger.error(f"❌ MCP连接重连失败，已达最大重试次数")
+                    error_msg = f"连接已关闭且重连失败 (尝试了{max_reconnect_attempts}次)"
+                    raise MCPError(error_msg)
+                    
+            except Exception as e:
+                logger.error(f"调用工具失败: {tool_name}, 错误: {e}", exc_info=True)
+                logger.error(f"  参数: {arguments}")
+                logger.error(f"  错误类型: {type(e).__name__}")
+                logger.error(f"  错误详情: {repr(e)}")
+                logger.error(f"  错误字符串: '{str(e)}'")
+                error_msg = str(e) or repr(e) or f"未知错误 ({type(e).__name__})"
+                raise MCPError(f"调用工具失败: {error_msg}")
+        
+        # 理论上不会到这里
+        raise MCPError(f"工具调用失败: 未知错误")
     
     async def list_resources(self) -> List[Dict[str, Any]]:
         """

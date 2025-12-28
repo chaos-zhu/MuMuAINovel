@@ -105,23 +105,27 @@ async def generate_options(
             user_id = getattr(http_request.state, 'user_id', None)
             
             # 获取对应的提示词模板（根据step确定模板key）
+            # 新结构：每个步骤有独立的 SYSTEM 和 USER 模板
             template_key_map = {
-                "title": "INSPIRATION_TITLE",
-                "description": "INSPIRATION_DESCRIPTION",
-                "theme": "INSPIRATION_THEME",
-                "genre": "INSPIRATION_GENRE"
+                "title": ("INSPIRATION_TITLE_SYSTEM", "INSPIRATION_TITLE_USER"),
+                "description": ("INSPIRATION_DESCRIPTION_SYSTEM", "INSPIRATION_DESCRIPTION_USER"),
+                "theme": ("INSPIRATION_THEME_SYSTEM", "INSPIRATION_THEME_USER"),
+                "genre": ("INSPIRATION_GENRE_SYSTEM", "INSPIRATION_GENRE_USER")
             }
-            template_key = template_key_map.get(step)
+            template_keys = template_key_map.get(step)
             
-            if not template_key:
+            if not template_keys:
                 return {
                     "error": f"不支持的步骤: {step}",
                     "prompt": "",
                     "options": []
                 }
             
-            # 获取自定义提示词模板
-            prompt_template_str = await PromptService.get_template(template_key, user_id, db)
+            system_key, user_key = template_keys
+            
+            # 获取自定义提示词模板（分别获取 system 和 user）
+            system_template = await PromptService.get_template(system_key, user_id, db)
+            user_template = await PromptService.get_template(user_key, user_id, db)
             
             # 准备格式化参数
             format_params = {
@@ -131,19 +135,9 @@ async def generate_options(
                 "theme": context.get("theme", "")
             }
             
-            # 格式化提示词（灵感模式的模板是特殊格式，包含system和user两部分）
-            # 尝试解析为JSON格式的字典
-            try:
-                prompt_template = json.loads(prompt_template_str)
-                system_prompt = prompt_template["system"].format(**format_params)
-                user_prompt = prompt_template["user"].format(**format_params)
-            except (json.JSONDecodeError, KeyError):
-                # 如果不是JSON格式，降级使用原有方法
-                prompt_template = prompt_service.get_inspiration_prompt(step)
-                if not prompt_template:
-                    return {"error": f"无法获取提示词模板: {step}", "prompt": "", "options": []}
-                system_prompt = prompt_template["system"].format(**format_params)
-                user_prompt = prompt_template["user"].format(**format_params)
+            # 格式化提示词
+            system_prompt = system_template.format(**format_params)
+            user_prompt = user_template.format(**format_params)
             
             # 如果是重试，在提示词中强调格式要求
             if attempt > 0:
@@ -153,13 +147,18 @@ async def generate_options(
             # 关键改进：使用递减的temperature以保持后续阶段与前文的一致性
             temperature = TEMPERATURE_SETTINGS.get(step, 0.7)
             logger.info(f"调用AI生成{step}选项... (temperature={temperature})")
-            response = await ai_service.generate_text(
+            
+            # 流式生成并累积文本
+            accumulated_text = ""
+            async for chunk in ai_service.generate_text_stream(
                 prompt=user_prompt,
                 system_prompt=system_prompt,
                 temperature=temperature
-            )
+            ):
+                accumulated_text += chunk
             
-            content = response.get("content", "")
+            response = {"content": accumulated_text}
+            content = accumulated_text
             logger.info(f"AI返回内容长度: {len(content)}")
             
             # 解析JSON（使用统一的JSON清洗方法）
@@ -215,6 +214,180 @@ async def generate_options(
                 }
     
     # 理论上不会到这里
+    return {
+        "error": "生成失败",
+        "prompt": "请重试",
+        "options": []
+    }
+
+
+@router.post("/refine-options")
+async def refine_options(
+    data: Dict[str, Any],
+    http_request: Request,
+    db: AsyncSession = Depends(get_db),
+    ai_service: AIService = Depends(get_user_ai_service)
+) -> Dict[str, Any]:
+    """
+    基于用户反馈重新生成选项（支持多轮对话）
+    
+    Request:
+        {
+            "step": "title",  // 当前步骤
+            "context": {
+                "initial_idea": "...",
+                "title": "...",
+                "description": "...",
+                "theme": "..."
+            },
+            "feedback": "我想要更悲剧一些的主题",  // 用户反馈
+            "previous_options": ["选项1", "选项2", ...]  // 之前的选项（可选）
+        }
+    
+    Response:
+        {
+            "prompt": "引导语",
+            "options": ["新选项1", "新选项2", ...]
+        }
+    """
+    max_retries = 3
+    
+    for attempt in range(max_retries):
+        try:
+            step = data.get("step", "title")
+            context = data.get("context", {})
+            feedback = data.get("feedback", "")
+            previous_options = data.get("previous_options", [])
+            
+            logger.info(f"灵感模式：根据反馈重新生成{step}阶段的选项（第{attempt + 1}次尝试）")
+            logger.info(f"用户反馈: {feedback}")
+            
+            # 获取用户ID
+            user_id = getattr(http_request.state, 'user_id', None)
+            
+            # 获取对应的提示词模板
+            template_key_map = {
+                "title": ("INSPIRATION_TITLE_SYSTEM", "INSPIRATION_TITLE_USER"),
+                "description": ("INSPIRATION_DESCRIPTION_SYSTEM", "INSPIRATION_DESCRIPTION_USER"),
+                "theme": ("INSPIRATION_THEME_SYSTEM", "INSPIRATION_THEME_USER"),
+                "genre": ("INSPIRATION_GENRE_SYSTEM", "INSPIRATION_GENRE_USER")
+            }
+            template_keys = template_key_map.get(step)
+            
+            if not template_keys:
+                return {
+                    "error": f"不支持的步骤: {step}",
+                    "prompt": "",
+                    "options": []
+                }
+            
+            system_key, user_key = template_keys
+            
+            # 获取自定义提示词模板
+            system_template = await PromptService.get_template(system_key, user_id, db)
+            user_template = await PromptService.get_template(user_key, user_id, db)
+            
+            # 准备格式化参数
+            format_params = {
+                "initial_idea": context.get("initial_idea", context.get("description", "")),
+                "title": context.get("title", ""),
+                "description": context.get("description", ""),
+                "theme": context.get("theme", "")
+            }
+            
+            # 格式化提示词
+            system_prompt = system_template.format(**format_params)
+            user_prompt = user_template.format(**format_params)
+            
+            # 添加反馈信息到提示词
+            feedback_instruction = f"""
+
+⚠️ 用户对之前的选项不太满意，提供了以下反馈：
+「{feedback}」
+
+之前生成的选项：
+{chr(10).join([f"- {opt}" for opt in previous_options]) if previous_options else "（无）"}
+
+请根据用户的反馈调整生成策略，提供更符合用户期望的新选项。
+注意：
+1. 仔细理解用户的反馈意图
+2. 生成的新选项要明显体现用户要求的调整方向
+3. 保持与已有上下文的一致性
+4. 确保返回6个有效选项
+"""
+            
+            system_prompt += feedback_instruction
+            
+            # 如果是重试，强调格式要求
+            if attempt > 0:
+                system_prompt += f"\n\n⚠️ 这是第{attempt + 1}次生成，请务必严格按照JSON格式返回！"
+            
+            # 调用AI生成选项
+            temperature = TEMPERATURE_SETTINGS.get(step, 0.7)
+            # 反馈生成时使用稍高的temperature以获得更多样化的结果
+            temperature = min(temperature + 0.1, 0.9)
+            logger.info(f"调用AI根据反馈生成{step}选项... (temperature={temperature})")
+            
+            # 流式生成并累积文本
+            accumulated_text = ""
+            async for chunk in ai_service.generate_text_stream(
+                prompt=user_prompt,
+                system_prompt=system_prompt,
+                temperature=temperature
+            ):
+                accumulated_text += chunk
+            
+            content = accumulated_text
+            logger.info(f"AI返回内容长度: {len(content)}")
+            
+            # 解析JSON
+            try:
+                cleaned_content = ai_service._clean_json_response(content)
+                result = json.loads(cleaned_content)
+                
+                # 校验返回格式
+                is_valid, error_msg = validate_options_response(result, step)
+                
+                if not is_valid:
+                    logger.warning(f"⚠️ 第{attempt + 1}次生成格式校验失败: {error_msg}")
+                    if attempt < max_retries - 1:
+                        logger.info("准备重试...")
+                        continue
+                    else:
+                        return {
+                            "prompt": f"请为【{step}】提供内容：",
+                            "options": ["让AI重新生成", "我自己输入"],
+                            "error": f"AI生成格式错误（{error_msg}），已自动重试{max_retries}次"
+                        }
+                
+                logger.info(f"✅ 第{attempt + 1}次根据反馈成功生成{len(result.get('options', []))}个有效选项")
+                return result
+                
+            except json.JSONDecodeError as e:
+                logger.error(f"第{attempt + 1}次JSON解析失败: {e}")
+                
+                if attempt < max_retries - 1:
+                    logger.info("JSON解析失败，准备重试...")
+                    continue
+                else:
+                    return {
+                        "prompt": f"请为【{step}】提供内容：",
+                        "options": ["让AI重新生成", "我自己输入"],
+                        "error": f"AI返回格式错误，已自动重试{max_retries}次"
+                    }
+        
+        except Exception as e:
+            logger.error(f"第{attempt + 1}次根据反馈生成失败: {e}", exc_info=True)
+            if attempt < max_retries - 1:
+                logger.info("发生异常，准备重试...")
+                continue
+            else:
+                return {
+                    "error": str(e),
+                    "prompt": "生成失败，请重试",
+                    "options": ["重新生成", "我自己输入"]
+                }
+    
     return {
         "error": "生成失败",
         "prompt": "请重试",
@@ -280,14 +453,17 @@ async def quick_generate(
             # 降级使用原有方法
             prompts = prompt_service.get_inspiration_quick_complete_prompt(existing=existing_text)
         
-        # 调用AI
-        response = await ai_service.generate_text(
+        # 调用AI - 流式生成并累积文本
+        accumulated_text = ""
+        async for chunk in ai_service.generate_text_stream(
             prompt=prompts["user"],
             system_prompt=prompts["system"],
             temperature=0.7
-        )
+        ):
+            accumulated_text += chunk
         
-        content = response.get("content", "")
+        response = {"content": accumulated_text}
+        content = accumulated_text
         
         # 解析JSON（使用统一的JSON清洗方法）
         try:
