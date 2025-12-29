@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
-import { Button, Modal, Form, Input, Select, message, Row, Col, Empty, Tabs, Divider, Typography, Space, InputNumber } from 'antd';
-import { ThunderboltOutlined, UserOutlined, TeamOutlined, PlusOutlined } from '@ant-design/icons';
+import { useState, useEffect, useRef } from 'react';
+import { Button, Modal, Form, Input, Select, message, Row, Col, Empty, Tabs, Divider, Typography, Space, InputNumber, Checkbox } from 'antd';
+import { ThunderboltOutlined, UserOutlined, TeamOutlined, PlusOutlined, ExportOutlined, ImportOutlined, DownloadOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import { useCharacterSync } from '../store/hooks';
 import { characterGridConfig } from '../components/CardStyles';
@@ -38,6 +38,9 @@ export default function Characters() {
   const [editingCharacter, setEditingCharacter] = useState<Character | null>(null);
   const [mainCareers, setMainCareers] = useState<Career[]>([]);
   const [subCareers, setSubCareers] = useState<Career[]>([]);
+  const [selectedCharacters, setSelectedCharacters] = useState<string[]>([]);
+  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
     refreshCharacters,
@@ -278,6 +281,188 @@ export default function Characters() {
     handleDeleteCharacter(id);
   };
 
+  // 导出选中的角色/组织
+  const handleExportSelected = async () => {
+    if (selectedCharacters.length === 0) {
+      message.warning('请至少选择一个角色或组织');
+      return;
+    }
+
+    try {
+      await characterApi.exportCharacters(selectedCharacters);
+      message.success(`成功导出 ${selectedCharacters.length} 个角色/组织`);
+      setSelectedCharacters([]);
+    } catch (error) {
+      message.error('导出失败');
+      console.error('导出错误:', error);
+    }
+  };
+
+  // 导出单个角色/组织
+  const handleExportSingle = async (characterId: string) => {
+    try {
+      await characterApi.exportCharacters([characterId]);
+      message.success('导出成功');
+    } catch (error) {
+      message.error('导出失败');
+      console.error('导出错误:', error);
+    }
+  };
+
+  // 处理文件选择
+  const handleFileSelect = async (file: File) => {
+    try {
+      // 验证文件
+      const validation = await characterApi.validateImportCharacters(file);
+      
+      if (!validation.valid) {
+        modal.error({
+          title: '文件验证失败',
+          centered: true,
+          content: (
+            <div>
+              {validation.errors.map((error, index) => (
+                <div key={index} style={{ color: 'red' }}>• {error}</div>
+              ))}
+            </div>
+          ),
+        });
+        return;
+      }
+
+      // 显示预览对话框
+      modal.confirm({
+        title: '导入预览',
+        width: 500,
+        centered: true,
+        content: (
+          <div>
+            <p><strong>文件版本:</strong> {validation.version}</p>
+            <Divider style={{ margin: '12px 0' }} />
+            <p><strong>将要导入:</strong></p>
+            <ul style={{ marginLeft: 20 }}>
+              <li>角色: {validation.statistics.characters} 个</li>
+              <li>组织: {validation.statistics.organizations} 个</li>
+            </ul>
+            {validation.warnings.length > 0 && (
+              <>
+                <Divider style={{ margin: '12px 0' }} />
+                <p style={{ color: '#faad14' }}><strong>⚠️ 警告:</strong></p>
+                <ul style={{ marginLeft: 20 }}>
+                  {validation.warnings.map((warning, index) => (
+                    <li key={index} style={{ color: '#faad14' }}>{warning}</li>
+                  ))}
+                </ul>
+              </>
+            )}
+          </div>
+        ),
+        okText: '确认导入',
+        cancelText: '取消',
+        onOk: async () => {
+          try {
+            const result = await characterApi.importCharacters(currentProject.id, file);
+            
+            if (result.success) {
+              // 显示导入结果
+              modal.success({
+                title: '导入完成',
+                width: 600,
+                centered: true,
+                content: (
+                  <div>
+                    <p><strong>✅ 成功导入: {result.statistics.imported} 个</strong></p>
+                    {result.details.imported_characters.length > 0 && (
+                      <>
+                        <p style={{ marginTop: 12, marginBottom: 4 }}>角色:</p>
+                        <ul style={{ marginLeft: 20 }}>
+                          {result.details.imported_characters.map((name, index) => (
+                            <li key={index}>{name}</li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                    {result.details.imported_organizations.length > 0 && (
+                      <>
+                        <p style={{ marginTop: 12, marginBottom: 4 }}>组织:</p>
+                        <ul style={{ marginLeft: 20 }}>
+                          {result.details.imported_organizations.map((name, index) => (
+                            <li key={index}>{name}</li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                    {result.statistics.skipped > 0 && (
+                      <>
+                        <Divider style={{ margin: '12px 0' }} />
+                        <p style={{ color: '#faad14' }}>⚠️ 跳过: {result.statistics.skipped} 个</p>
+                        <ul style={{ marginLeft: 20 }}>
+                          {result.details.skipped.map((name, index) => (
+                            <li key={index} style={{ color: '#faad14' }}>{name}</li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                    {result.warnings.length > 0 && (
+                      <>
+                        <Divider style={{ margin: '12px 0' }} />
+                        <p style={{ color: '#faad14' }}>⚠️ 警告:</p>
+                        <ul style={{ marginLeft: 20 }}>
+                          {result.warnings.map((warning, index) => (
+                            <li key={index} style={{ color: '#faad14' }}>{warning}</li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                    {result.details.errors.length > 0 && (
+                      <>
+                        <Divider style={{ margin: '12px 0' }} />
+                        <p style={{ color: 'red' }}>❌ 失败: {result.statistics.errors} 个</p>
+                        <ul style={{ marginLeft: 20 }}>
+                          {result.details.errors.map((error, index) => (
+                            <li key={index} style={{ color: 'red' }}>{error}</li>
+                          ))}
+                        </ul>
+                      </>
+                    )}
+                  </div>
+                ),
+              });
+              
+              // 刷新列表
+              await refreshCharacters();
+              setIsImportModalOpen(false);
+            } else {
+              message.error(result.message || '导入失败');
+            }
+          } catch (error: any) {
+            message.error(error.response?.data?.detail || '导入失败');
+            console.error('导入错误:', error);
+          }
+        },
+      });
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '文件验证失败');
+      console.error('验证错误:', error);
+    }
+  };
+
+  // 切换选择
+  const toggleSelectCharacter = (id: string) => {
+    setSelectedCharacters(prev =>
+      prev.includes(id) ? prev.filter(cid => cid !== id) : [...prev, id]
+    );
+  };
+
+  // 全选/取消全选
+  const toggleSelectAll = () => {
+    if (selectedCharacters.length === displayList.length) {
+      setSelectedCharacters([]);
+    } else {
+      setSelectedCharacters(displayList.map(c => c.id));
+    }
+  };
+
   const showGenerateModal = () => {
     modal.confirm({
       title: 'AI生成角色',
@@ -427,6 +612,22 @@ export default function Characters() {
           >
             AI生成组织
           </Button>
+          <Button
+            icon={<ImportOutlined />}
+            onClick={() => setIsImportModalOpen(true)}
+            size={isMobile ? 'small' : 'middle'}
+          >
+            导入
+          </Button>
+          {selectedCharacters.length > 0 && (
+            <Button
+              icon={<ExportOutlined />}
+              onClick={handleExportSelected}
+              size={isMobile ? 'small' : 'middle'}
+            >
+              批量导出 ({selectedCharacters.length})
+            </Button>
+          )}
         </Space>
       </div>
 
@@ -468,6 +669,39 @@ export default function Characters() {
         </div>
       )}
 
+      {/* 批量选择工具栏 */}
+      {characters.length > 0 && (
+        <div style={{
+          position: 'sticky',
+          top: isMobile ? 120 : 132,
+          zIndex: 8,
+          backgroundColor: 'var(--color-bg-container)',
+          paddingBottom: 8,
+          paddingTop: 8,
+          marginTop: 8,
+          borderBottom: selectedCharacters.length > 0 ? '1px solid var(--color-border-secondary)' : 'none',
+        }}>
+          <Space>
+            <Checkbox
+              checked={selectedCharacters.length === displayList.length && displayList.length > 0}
+              indeterminate={selectedCharacters.length > 0 && selectedCharacters.length < displayList.length}
+              onChange={toggleSelectAll}
+            >
+              {selectedCharacters.length > 0 ? `已选 ${selectedCharacters.length} 个` : '全选'}
+            </Checkbox>
+            {selectedCharacters.length > 0 && (
+              <Button
+                type="link"
+                size="small"
+                onClick={() => setSelectedCharacters([])}
+              >
+                取消选择
+              </Button>
+            )}
+          </Space>
+        </div>
+      )}
+
       <div style={{ flex: 1, overflowY: 'auto' }}>
         {characters.length === 0 ? (
           <Empty description="还没有角色或组织，开始创建吧！" />
@@ -496,11 +730,19 @@ export default function Characters() {
                           key={character.id}
                           style={{ padding: isMobile ? '4px' : '8px' }}
                         >
-                          <CharacterCard
-                            character={character}
-                            onEdit={handleEditCharacter}
-                            onDelete={handleDeleteCharacterWrapper}
-                          />
+                          <div style={{ position: 'relative' }}>
+                            <Checkbox
+                              checked={selectedCharacters.includes(character.id)}
+                              onChange={() => toggleSelectCharacter(character.id)}
+                              style={{ position: 'absolute', top: 8, left: 8, zIndex: 1 }}
+                            />
+                            <CharacterCard
+                              character={character}
+                              onEdit={handleEditCharacter}
+                              onDelete={handleDeleteCharacterWrapper}
+                              onExport={() => handleExportSingle(character.id)}
+                            />
+                          </div>
                         </Col>
                       ))}
                     </>
@@ -526,11 +768,19 @@ export default function Characters() {
                           key={org.id}
                           style={{ padding: isMobile ? '4px' : '8px' }}
                         >
-                          <CharacterCard
-                            character={org}
-                            onEdit={handleEditCharacter}
-                            onDelete={handleDeleteCharacterWrapper}
-                          />
+                          <div style={{ position: 'relative' }}>
+                            <Checkbox
+                              checked={selectedCharacters.includes(org.id)}
+                              onChange={() => toggleSelectCharacter(org.id)}
+                              style={{ position: 'absolute', top: 8, left: 8, zIndex: 1 }}
+                            />
+                            <CharacterCard
+                              character={org}
+                              onEdit={handleEditCharacter}
+                              onDelete={handleDeleteCharacterWrapper}
+                              onExport={() => handleExportSingle(org.id)}
+                            />
+                          </div>
                         </Col>
                       ))}
                     </>
@@ -548,11 +798,19 @@ export default function Characters() {
                   key={character.id}
                   style={{ padding: isMobile ? '4px' : '8px' }}
                 >
-                  <CharacterCard
-                    character={character}
-                    onEdit={handleEditCharacter}
-                    onDelete={handleDeleteCharacterWrapper}
-                  />
+                  <div style={{ position: 'relative' }}>
+                    <Checkbox
+                      checked={selectedCharacters.includes(character.id)}
+                      onChange={() => toggleSelectCharacter(character.id)}
+                      style={{ position: 'absolute', top: 8, left: 8, zIndex: 1 }}
+                    />
+                    <CharacterCard
+                      character={character}
+                      onEdit={handleEditCharacter}
+                      onDelete={handleDeleteCharacterWrapper}
+                      onExport={() => handleExportSingle(character.id)}
+                    />
+                  </div>
                 </Col>
               ))}
 
@@ -566,11 +824,19 @@ export default function Characters() {
                   key={org.id}
                   style={{ padding: isMobile ? '4px' : '8px' }}
                 >
-                  <CharacterCard
-                    character={org}
-                    onEdit={handleEditCharacter}
-                    onDelete={handleDeleteCharacterWrapper}
-                  />
+                  <div style={{ position: 'relative' }}>
+                    <Checkbox
+                      checked={selectedCharacters.includes(org.id)}
+                      onChange={() => toggleSelectCharacter(org.id)}
+                      style={{ position: 'absolute', top: 8, left: 8, zIndex: 1 }}
+                    />
+                    <CharacterCard
+                      character={org}
+                      onEdit={handleEditCharacter}
+                      onDelete={handleDeleteCharacterWrapper}
+                      onExport={() => handleExportSingle(org.id)}
+                    />
+                  </div>
                 </Col>
               ))}
             </Row>
@@ -1091,6 +1357,53 @@ export default function Characters() {
             </Space>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 导入对话框 */}
+      <Modal
+        title="导入角色/组织"
+        open={isImportModalOpen}
+        onCancel={() => setIsImportModalOpen(false)}
+        footer={null}
+        width={500}
+        centered
+      >
+        <div style={{ textAlign: 'center', padding: '40px 20px' }}>
+          <DownloadOutlined style={{ fontSize: 48, color: '#1890ff', marginBottom: 16 }} />
+          <p style={{ fontSize: 16, marginBottom: 24 }}>
+            选择之前导出的角色/组织JSON文件进行导入
+          </p>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".json"
+            style={{ display: 'none' }}
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                handleFileSelect(file);
+                e.target.value = ''; // 清空input，允许重复选择同一文件
+              }
+            }}
+          />
+          <Button
+            type="primary"
+            size="large"
+            icon={<ImportOutlined />}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            选择文件
+          </Button>
+          <Divider />
+          <div style={{ textAlign: 'left', fontSize: 12, color: '#666' }}>
+            <p style={{ marginBottom: 8 }}><strong>说明：</strong></p>
+            <ul style={{ marginLeft: 20 }}>
+              <li>支持导入.json格式的角色/组织文件</li>
+              <li>重复名称的角色/组织将被跳过</li>
+              <li>职业信息如不存在将被忽略</li>
+            </ul>
+          </div>
+        </div>
       </Modal>
 
       {/* SSE进度显示 */}

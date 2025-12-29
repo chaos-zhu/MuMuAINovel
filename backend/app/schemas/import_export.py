@@ -36,9 +36,20 @@ class CharacterExportData(BaseModel):
     personality: Optional[str] = None
     background: Optional[str] = None
     appearance: Optional[str] = None
+    relationships: Optional[str] = None
     traits: Optional[List[str]] = None
     organization_type: Optional[str] = None
     organization_purpose: Optional[str] = None
+    organization_members: Optional[str] = None
+    avatar_url: Optional[str] = None
+    main_career_id: Optional[str] = None
+    main_career_stage: Optional[int] = None
+    sub_careers: Optional[str] = None
+    # 组织专属字段
+    power_level: Optional[int] = None
+    location: Optional[str] = None
+    motto: Optional[str] = None
+    color: Optional[str] = None
     created_at: Optional[str] = None
 
 
@@ -138,4 +149,28 @@ class ImportResult(BaseModel):
     project_id: Optional[str] = None
     message: str
     statistics: Dict[str, int] = {}
+    details: Optional[Dict[str, List[str]]] = None
+    warnings: List[str] = []
+
+
+class CharactersExportRequest(BaseModel):
+    """角色/组织批量导出请求"""
+    character_ids: List[str] = Field(..., description="要导出的角色/组织ID列表")
+
+
+class CharactersExportData(BaseModel):
+    """角色/组织批量导出数据"""
+    version: str = "1.0.0"
+    export_time: str
+    export_type: str = "characters"
+    count: int
+    data: List[CharacterExportData]
+
+
+class CharactersImportResult(BaseModel):
+    """角色/组织导入结果"""
+    success: bool
+    message: str
+    statistics: Dict[str, int]
+    details: Dict[str, List[str]]
     warnings: List[str] = []

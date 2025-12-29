@@ -1,5 +1,5 @@
 import { Card, Space, Tag, Typography, Popconfirm } from 'antd';
-import { EditOutlined, DeleteOutlined, UserOutlined, BankOutlined } from '@ant-design/icons';
+import { EditOutlined, DeleteOutlined, UserOutlined, BankOutlined, ExportOutlined } from '@ant-design/icons';
 import { cardStyles } from './CardStyles';
 import type { Character } from '../types';
 
@@ -9,9 +9,10 @@ interface CharacterCardProps {
   character: Character;
   onEdit?: (character: Character) => void;
   onDelete: (id: string) => void;
+  onExport?: () => void;
 }
 
-export const CharacterCard: React.FC<CharacterCardProps> = ({ character, onEdit, onDelete }) => {
+export const CharacterCard: React.FC<CharacterCardProps> = ({ character, onEdit, onDelete, onExport }) => {
   const getRoleTypeColor = (roleType?: string) => {
     const roleColors: Record<string, string> = {
       'protagonist': 'blue',
@@ -49,6 +50,7 @@ export const CharacterCard: React.FC<CharacterCardProps> = ({ character, onEdit,
       }}
       actions={[
         ...(onEdit ? [<EditOutlined key="edit" onClick={() => onEdit(character)} />] : []),
+        ...(onExport ? [<ExportOutlined key="export" onClick={onExport} />] : []),
         <Popconfirm
           key="delete"
           title={`确定删除这个${isOrganization ? '组织' : '角色'}吗？`}

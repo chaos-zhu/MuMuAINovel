@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useParams, useNavigate, Outlet, Link, useLocation } from 'react-router-dom';
-import { Layout, Menu, Spin, Button, Statistic, Row, Col, Card, Drawer } from 'antd';
+import { Layout, Menu, Spin, Button, Drawer } from 'antd';
 import {
   ArrowLeftOutlined,
   FileTextOutlined,
@@ -282,92 +282,60 @@ export default function ProjectDetail() {
 
         {!mobile && (
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', zIndex: 1 }}>
-            <Row gutter={12} style={{ width: '450px', justifyContent: 'flex-end' }}>
-              <Col>
-                <Card
-                  size="small"
+            <div style={{ display: 'flex', gap: '16px' }}>
+              {[
+                { label: '大纲', value: outlines.length, unit: '条' },
+                { label: '角色', value: characters.length, unit: '个' },
+                { label: '章节', value: chapters.length, unit: '章' },
+                { label: '已写', value: currentProject.current_words, unit: '字' },
+              ].map((item, index) => (
+                <div
+                  key={index}
                   style={{
-                    background: 'var(--color-bg-container)',
-                    borderRadius: '6px',
-                    border: 'none',
-                    minWidth: '80px',
-                    textAlign: 'center',
-                    padding: '4px 8px'
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backdropFilter: 'blur(4px)',
+                    borderRadius: '28px',
+                    minWidth: '56px',
+                    height: '56px',
+                    padding: '0 12px',
+                    boxShadow: 'inset 0 0 15px rgba(255, 255, 255, 0.15), 0 4px 10px rgba(0, 0, 0, 0.1)',
+                    cursor: 'default',
+                    transition: 'all 0.3s ease',
                   }}
-                  styles={{ body: { padding: '8px' } }}
-                >
-                  <Statistic
-                    title={<span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>大纲</span>}
-                    value={outlines.length}
-                    suffix="条"
-                    valueStyle={{ fontSize: '16px', fontWeight: 600, color: 'var(--color-primary)' }}
-                  />
-                </Card>
-              </Col>
-              <Col>
-                <Card
-                  size="small"
-                  style={{
-                    background: 'var(--color-bg-container)',
-                    borderRadius: '6px',
-                    border: 'none',
-                    minWidth: '80px',
-                    textAlign: 'center',
-                    padding: '4px 8px'
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.transform = 'translateY(-3px) scale(1.02)';
+                    e.currentTarget.style.boxShadow = 'inset 0 0 20px rgba(255, 255, 255, 0.25), 0 8px 16px rgba(0, 0, 0, 0.15)';
+                    e.currentTarget.style.border = '1px solid rgba(255, 255, 255, 0.1)';
                   }}
-                  styles={{ body: { padding: '8px' } }}
-                >
-                  <Statistic
-                    title={<span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>角色</span>}
-                    value={characters.length}
-                    suffix="个"
-                    valueStyle={{ fontSize: '16px', fontWeight: 600, color: 'var(--color-success)' }}
-                  />
-                </Card>
-              </Col>
-              <Col>
-                <Card
-                  size="small"
-                  style={{
-                    background: 'var(--color-bg-container)',
-                    borderRadius: '6px',
-                    border: 'none',
-                    minWidth: '80px',
-                    textAlign: 'center',
-                    padding: '4px 8px'
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = 'translateY(0) scale(1)';
+                    e.currentTarget.style.boxShadow = 'inset 0 0 15px rgba(255, 255, 255, 0.15), 0 4px 10px rgba(0, 0, 0, 0.1)';
                   }}
-                  styles={{ body: { padding: '8px' } }}
                 >
-                  <Statistic
-                    title={<span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>章节</span>}
-                    value={chapters.length}
-                    suffix="章"
-                    valueStyle={{ fontSize: '16px', fontWeight: 600, color: 'var(--color-info)' }}
-                  />
-                </Card>
-              </Col>
-              <Col>
-                <Card
-                  size="small"
-                  style={{
-                    background: 'var(--color-bg-container)',
-                    borderRadius: '6px',
-                    border: 'none',
-                    minWidth: '80px',
-                    textAlign: 'center',
-                    padding: '4px 8px'
-                  }}
-                  styles={{ body: { padding: '8px' } }}
-                >
-                  <Statistic
-                    title={<span style={{ fontSize: '11px', color: 'var(--color-text-secondary)' }}>已写</span>}
-                    value={currentProject.current_words}
-                    suffix="字"
-                    valueStyle={{ fontSize: '16px', fontWeight: 600, color: 'var(--color-warning)' }}
-                  />
-                </Card>
-              </Col>
-            </Row>
+                  <span style={{
+                    fontSize: '11px',
+                    color: 'rgba(255, 255, 255, 0.9)',
+                    marginBottom: '2px',
+                    lineHeight: 1
+                  }}>
+                    {item.label}
+                  </span>
+                  <span style={{
+                    fontSize: '15px',
+                    fontWeight: '600',
+                    color: '#fff',
+                    lineHeight: 1,
+                    fontFamily: 'Monaco, monospace'
+                  }}>
+                    {item.value > 10000 ? (item.value / 10000).toFixed(1) + 'w' : item.value}
+                    <span style={{ fontSize: '10px', marginLeft: '2px', opacity: 0.8 }}>{item.unit}</span>
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
         )}
       </Header>

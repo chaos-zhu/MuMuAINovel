@@ -1,5 +1,6 @@
 """角色管理API"""
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 import json
@@ -20,6 +21,8 @@ from app.schemas.character import (
 )
 from app.services.ai_service import AIService
 from app.services.prompt_service import prompt_service, PromptService
+from app.services.import_export_service import ImportExportService
+from app.schemas.import_export import CharactersExportRequest, CharactersImportResult
 from app.logger import get_logger
 from app.api.settings import get_user_ai_service
 
@@ -1306,3 +1309,163 @@ async def generate_character_stream(
             yield await SSEResponse.send_error(f"生成角色失败: {str(e)}")
     
     return create_sse_response(generate())
+
+
+@router.post("/export", summary="批量导出角色/组织")
+async def export_characters(
+    export_request: CharactersExportRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    批量导出角色/组织为JSON格式
+    
+    - 支持单个或多个角色/组织导出
+    - 包含角色的所有信息（基础信息、职业、组织详情等）
+    - 返回JSON文件供下载
+    """
+    user_id = getattr(request.state, 'user_id', None)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="未登录")
+    
+    if not export_request.character_ids:
+        raise HTTPException(status_code=400, detail="请至少选择一个角色/组织")
+    
+    try:
+        # 验证所有角色的权限
+        for char_id in export_request.character_ids:
+            result = await db.execute(
+                select(Character).where(Character.id == char_id)
+            )
+            character = result.scalar_one_or_none()
+            
+            if not character:
+                raise HTTPException(status_code=404, detail=f"角色不存在: {char_id}")
+            
+            # 验证项目权限
+            await verify_project_access(character.project_id, user_id, db)
+        
+        # 执行导出
+        export_data = await ImportExportService.export_characters(
+            character_ids=export_request.character_ids,
+            db=db
+        )
+        
+        # 生成文件名
+        from datetime import datetime
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        count = len(export_request.character_ids)
+        filename = f"characters_export_{count}_{timestamp}.json"
+        
+        logger.info(f"用户 {user_id} 导出了 {count} 个角色/组织")
+        
+        # 返回JSON文件
+        return JSONResponse(
+            content=export_data,
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}",
+                "Content-Type": "application/json; charset=utf-8"
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"导出角色/组织失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"导出失败: {str(e)}")
+
+
+@router.post("/import", response_model=CharactersImportResult, summary="导入角色/组织")
+async def import_characters(
+    project_id: str,
+    file: UploadFile = File(...),
+    request: Request = None,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    从JSON文件导入角色/组织
+    
+    - 支持导入之前导出的角色/组织JSON文件
+    - 自动处理重复名称（跳过）
+    - 验证职业ID的有效性
+    - 自动创建组织详情记录
+    """
+    user_id = getattr(request.state, 'user_id', None)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="未登录")
+    
+    # 验证项目权限
+    await verify_project_access(project_id, user_id, db)
+    
+    # 验证文件类型
+    if not file.filename.endswith('.json'):
+        raise HTTPException(status_code=400, detail="只支持JSON格式文件")
+    
+    try:
+        # 读取文件内容
+        content = await file.read()
+        data = json.loads(content.decode('utf-8'))
+        
+        # 执行导入
+        result = await ImportExportService.import_characters(
+            data=data,
+            project_id=project_id,
+            user_id=user_id,
+            db=db
+        )
+        
+        logger.info(f"用户 {user_id} 导入角色/组织到项目 {project_id}: {result['message']}")
+        
+        return result
+        
+    except json.JSONDecodeError as e:
+        raise HTTPException(status_code=400, detail=f"JSON格式错误: {str(e)}")
+    except Exception as e:
+        logger.error(f"导入角色/组织失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"导入失败: {str(e)}")
+
+
+@router.post("/validate-import", summary="验证导入文件")
+async def validate_import(
+    file: UploadFile = File(...),
+    request: Request = None
+):
+    """
+    验证角色/组织导入文件的格式和内容
+    
+    - 检查文件格式
+    - 验证版本兼容性
+    - 统计数据量
+    - 返回验证结果和警告信息
+    """
+    user_id = getattr(request.state, 'user_id', None)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="未登录")
+    
+    # 验证文件类型
+    if not file.filename.endswith('.json'):
+        raise HTTPException(status_code=400, detail="只支持JSON格式文件")
+    
+    try:
+        # 读取文件内容
+        content = await file.read()
+        data = json.loads(content.decode('utf-8'))
+        
+        # 验证数据
+        validation_result = ImportExportService.validate_characters_import(data)
+        
+        logger.info(f"用户 {user_id} 验证导入文件: {file.filename}")
+        
+        return validation_result
+        
+    except json.JSONDecodeError as e:
+        return {
+            "valid": False,
+            "version": "",
+            "statistics": {"characters": 0, "organizations": 0},
+            "errors": [f"JSON格式错误: {str(e)}"],
+            "warnings": []
+        }
+    except Exception as e:
+        logger.error(f"验证导入文件失败: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"验证失败: {str(e)}")
