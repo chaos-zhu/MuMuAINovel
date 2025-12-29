@@ -180,7 +180,10 @@ export default function WritingStyles() {
         justifyContent: 'space-between',
         alignItems: isMobile ? 'stretch' : 'center'
       }}>
-        <h2 style={{ margin: 0, fontSize: isMobile ? 18 : 24 }}>写作风格管理</h2>
+        <h2 style={{ margin: 0, fontSize: isMobile ? 18 : 24 }}>
+          <EditOutlined style={{ marginRight: 8 }} />
+          写作风格管理
+        </h2>
         <Button
           type="primary"
           icon={<PlusOutlined />}

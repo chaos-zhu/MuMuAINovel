@@ -382,7 +382,10 @@ export default function Characters() {
         justifyContent: 'space-between',
         alignItems: isMobile ? 'stretch' : 'center'
       }}>
-        <h2 style={{ margin: 0, fontSize: isMobile ? 18 : 24 }}>角色与组织管理</h2>
+        <h2 style={{ margin: 0, fontSize: isMobile ? 18 : 24 }}>
+          <TeamOutlined style={{ marginRight: 8 }} />
+          角色与组织管理
+        </h2>
         <Space wrap>
           <Button
             type="primary"

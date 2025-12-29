@@ -283,7 +283,10 @@ export default function Careers() {
                     flexWrap: 'wrap',
                     gap: '12px'
                 }}>
-                    <Title level={3} style={{ margin: 0 }}>职业管理</Title>
+                    <Title level={3} style={{ margin: 0 }}>
+                        <TrophyOutlined style={{ marginRight: 8 }} />
+                        职业管理
+                    </Title>
                     <Space wrap>
                         <Button
                             type="dashed"

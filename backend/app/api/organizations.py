@@ -497,7 +497,7 @@ async def generate_organization_stream(
 - 其他要求：{gen_request.requirements or '无'}
 """
             
-            yield await SSEResponse.send_progress("构建AI提示词...", 20)
+            yield await SSEResponse.send_progress("构建AI提示词...", 5)
             
             # 获取自定义提示词模板
             template = await PromptService.get_template("SINGLE_ORGANIZATION_GENERATION", user_id, db)
@@ -508,7 +508,7 @@ async def generate_organization_stream(
                 user_input=user_input
             )
             
-            yield await SSEResponse.send_progress("调用AI服务生成组织...", 30)
+            yield await SSEResponse.send_progress("调用AI服务生成组织...", 10)
             logger.info(f"🎯 开始为项目 {gen_request.project_id} 生成组织（SSE流式）")
             
             try:
@@ -525,7 +525,7 @@ async def generate_organization_stream(
                     
                     # 定期更新字数（5-95%，AI生成占90%）
                     if chunk_count % 5 == 0:
-                        progress = min(5 + (chunk_count // 5), 95)
+                        progress = min(10 + (chunk_count // 5), 95)
                         yield await SSEResponse.send_progress(
                             f"AI生成组织中... ({len(ai_content)}字符)",
                             progress
@@ -544,7 +544,7 @@ async def generate_organization_stream(
                 yield await SSEResponse.send_error("AI服务返回空响应")
                 return
             
-            yield await SSEResponse.send_progress("解析AI响应...", 96)
+            yield await SSEResponse.send_progress("解析AI响应...", 90)
             
             # ✅ 使用统一的 JSON 清洗方法
             try:
@@ -557,7 +557,7 @@ async def generate_organization_stream(
                 yield await SSEResponse.send_error(f"AI返回的内容无法解析为JSON：{str(e)}")
                 return
             
-            yield await SSEResponse.send_progress("创建组织记录...", 97)
+            yield await SSEResponse.send_progress("创建组织记录...", 95)
             
             # 创建角色记录（组织也是角色的一种）
             character = Character(

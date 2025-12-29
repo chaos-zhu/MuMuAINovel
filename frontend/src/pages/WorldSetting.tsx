@@ -1,4 +1,4 @@
-import { Card, Descriptions, Empty, Typography, Button, Modal, Form, Input, message, Space } from 'antd';
+import { Card, Descriptions, Empty, Typography, Button, Modal, Form, Input, message, Flex } from 'antd';
 import { GlobalOutlined, EditOutlined, SyncOutlined } from '@ant-design/icons';
 import { useState } from 'react';
 import { useStore } from '../store';
@@ -174,39 +174,51 @@ export default function WorldSetting() {
         backgroundColor: '#fff',
         padding: '16px 0',
         marginBottom: 24,
-        borderBottom: '1px solid #f0f0f0',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'space-between'
+        borderBottom: '1px solid #f0f0f0'
       }}>
-        <div style={{ display: 'flex', alignItems: 'center' }}>
-          <GlobalOutlined style={{ fontSize: 24, marginRight: 12, color: 'var(--color-primary)' }} />
-          <h2 style={{ margin: 0 }}>世界设定</h2>
-        </div>
-        <Space>
-          <Button
-            icon={<SyncOutlined />}
-            onClick={handleRegenerate}
-            disabled={isRegenerating}
-          >
-            AI重新生成
-          </Button>
-          <Button
-            type="primary"
-            icon={<EditOutlined />}
-            onClick={() => {
-              editForm.setFieldsValue({
-                world_time_period: currentProject.world_time_period || '',
-                world_location: currentProject.world_location || '',
-                world_atmosphere: currentProject.world_atmosphere || '',
-                world_rules: currentProject.world_rules || '',
-              });
-              setIsEditModalVisible(true);
-            }}
-          >
-            编辑世界观
-          </Button>
-        </Space>
+        <Flex
+          justify="space-between"
+          align="flex-start"
+          gap={12}
+          wrap="wrap"
+        >
+          <div style={{ display: 'flex', alignItems: 'center', minWidth: 'fit-content' }}>
+            <GlobalOutlined style={{ fontSize: 24, marginRight: 12, color: 'var(--color-primary)' }} />
+            <h2 style={{ margin: 0, whiteSpace: 'nowrap' }}>世界设定</h2>
+          </div>
+          <Flex gap={8} wrap="wrap" style={{ flex: '0 1 auto' }}>
+            <Button
+              icon={<SyncOutlined />}
+              onClick={handleRegenerate}
+              disabled={isRegenerating}
+              style={{
+                minWidth: 'fit-content',
+                flex: '1 1 auto'
+              }}
+            >
+              <span className="button-text-mobile">AI重新生成</span>
+            </Button>
+            <Button
+              type="primary"
+              icon={<EditOutlined />}
+              onClick={() => {
+                editForm.setFieldsValue({
+                  world_time_period: currentProject.world_time_period || '',
+                  world_location: currentProject.world_location || '',
+                  world_atmosphere: currentProject.world_atmosphere || '',
+                  world_rules: currentProject.world_rules || '',
+                });
+                setIsEditModalVisible(true);
+              }}
+              style={{
+                minWidth: 'fit-content',
+                flex: '1 1 auto'
+              }}
+            >
+              <span className="button-text-mobile">编辑世界观</span>
+            </Button>
+          </Flex>
+        </Flex>
       </div>
 
       {/* 可滚动内容区域 */}

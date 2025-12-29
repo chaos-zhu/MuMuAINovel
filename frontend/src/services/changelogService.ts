@@ -31,7 +31,7 @@ export interface ChangelogEntry {
   };
   message: string;
   commitUrl: string;
-  type: 'feature' | 'fix' | 'docs' | 'style' | 'refactor' | 'perf' | 'test' | 'chore' | 'other';
+  type: 'feature' | 'fix' | 'docs' | 'style' | 'refactor' | 'perf' | 'test' | 'chore' | 'update' | 'other';
   scope?: string;
 }
 
@@ -40,90 +40,110 @@ const REPO_OWNER = 'xiamuceer-j';
 const REPO_NAME = 'MuMuAINovel';
 
 /**
+ * 提交类型映射表
+ * 统一不同别名到标准类型
+ */
+const TYPE_MAPPING: Record<string, ChangelogEntry['type']> = {
+  // 功能类
+  'feat': 'feature',
+  'feature': 'feature',
+  'update': 'update',
+  
+  // 修复类
+  'fix': 'fix',
+  
+  // 文档类
+  'docs': 'docs',
+  'doc': 'docs',
+  
+  // 样式类
+  'style': 'style',
+  
+  // 重构类
+  'refactor': 'refactor',
+  
+  // 性能类
+  'perf': 'perf',
+  
+  // 测试类
+  'test': 'test',
+  
+  // 杂项类
+  'chore': 'chore',
+};
+
+/**
  * 从提交信息中解析类型和作用域
- * 支持常见的提交信息格式：
- * - type: message
- * - type(scope): message
- * - [type] message
+ *
+ * 匹配优先级（从高到低）：
+ * 1. 标准 Conventional Commits 格式: type(scope): message 或 type: message
+ * 2. 方括号格式: [type] message
+ * 3. 简单前缀格式: type: message（支持中文冒号）
+ * 4. 关键词模糊匹配（中英文）
  */
 function parseCommitType(message: string): { type: ChangelogEntry['type']; scope?: string; cleanMessage: string } {
-  const lowerMessage = message.toLowerCase();
+  const lowerMessage = message.toLowerCase().trim();
   
-  // 第一优先级：精确匹配 update: 开头（在正则之前检查）
-  if (lowerMessage.startsWith('update:')) {
-    const cleanMsg = message.replace(/^update:\s*/i, '');
-    return { type: 'feature', cleanMessage: cleanMsg };
-  }
-  
-  // 第二优先级：匹配标准 conventional commits 格式 type: message 或 type(scope): message
-  const conventionalMatch = message.match(/^(feat|feature|fix|docs|style|refactor|perf|test|chore)(?:\(([^)]+)\))?\s*:\s*(.+)/i);
+  // 优先级1：标准 Conventional Commits 格式 - type(scope): message 或 type: message
+  // 匹配所有支持的类型
+  const conventionalPattern = new RegExp(
+    `^(${Object.keys(TYPE_MAPPING).join('|')})(?:\\(([^)]+)\\))?\\s*[:\\:：]\\s*(.+)`,
+    'i'
+  );
+  const conventionalMatch = message.match(conventionalPattern);
   if (conventionalMatch) {
     const typeStr = conventionalMatch[1].toLowerCase();
-    const mappedType = typeStr === 'feature' ? 'feature' : typeStr as ChangelogEntry['type'];
+    const mappedType = TYPE_MAPPING[typeStr] || 'other';
     return {
       type: mappedType,
       scope: conventionalMatch[2],
-      cleanMessage: conventionalMatch[3],
+      cleanMessage: conventionalMatch[3].trim(),
     };
   }
 
-  // 第三优先级：匹配 [type] message 格式
-  const bracketMatch = message.match(/^\[(feat|feature|fix|docs|style|refactor|perf|test|chore|update)\]\s*(.+)/i);
+  // 优先级2：方括号格式 - [type] message
+  const bracketPattern = new RegExp(
+    `^\\[(${Object.keys(TYPE_MAPPING).join('|')})\\]\\s*(.+)`,
+    'i'
+  );
+  const bracketMatch = message.match(bracketPattern);
   if (bracketMatch) {
     const typeStr = bracketMatch[1].toLowerCase();
-    const mappedType = (typeStr === 'update' || typeStr === 'feature') ? 'feature' : typeStr as ChangelogEntry['type'];
+    const mappedType = TYPE_MAPPING[typeStr] || 'other';
     return {
       type: mappedType,
-      cleanMessage: bracketMatch[2],
+      cleanMessage: bracketMatch[2].trim(),
     };
   }
 
-  // 第四优先级：通过前缀精确匹配（避免误判）
-  if (lowerMessage.startsWith('fix:')|| lowerMessage.startsWith('fix：')) {
-    const cleanMsg = message.replace(/^fix:\s*/i, '');
-    return { type: 'fix', cleanMessage: cleanMsg };
-  }
-  
-  if (lowerMessage.startsWith('perf:')) {
-    const cleanMsg = message.replace(/^perf:\s*/i, '');
-    return { type: 'perf', cleanMessage: cleanMsg };
-  }
-  
-  if (lowerMessage.startsWith('docs:')) {
-    const cleanMsg = message.replace(/^docs:\s*/i, '');
-    return { type: 'docs', cleanMessage: cleanMsg };
-  }
-  
-  if (lowerMessage.startsWith('feat:') || lowerMessage.startsWith('feature:')) {
-    const cleanMsg = message.replace(/^(feat|feature):\s*/i, '');
-    return { type: 'feature', cleanMessage: cleanMsg };
-  }
-  
-  // 第五优先级：关键词模糊匹配（仅当前面都不匹配时）
-  if (lowerMessage.includes('修复') || lowerMessage.includes('fix')) {
-    return { type: 'fix', cleanMessage: message };
-  }
-  
-  if (lowerMessage.includes('优化') || lowerMessage.includes('perf')) {
-    return { type: 'perf', cleanMessage: message };
-  }
-  
-  if (lowerMessage.includes('文档') || lowerMessage.includes('doc')) {
-    return { type: 'docs', cleanMessage: message };
-  }
-  
-  if (lowerMessage.includes('新增') || lowerMessage.includes('添加') || lowerMessage.includes('增加')) {
-    return { type: 'feature', cleanMessage: message };
-  }
-  
-  if (lowerMessage.includes('样式') || lowerMessage.includes('style')) {
-    return { type: 'style', cleanMessage: message };
-  }
-  
-  if (lowerMessage.includes('重构') || lowerMessage.includes('refactor')) {
-    return { type: 'refactor', cleanMessage: message };
+  // 优先级3：简单前缀格式 - type: message（支持英文和中文冒号）
+  for (const [key, value] of Object.entries(TYPE_MAPPING)) {
+    const prefixPattern = new RegExp(`^${key}\\s*[:\\:：]\\s*`, 'i');
+    if (prefixPattern.test(lowerMessage)) {
+      const cleanMsg = message.replace(prefixPattern, '').trim();
+      return { type: value, cleanMessage: cleanMsg };
+    }
   }
 
+  // 优先级4：关键词模糊匹配（仅当前面都不匹配时）
+  const keywordMap: Array<{ keywords: string[]; type: ChangelogEntry['type'] }> = [
+    { keywords: ['修复', 'fix'], type: 'fix' },
+    { keywords: ['优化', 'perf'], type: 'perf' },
+    { keywords: ['文档', 'document'], type: 'docs' },
+    { keywords: ['新增', '添加', '增加', 'add'], type: 'feature' },
+    { keywords: ['更新', 'update'], type: 'update' },
+    { keywords: ['样式', 'style'], type: 'style' },
+    { keywords: ['重构', 'refactor'], type: 'refactor' },
+    { keywords: ['测试', 'test'], type: 'test' },
+  ];
+
+  for (const { keywords, type } of keywordMap) {
+    if (keywords.some(keyword => lowerMessage.includes(keyword))) {
+      return { type, cleanMessage: message };
+    }
+  }
+
+  // 默认类型
   return { type: 'other', cleanMessage: message };
 }
 

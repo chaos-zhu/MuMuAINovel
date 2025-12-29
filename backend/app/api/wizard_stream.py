@@ -134,10 +134,10 @@ async def world_building_generator(
 
 请结合上述资料，生成符合历史/现实的世界观设定。"""
             final_prompt = enhanced_prompt
-            yield await SSEResponse.send_progress("💡 已整合参考资料，开始生成世界观...", 30)
+            yield await SSEResponse.send_progress("💡 已整合参考资料，开始生成世界观...", 10)
         else:
             final_prompt = base_prompt
-            yield await SSEResponse.send_progress("正在调用AI生成...", 30)
+            yield await SSEResponse.send_progress("正在调用AI生成...", 10)
         
         # ===== 流式生成世界观（带重试机制） =====
         MAX_WORLD_RETRIES = 3  # 最多重试3次
@@ -148,7 +148,7 @@ async def world_building_generator(
         while world_retry_count < MAX_WORLD_RETRIES and not world_generation_success:
             try:
                 retry_suffix = f" (重试{world_retry_count}/{MAX_WORLD_RETRIES})" if world_retry_count > 0 else ""
-                yield await SSEResponse.send_progress(f"生成世界观{retry_suffix}...", 30 + world_retry_count * 5)
+                yield await SSEResponse.send_progress(f"生成世界观{retry_suffix}...", 10 + world_retry_count * 5)
                 
                 # 流式生成世界观
                 accumulated_text = ""
@@ -181,7 +181,7 @@ async def world_building_generator(
                     if world_retry_count < MAX_WORLD_RETRIES:
                         yield await SSEResponse.send_progress(
                             f"⚠️ AI返回为空，准备重试...",
-                            30 + world_retry_count * 5,
+                            10 + world_retry_count * 5,
                             "warning"
                         )
                         continue
@@ -221,7 +221,7 @@ async def world_building_generator(
                     if world_retry_count < MAX_WORLD_RETRIES:
                         yield await SSEResponse.send_progress(
                             f"⚠️ JSON解析失败，准备重试...",
-                            30 + world_retry_count * 5,
+                            10 + world_retry_count * 5,
                             "warning"
                         )
                         continue
@@ -241,7 +241,7 @@ async def world_building_generator(
                 if world_retry_count < MAX_WORLD_RETRIES:
                     yield await SSEResponse.send_progress(
                         f"⚠️ 生成异常，准备重试...",
-                        30 + world_retry_count * 5,
+                        10 + world_retry_count * 5,
                         "warning"
                     )
                     continue
@@ -1599,10 +1599,10 @@ async def world_building_regenerate_generator(
 
 请结合上述资料，生成符合历史/现实的世界观设定。"""
             final_prompt = enhanced_prompt
-            yield await SSEResponse.send_progress("💡 已整合参考资料，开始生成世界观...", 30)
+            yield await SSEResponse.send_progress("💡 已整合参考资料，开始生成世界观...", 10)
         else:
             final_prompt = base_prompt
-            yield await SSEResponse.send_progress("正在调用AI生成...", 30)
+            yield await SSEResponse.send_progress("正在调用AI生成...", 10)
         
         # ===== 流式生成世界观（带重试机制） =====
         MAX_WORLD_RETRIES = 3  # 最多重试3次
@@ -1613,7 +1613,7 @@ async def world_building_regenerate_generator(
         while world_retry_count < MAX_WORLD_RETRIES and not world_generation_success:
             try:
                 retry_suffix = f" (重试{world_retry_count}/{MAX_WORLD_RETRIES})" if world_retry_count > 0 else ""
-                yield await SSEResponse.send_progress(f"重新生成世界观{retry_suffix}...", 30 + world_retry_count * 5)
+                yield await SSEResponse.send_progress(f"重新生成世界观{retry_suffix}...", 10 + world_retry_count * 5)
                 
                 # 流式生成世界观
                 accumulated_text = ""
@@ -1630,7 +1630,7 @@ async def world_building_regenerate_generator(
                     yield await SSEResponse.send_chunk(chunk)
                     
                     if chunk_count % 5 == 0:
-                        progress = min(30 + (chunk_count // 5), 85)
+                        progress = min(10 + (chunk_count // 5), 85)
                         yield await SSEResponse.send_progress(f"生成中... ({len(accumulated_text)}字符)", progress)
                     
                     if chunk_count % 20 == 0:
@@ -1643,7 +1643,7 @@ async def world_building_regenerate_generator(
                     if world_retry_count < MAX_WORLD_RETRIES:
                         yield await SSEResponse.send_progress(
                             f"⚠️ AI返回为空，准备重试...",
-                            30 + world_retry_count * 5,
+                            10 + world_retry_count * 5,
                             "warning"
                         )
                         continue
@@ -1679,7 +1679,7 @@ async def world_building_regenerate_generator(
                     if world_retry_count < MAX_WORLD_RETRIES:
                         yield await SSEResponse.send_progress(
                             f"⚠️ JSON解析失败，准备重试...",
-                            30 + world_retry_count * 5,
+                            10 + world_retry_count * 5,
                             "warning"
                         )
                         continue
@@ -1699,7 +1699,7 @@ async def world_building_regenerate_generator(
                 if world_retry_count < MAX_WORLD_RETRIES:
                     yield await SSEResponse.send_progress(
                         f"⚠️ 生成异常，准备重试...",
-                        30 + world_retry_count * 5,
+                        10 + world_retry_count * 5,
                         "warning"
                     )
                     continue

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
-import { Card, Table, Tag, Button, Space, message, Modal, Form, Select, InputNumber, Input, Descriptions } from 'antd';
-import { PlusOutlined, TeamOutlined, UserOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Card, Table, Tag, Button, Space, message, Modal, Form, Select, InputNumber, Input, Descriptions, Drawer } from 'antd';
+import { PlusOutlined, UserOutlined, EditOutlined, DeleteOutlined, UnorderedListOutlined, BankOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import { useCharacterSync } from '../store/hooks';
 import axios from 'axios';
@@ -57,6 +57,7 @@ export default function Organizations() {
   const [editOrgForm] = Form.useForm();
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [modal, contextHolder] = Modal.useModal();
+  const [orgListVisible, setOrgListVisible] = useState(false);
 
   useEffect(() => {
     const handleResize = () => {
@@ -82,7 +83,7 @@ export default function Organizations() {
     } finally {
       setLoading(false);
     }
-  }, [projectId, selectedOrg]);
+  }, [projectId]);
 
   const loadCharacters = useCallback(async () => {
     try {
@@ -300,61 +301,169 @@ export default function Organizations() {
   );
 
   return (
-    <div>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {contextHolder}
-      <Card
-        title={
-          <Space wrap>
-            <TeamOutlined />
-            <span style={{ fontSize: isMobile ? 14 : 16 }}>组织管理</span>
-            {!isMobile && <Tag color="blue">{currentProject?.title}</Tag>}
-          </Space>
-        }
-      >
+      
+      {/* 页面标题 - 仅桌面端显示 */}
+      {!isMobile && (
         <div style={{
-          display: isMobile ? 'flex' : 'grid',
-          flexDirection: isMobile ? 'column' : undefined,
-          gridTemplateColumns: isMobile ? undefined : '300px 1fr',
-          gap: isMobile ? '16px' : '24px',
-          maxHeight: isMobile ? 'calc(100vh - 200px)' : undefined,
-          overflowY: isMobile ? 'auto' : undefined
+          padding: '16px 0',
+          marginBottom: 16,
+          borderBottom: '1px solid #f0f0f0'
         }}>
-          {/* 左侧：组织列表 */}
-          <div>
-            <Card
-              size="small"
-              title={`组织列表 (${organizations.length})`}
-              loading={loading}
-            >
-              <Space direction="vertical" style={{ width: '100%' }}>
-                {organizations.map(org => (
-                  <Card
-                    key={org.id}
-                    size="small"
-                    hoverable
-                    style={{
-                      cursor: 'pointer',
-                      border: selectedOrg?.id === org.id ? '2px solid var(--color-primary)' : '1px solid var(--color-border-secondary)'
-                    }}
-                    onClick={() => handleSelectOrganization(org)}
-                  >
-                    <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                      <strong>{org.name}</strong>
-                      <Tag>{org.type}</Tag>
-                      <div style={{ fontSize: '12px', color: '#666' }}>
-                        成员: {org.member_count} | 势力: {org.power_level}
-                      </div>
-                    </Space>
-                  </Card>
-                ))}
-              </Space>
-            </Card>
-          </div>
+          <h2 style={{ margin: 0, fontSize: 24 }}>
+            <BankOutlined style={{ marginRight: 8 }} />
+            组织管理
+          </h2>
+        </div>
+      )}
+      
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        gap: isMobile ? 0 : 16,
+        flexDirection: isMobile ? 'column' : 'row',
+        overflow: 'hidden'
+      }}>
+        {/* 左侧组织列表 - 桌面端 */}
+        {!isMobile && (
+        <Card
+          title={`组织列表 (${organizations.length})`}
+          style={{ width: 300, height: '100%', overflow: 'hidden' }}
+          bodyStyle={{ padding: 0, height: 'calc(100% - 57px)', overflow: 'auto' }}
+          loading={loading}
+        >
+          {organizations.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px 20px', color: '#999' }}>
+              暂无组织
+            </div>
+          ) : (
+            <Space direction="vertical" style={{ width: '100%', padding: '12px' }}>
+              {organizations.map(org => (
+                <Card
+                  key={org.id}
+                  size="small"
+                  hoverable
+                  style={{
+                    cursor: 'pointer',
+                    border: selectedOrg?.id === org.id ? '2px solid #1890ff' : '1px solid #d9d9d9',
+                    background: selectedOrg?.id === org.id ? '#e6f7ff' : 'transparent'
+                  }}
+                  onClick={() => handleSelectOrganization(org)}
+                >
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    <strong style={{ fontSize: 14 }}>{org.name}</strong>
+                    <Tag color="blue">{org.type}</Tag>
+                    <div style={{ fontSize: '12px', color: '#666' }}>
+                      成员: {org.member_count} | 势力: {org.power_level}
+                    </div>
+                  </Space>
+                </Card>
+              ))}
+            </Space>
+          )}
+        </Card>
+        )}
 
-          {/* 右侧：组织详情和成员 */}
-          <div style={{ minHeight: isMobile ? 'auto' : undefined }}>
-            {selectedOrg ? (
-              <Space direction="vertical" style={{ width: '100%' }} size="large">
+        {/* 移动端组织列表抽屉 */}
+      {isMobile && (
+        <Drawer
+          title="组织列表"
+          placement="left"
+          onClose={() => setOrgListVisible(false)}
+          open={orgListVisible}
+          width="85%"
+          styles={{ body: { padding: 0 } }}
+        >
+          {organizations.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px 20px', color: '#999' }}>
+              暂无组织
+            </div>
+          ) : (
+            <Space direction="vertical" style={{ width: '100%', padding: '12px' }}>
+              {organizations.map(org => (
+                <Card
+                  key={org.id}
+                  size="small"
+                  hoverable
+                  style={{
+                    cursor: 'pointer',
+                    border: selectedOrg?.id === org.id ? '2px solid #1890ff' : '1px solid #d9d9d9',
+                    background: selectedOrg?.id === org.id ? '#e6f7ff' : 'transparent'
+                  }}
+                  onClick={() => {
+                    handleSelectOrganization(org);
+                    setOrgListVisible(false);
+                  }}
+                >
+                  <Space direction="vertical" size="small" style={{ width: '100%' }}>
+                    <strong style={{ fontSize: 14 }}>{org.name}</strong>
+                    <Tag color="blue">{org.type}</Tag>
+                    <div style={{ fontSize: '12px', color: '#666' }}>
+                      成员: {org.member_count} | 势力: {org.power_level}
+                    </div>
+                  </Space>
+                </Card>
+              ))}
+            </Space>
+          )}
+        </Drawer>
+        )}
+
+        {/* 右侧内容区域 */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+        {!selectedOrg ? (
+          <Card style={{ height: '100%' }}>
+            <div style={{ textAlign: 'center', padding: '100px 20px', color: '#999' }}>
+              {isMobile && organizations.length > 0 && (
+                <Button
+                  type="primary"
+                  icon={<UnorderedListOutlined />}
+                  onClick={() => setOrgListVisible(true)}
+                  style={{ marginBottom: 20 }}
+                >
+                  选择组织
+                </Button>
+              )}
+              <div>请选择一个组织查看详情</div>
+            </div>
+          </Card>
+        ) : (
+          <>
+            {/* 工具栏 - 移动端显示项目标题和组织列表按钮 */}
+            {isMobile && (
+              <Card size="small" style={{ marginBottom: 8 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Space>
+                    <BankOutlined />
+                    <span style={{ fontSize: 14, fontWeight: 600 }}>
+                      组织管理
+                    </span>
+                    <Tag color="blue">{currentProject?.title}</Tag>
+                  </Space>
+                  <Button
+                    icon={<UnorderedListOutlined />}
+                    onClick={() => setOrgListVisible(true)}
+                    size="small"
+                  >
+                    列表
+                  </Button>
+                </div>
+              </Card>
+            )}
+
+            {/* 内容区域 */}
+            <div style={{
+              flex: 1,
+              display: 'flex',
+              gap: isMobile ? 0 : 16,
+              overflow: 'hidden'
+            }}>
+              <Card
+                style={{ flex: 1, overflow: 'auto' }}
+                bodyStyle={{ padding: isMobile ? '12px' : '24px' }}
+              >
+                <Space direction="vertical" style={{ width: '100%' }} size={isMobile ? 'middle' : 'large'}>
                 <Card
                   title="组织详情"
                   size="small"
@@ -445,17 +554,13 @@ export default function Organizations() {
                     }}
                   />
                 </Card>
-              </Space>
-            ) : (
-              <Card>
-                <div style={{ textAlign: 'center', padding: '40px', color: '#999' }}>
-                  请从左侧选择一个组织查看详情
-                </div>
+                </Space>
               </Card>
-            )}
-          </div>
+            </div>
+          </>
+        )}
         </div>
-      </Card>
+      </div>
 
       {/* 添加成员模态框 */}
       <Modal

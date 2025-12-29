@@ -4,8 +4,15 @@
 
 set -e  # 遇到错误立即退出
 
+# 获取版本信息(从环境变量)
+APP_VERSION="${APP_VERSION:-1.0.0}"
+APP_NAME="${APP_NAME:-MuMuAINovel}"
+BUILD_TIME=$(date '+%Y-%m-%d %H:%M:%S')
+
 echo "================================================"
-echo "🚀 MuMuAINovel 启动中..."
+echo "🚀 ${APP_NAME} 启动中..."
+echo "📦 版本: v${APP_VERSION}"
+echo "🕐 启动时间: ${BUILD_TIME}"
 echo "================================================"
 
 # 数据库配置（从环境变量读取）

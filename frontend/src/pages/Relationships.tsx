@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { Card, Table, Tag, Button, Space, message, Modal, Form, Select, Slider, Input, Tabs, AutoComplete } from 'antd';
-import { PlusOutlined, TeamOutlined, UserOutlined, EditOutlined } from '@ant-design/icons';
+import { PlusOutlined, ApartmentOutlined, UserOutlined, EditOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import axios from 'axios';
 
@@ -308,7 +308,7 @@ export default function Relationships() {
       <Card
         title={
           <Space wrap>
-            <TeamOutlined />
+            <ApartmentOutlined />
             <span style={{ fontSize: isMobile ? 14 : 16 }}>关系管理</span>
             {!isMobile && <Tag color="blue">{currentProject?.title}</Tag>}
           </Space>

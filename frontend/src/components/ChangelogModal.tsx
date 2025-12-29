@@ -12,6 +12,7 @@ import {
   GithubOutlined,
   ReloadOutlined,
   ClockCircleOutlined,
+  SyncOutlined,
 } from '@ant-design/icons';
 import {
   fetchChangelog,
@@ -29,6 +30,7 @@ interface ChangelogModalProps {
 // 提交类型图标和颜色配置
 const typeConfig: Record<ChangelogEntry['type'], { icon: React.ReactNode; color: string; label: string }> = {
   feature: { icon: <StarOutlined />, color: 'green', label: '新功能' },
+  update: { icon: <SyncOutlined />, color: 'geekblue', label: '更新' },
   fix: { icon: <BugOutlined />, color: 'red', label: '修复' },
   docs: { icon: <FileTextOutlined />, color: 'blue', label: '文档' },
   style: { icon: <BgColorsOutlined />, color: 'purple', label: '样式' },

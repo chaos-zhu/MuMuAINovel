@@ -7,6 +7,7 @@ import {
   LeftOutlined,
   RightOutlined,
   UnorderedListOutlined,
+  FundOutlined,
 } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
 import api from '../services/api';
@@ -189,14 +190,30 @@ const ChapterAnalysis: React.FC = () => {
   }
 
   return (
-    <div style={{
-      display: 'flex',
-      height: '100%',
-      gap: isMobile ? 0 : 16,
-      flexDirection: isMobile ? 'column' : 'row'
-    }}>
-      {/* 左侧章节列表 - 桌面端 */}
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* 页面标题 - 仅桌面端显示 */}
       {!isMobile && (
+        <div style={{
+          padding: '16px 0',
+          marginBottom: 16,
+          borderBottom: '1px solid #f0f0f0'
+        }}>
+          <h2 style={{ margin: 0, fontSize: 24 }}>
+            <FundOutlined style={{ marginRight: 8 }} />
+            剧情分析
+          </h2>
+        </div>
+      )}
+      
+      <div style={{
+        flex: 1,
+        display: 'flex',
+        gap: isMobile ? 0 : 16,
+        flexDirection: isMobile ? 'column' : 'row',
+        overflow: 'hidden'
+      }}>
+        {/* 左侧章节列表 - 桌面端 */}
+        {!isMobile && (
         <Card
           title="章节列表"
           style={{ width: 280, height: '100%', overflow: 'hidden' }}
@@ -237,9 +254,9 @@ const ChapterAnalysis: React.FC = () => {
             />
           )}
         </Card>
-      )}
+        )}
 
-      {/* 移动端章节列表抽屉 */}
+        {/* 移动端章节列表抽屉 */}
       {isMobile && (
         <Drawer
           title="章节列表"
@@ -284,10 +301,10 @@ const ChapterAnalysis: React.FC = () => {
             />
           )}
         </Drawer>
-      )}
+        )}
 
-      {/* 右侧内容区域 */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
+        {/* 右侧内容区域 */}
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}>
         {!selectedChapter ? (
           <Card style={{ height: '100%' }}>
             <Empty description="请从左侧选择一个章节查看" style={{ marginTop: 100 }} />
@@ -530,6 +547,7 @@ const ChapterAnalysis: React.FC = () => {
             )}
           </>
         )}
+        </div>
       </div>
     </div>
   );

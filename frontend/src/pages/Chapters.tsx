@@ -1491,7 +1491,10 @@ export default function Chapters() {
         justifyContent: 'space-between',
         alignItems: isMobile ? 'stretch' : 'center'
       }}>
-        <h2 style={{ margin: 0, fontSize: isMobile ? 18 : 24 }}>章节管理</h2>
+        <h2 style={{ margin: 0, fontSize: isMobile ? 18 : 24 }}>
+          <BookOutlined style={{ marginRight: 8 }} />
+          章节管理
+        </h2>
         <Space direction={isMobile ? 'vertical' : 'horizontal'} style={{ width: isMobile ? '100%' : 'auto' }}>
           {currentProject.outline_mode === 'one-to-many' && (
             <Button
