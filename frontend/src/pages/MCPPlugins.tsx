@@ -113,9 +113,10 @@ export default function MCPPluginsPage() {
   };
 
   const handleDelete = (plugin: MCPPlugin) => {
-    Modal.confirm({
+    modal.confirm({
       title: '删除插件',
       content: `确定要删除插件 "${plugin.display_name || plugin.plugin_name}" 吗？`,
+      centered: true,
       okText: '确定',
       cancelText: '取消',
       okType: 'danger',

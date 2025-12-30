@@ -55,6 +55,7 @@ const ChapterRegenerationModal: React.FC<ChapterRegenerationModalProps> = ({
   hasAnalysis
 }) => {
   const [form] = Form.useForm();
+  const [modal, contextHolder] = Modal.useModal();
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState<'idle' | 'generating' | 'success' | 'error'>('idle');
@@ -202,9 +203,10 @@ const ChapterRegenerationModal: React.FC<ChapterRegenerationModalProps> = ({
 
   const handleCancel = () => {
     if (loading) {
-      Modal.confirm({
+      modal.confirm({
         title: '确认取消',
         content: '生成正在进行中，确定要取消吗？',
+        centered: true,
         onOk: () => {
           setLoading(false);
           setStatus('idle');
@@ -217,7 +219,9 @@ const ChapterRegenerationModal: React.FC<ChapterRegenerationModalProps> = ({
   };
 
   return (
-    <Modal
+    <>
+      {contextHolder}
+      <Modal
       title={`重新生成章节 - 第${chapterNumber}章：${chapterTitle}`}
       open={visible}
       onCancel={handleCancel}
@@ -386,7 +390,8 @@ const ChapterRegenerationModal: React.FC<ChapterRegenerationModalProps> = ({
         message={`正在重新生成中... (已生成 ${wordCount} 字)`}
         title="重新生成章节"
       />
-    </Modal>
+      </Modal>
+    </>
   );
 };
 

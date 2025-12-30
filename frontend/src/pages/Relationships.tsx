@@ -43,6 +43,7 @@ export default function Relationships() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingRelationship, setEditingRelationship] = useState<Relationship | null>(null);
   const [form] = Form.useForm();
+  const [modal, contextHolder] = Modal.useModal();
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [pageSize, setPageSize] = useState(10);
   const [currentPage, setCurrentPage] = useState(1);
@@ -149,7 +150,7 @@ export default function Relationships() {
   };
 
   const handleDeleteRelationship = async (id: string) => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认删除',
       content: '确定要删除这条关系吗？',
       centered: true,
@@ -304,8 +305,10 @@ export default function Relationships() {
   };
 
   return (
-    <div>
-      <Card
+    <>
+      {contextHolder}
+      <div>
+        <Card
         title={
           <Space wrap>
             <ApartmentOutlined />
@@ -522,6 +525,7 @@ export default function Relationships() {
           </Form.Item>
         </Form>
       </Modal>
-    </div>
+      </div>
+    </>
   );
 }

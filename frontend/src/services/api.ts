@@ -148,6 +148,9 @@ export const authApi = {
   setPassword: (password: string) =>
     api.post<unknown, { success: boolean; message: string }>('/auth/password/set', { password }),
 
+  initializePassword: (password: string) =>
+    api.post<unknown, { success: boolean; message: string }>('/auth/password/initialize', { password }),
+
   refreshSession: () => api.post<unknown, { message: string; expire_at: number; remaining_minutes: number }>('/auth/refresh'),
 
   logout: () => api.post('/auth/logout'),

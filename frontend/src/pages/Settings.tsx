@@ -107,9 +107,10 @@ export default function SettingsPage() {
   };
 
   const handleReset = () => {
-    Modal.confirm({
+    modal.confirm({
       title: '重置设置',
       content: '确定要重置为默认值吗？',
+      centered: true,
       okText: '确定',
       cancelText: '取消',
       onOk: () => {
@@ -127,9 +128,10 @@ export default function SettingsPage() {
   };
 
   const handleDelete = () => {
-    Modal.confirm({
+    modal.confirm({
       title: '删除设置',
       content: '确定要删除所有设置吗？此操作不可恢复。',
+      centered: true,
       okText: '确定',
       cancelText: '取消',
       okType: 'danger',

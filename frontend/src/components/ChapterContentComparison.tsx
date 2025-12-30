@@ -28,6 +28,7 @@ const ChapterContentComparison: React.FC<ChapterContentComparisonProps> = ({
 }) => {
   const [applying, setApplying] = useState(false);
   const [viewMode, setViewMode] = useState<'split' | 'unified'>('split');
+  const [modal, contextHolder] = Modal.useModal();
 
   const originalWordCount = originalContent.length;
   const wordCountDiff = wordCount - originalWordCount;
@@ -85,9 +86,10 @@ const ChapterContentComparison: React.FC<ChapterContentComparisonProps> = ({
   };
 
   const handleDiscard = () => {
-    Modal.confirm({
+    modal.confirm({
       title: '确认放弃',
       content: '确定要放弃新生成的内容吗？此操作不可恢复。',
+      centered: true,
       okText: '确定放弃',
       cancelText: '取消',
       okButtonProps: { danger: true },
@@ -100,7 +102,9 @@ const ChapterContentComparison: React.FC<ChapterContentComparisonProps> = ({
   };
 
   return (
-    <Modal
+    <>
+      {contextHolder}
+      <Modal
       title={`内容对比 - ${chapterTitle}`}
       open={visible}
       onCancel={onClose}
@@ -215,7 +219,8 @@ const ChapterContentComparison: React.FC<ChapterContentComparisonProps> = ({
           }}
         />
       </div>
-    </Modal>
+      </Modal>
+    </>
   );
 };
 

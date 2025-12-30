@@ -57,6 +57,7 @@ export const CharacterCareerCard: React.FC<Props> = ({
     const [mainForm] = Form.useForm();
     const [subForm] = Form.useForm();
     const [progressForm] = Form.useForm();
+    const [modal, contextHolder] = Modal.useModal();
 
     useEffect(() => {
         fetchCharacterCareers();
@@ -149,9 +150,10 @@ export const CharacterCareerCard: React.FC<Props> = ({
     };
 
     const handleRemoveSubCareer = (careerId: string) => {
-        Modal.confirm({
+        modal.confirm({
             title: '确认删除',
             content: '确定要移除这个副职业吗？',
+            centered: true,
             onOk: async () => {
                 try {
                     await axios.delete(
@@ -237,6 +239,7 @@ export const CharacterCareerCard: React.FC<Props> = ({
 
     return (
         <>
+            {contextHolder}
             <Card
                 title={
                     <Space>

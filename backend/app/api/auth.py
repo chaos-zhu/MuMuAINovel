@@ -250,10 +250,10 @@ async def _handle_callback(
         trust_level=trust_level
     )
     
-    # 3.1. 自动绑定密码（如果还没有设置）
-    if not await password_manager.has_password(user.user_id):
-        default_password = await password_manager.set_password(user.user_id, username)
-        logger.info(f"用户 {user.user_id} ({username}) 自动绑定默认密码: {default_password}")
+    # 3.1. 检查是否是首次登录（没有密码记录）
+    is_first_login = not await password_manager.has_password(user.user_id)
+    if is_first_login:
+        logger.info(f"用户 {user.user_id} ({username}) 首次登录，需要初始化密码")
     
     # Settings 将在首次访问设置页面时自动创建（延迟初始化）
     
@@ -288,6 +288,17 @@ async def _handle_callback(
         httponly=False,  # 前端需要读取
         samesite="lax"
     )
+    
+    # 如果是首次登录，设置标记 Cookie（5分钟有效，仅用于前端显示初始密码提示）
+    if is_first_login:
+        redirect_response.set_cookie(
+            key="first_login",
+            value="true",
+            max_age=300,  # 5分钟有效
+            httponly=False,  # 前端需要读取
+            samesite="lax"
+        )
+        logger.info(f"✅ [OAuth登录] 用户 {user.user_id} 首次登录，已设置 first_login 标记")
     
     return redirect_response
 
@@ -443,6 +454,36 @@ async def set_user_password(request: Request, password_req: SetPasswordRequest):
     return SetPasswordResponse(
         success=True,
         message="密码设置成功"
+    )
+
+
+@router.post("/password/initialize", response_model=SetPasswordResponse)
+async def initialize_user_password(request: Request, password_req: SetPasswordRequest):
+    """
+    初始化首次登录用户的密码
+    
+    用于首次通过 Linux DO 授权登录的用户，可以选择设置自定义密码或使用默认密码
+    """
+    if not hasattr(request.state, "user") or not request.state.user:
+        raise HTTPException(status_code=401, detail="未登录")
+    
+    user = request.state.user
+    
+    # 检查是否已经有密码（防止重复初始化）
+    if await password_manager.has_password(user.user_id):
+        raise HTTPException(status_code=400, detail="密码已经初始化，请使用密码修改功能")
+    
+    # 验证密码强度（至少6个字符）
+    if len(password_req.password) < 6:
+        raise HTTPException(status_code=400, detail="密码长度至少为6个字符")
+    
+    # 设置密码
+    await password_manager.set_password(user.user_id, user.username, password_req.password)
+    logger.info(f"用户 {user.user_id} ({user.username}) 初始化密码成功")
+    
+    return SetPasswordResponse(
+        success=True,
+        message="密码初始化成功"
     )
 
 

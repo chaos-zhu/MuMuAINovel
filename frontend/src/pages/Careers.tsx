@@ -39,6 +39,7 @@ export default function Careers() {
     const [editingCareer, setEditingCareer] = useState<Career | null>(null);
     const [form] = Form.useForm();
     const [aiForm] = Form.useForm();
+    const [modal, contextHolder] = Modal.useModal();
 
     // AI生成状态
     const [aiGenerating, setAiGenerating] = useState(false);
@@ -129,9 +130,10 @@ export default function Careers() {
     };
 
     const handleDelete = async (id: string) => {
-        Modal.confirm({
+        modal.confirm({
             title: '确认删除',
             content: '确定要删除这个职业吗？如果有角色使用了该职业，将无法删除。',
+            centered: true,
             onOk: async () => {
                 try {
                     await api.delete(`/careers/${id}`);
@@ -264,7 +266,9 @@ export default function Careers() {
     ];
 
     return (
-        <div style={{
+        <>
+            {contextHolder}
+            <div style={{
             height: '100%',
             display: 'flex',
             flexDirection: 'column',
@@ -423,6 +427,7 @@ export default function Careers() {
                 title="AI生成新职业中..."
                 onCancel={() => setAiGenerating(false)}
             />
-        </div>
+            </div>
+        </>
     );
 }

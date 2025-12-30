@@ -20,23 +20,35 @@ export default function AuthCallback() {
       try {
         // 后端会通过 Cookie 自动设置认证信息
         // 这里只需要验证登录状态
-        await authApi.getCurrentUser();
+        const currentUser = await authApi.getCurrentUser();
 
-        // 检查密码状态
-        const pwdStatus = await authApi.getPasswordStatus();
-        setPasswordStatus(pwdStatus);
-
+        // 检查是否是首次登录（通过 Cookie 标记）
+        const isFirstLogin = document.cookie.includes('first_login=true');
+        
         setStatus('success');
 
-        // 只有在用户完全没有密码时才显示密码设置提示
-        // 如果已经有密码（无论是默认密码还是自定义密码），都不再提示
-        if (!pwdStatus.has_password) {
+        if (isFirstLogin) {
+          // 首次登录：生成默认密码并显示提示
+          const defaultPassword = `${currentUser.username}@666`;
+          const pwdStatus = {
+            has_password: false,
+            has_custom_password: false,
+            username: currentUser.username,
+            default_password: defaultPassword
+          };
+          setPasswordStatus(pwdStatus);
+
+          // 清除首次登录标记 Cookie
+          document.cookie = 'first_login=; path=/; max-age=0';
+
+          // 显示密码初始化弹窗
           setTimeout(() => {
             setShowPasswordModal(true);
           }, 1000);
           return;
         }
 
+        // 非首次登录：正常流程
         // 从 sessionStorage 获取重定向地址
         const redirect = sessionStorage.getItem('login_redirect') || '/';
         sessionStorage.removeItem('login_redirect');
@@ -129,23 +141,33 @@ export default function AuthCallback() {
   };
 
   const handleSetPassword = async () => {
-    if (!newPassword) {
+    // 如果没有输入新密码，使用默认密码
+    const passwordToSet = newPassword || passwordStatus?.default_password;
+    
+    if (!passwordToSet) {
       message.error('请输入新密码');
       return;
     }
-    if (newPassword.length < 6) {
+    if (passwordToSet.length < 6) {
       message.error('密码长度至少为6个字符');
       return;
     }
-    if (newPassword !== confirmPassword) {
+    if (newPassword && newPassword !== confirmPassword) {
       message.error('两次输入的密码不一致');
       return;
     }
 
     setSettingPassword(true);
     try {
-      await authApi.setPassword(newPassword);
-      message.success('密码设置成功');
+      // 首次登录使用初始化接口，后续使用修改接口
+      const isFirstLogin = !passwordStatus?.has_password;
+      if (isFirstLogin) {
+        await authApi.initializePassword(passwordToSet);
+        message.success('密码初始化成功');
+      } else {
+        await authApi.setPassword(passwordToSet);
+        message.success('密码设置成功');
+      }
       setShowPasswordModal(false);
 
       // 继续后续流程
@@ -172,7 +194,17 @@ export default function AuthCallback() {
     }
   };
 
-  const handleSkipPasswordSetting = () => {
+  const handleSkipPasswordSetting = async () => {
+    // 首次登录时，如果跳过设置，使用默认密码初始化
+    const isFirstLogin = !passwordStatus?.has_password;
+    if (isFirstLogin && passwordStatus?.default_password) {
+      try {
+        await authApi.initializePassword(passwordStatus.default_password);
+      } catch (error) {
+        console.error('初始化默认密码失败:', error);
+      }
+    }
+
     setShowPasswordModal(false);
 
     // 继续后续流程
