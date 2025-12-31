@@ -483,7 +483,12 @@ async def update_career(
     for field, value in update_data.items():
         if field == "stages" and value is not None:
             # 转换为JSON字符串
-            setattr(career, field, json.dumps([stage.model_dump() for stage in value], ensure_ascii=False))
+            # model_dump() 已经将嵌套模型转换为字典，所以 value 中的元素已经是 dict
+            stages_list = [
+                stage if isinstance(stage, dict) else stage.model_dump()
+                for stage in value
+            ]
+            setattr(career, field, json.dumps(stages_list, ensure_ascii=False))
         elif field == "attribute_bonuses" and value is not None:
             # 转换为JSON字符串
             setattr(career, field, json.dumps(value, ensure_ascii=False))

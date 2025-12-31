@@ -101,12 +101,14 @@ export default function Chapters() {
   }, []);
 
   // 加载所有章节的分析任务状态
-  const loadAnalysisTasks = async () => {
-    if (!chapters || chapters.length === 0) return;
+  // 接受可选的 chaptersToLoad 参数，解决 React 状态更新延迟导致的问题
+  const loadAnalysisTasks = async (chaptersToLoad?: typeof chapters) => {
+    const targetChapters = chaptersToLoad || chapters;
+    if (!targetChapters || targetChapters.length === 0) return;
 
     const tasksMap: Record<string, AnalysisTask> = {};
 
-    for (const chapter of chapters) {
+    for (const chapter of targetChapters) {
       // 只查询有内容的章节
       if (chapter.content && chapter.content.trim() !== '') {
         try {
@@ -805,9 +807,10 @@ export default function Chapters() {
         });
 
         // 每次轮询时刷新章节列表和分析状态，实时显示新生成的章节和分析进度
+        // 使用 await 确保获取最新章节列表后再加载分析任务状态
         if (status.completed > 0) {
-          refreshChapters();
-          loadAnalysisTasks();
+          const latestChapters = await refreshChapters();
+          await loadAnalysisTasks(latestChapters);
 
           // 刷新项目信息以实时更新总字数统计
           if (currentProject?.id) {
@@ -826,8 +829,9 @@ export default function Chapters() {
           setBatchGenerating(false);
 
           // 立即刷新章节列表和分析任务状态（在显示消息前）
-          await refreshChapters();
-          await loadAnalysisTasks();
+          // 使用 refreshChapters 返回的最新章节列表传递给 loadAnalysisTasks
+          const finalChapters = await refreshChapters();
+          await loadAnalysisTasks(finalChapters);
 
           // 刷新项目信息以更新总字数统计
           if (currentProject?.id) {

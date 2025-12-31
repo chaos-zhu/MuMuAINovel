@@ -81,6 +81,21 @@ class AnthropicClient:
         if system_prompt:
             kwargs["system"] = system_prompt
 
-        async with self.client.messages.stream(**kwargs) as stream:
-            async for text in stream.text_stream:
-                yield text
+        try:
+            async with self.client.messages.stream(**kwargs) as stream:
+                try:
+                    async for text in stream.text_stream:
+                        yield text
+                except GeneratorExit:
+                    # 生成器被关闭，这是正常的清理过程
+                    logger.debug("Anthropic 流式响应生成器被关闭(GeneratorExit)")
+                    raise
+                except Exception as iter_error:
+                    logger.error(f"Anthropic 流式响应迭代出错: {str(iter_error)}")
+                    raise
+        except GeneratorExit:
+            # 重新抛出GeneratorExit，让调用方处理
+            raise
+        except Exception as e:
+            logger.error(f"Anthropic 流式请求出错: {str(e)}")
+            raise

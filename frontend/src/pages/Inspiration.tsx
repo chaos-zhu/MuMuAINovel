@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Input, Button, Space, Typography, message, Spin } from 'antd';
-import { SendOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { Card, Input, Button, Space, Typography, message, Spin, Modal } from 'antd';
+import { SendOutlined, ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
 import { inspirationApi } from '../services/api';
 import { AIProjectGenerator, type GenerationConfig } from '../components/AIProjectGenerator';
 
@@ -36,6 +36,10 @@ interface CacheData {
   wizardData: Partial<WizardData>;
   initialIdea: string;
   selectedOptions: string[];
+  lastFailedRequest: {
+    step: 'title' | 'description' | 'theme' | 'genre';
+    context: Partial<WizardData>;
+  } | null;
   timestamp: number;
 }
 
@@ -80,6 +84,9 @@ const Inspiration: React.FC = () => {
   // 生成配置
   const [generationConfig, setGenerationConfig] = useState<GenerationConfig | null>(null);
 
+  // Modal hook
+  const [modal, contextHolder] = Modal.useModal();
+
   // 滚动容器引用
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const chatContainerRef = useRef<HTMLDivElement>(null);
@@ -114,6 +121,7 @@ const Inspiration: React.FC = () => {
         wizardData,
         initialIdea,
         selectedOptions,
+        lastFailedRequest,
         timestamp: Date.now()
       };
 
@@ -153,6 +161,10 @@ const Inspiration: React.FC = () => {
       setWizardData(cacheData.wizardData);
       setInitialIdea(cacheData.initialIdea);
       setSelectedOptions(cacheData.selectedOptions);
+      // 恢复失败请求信息，确保"重新生成"按钮可用
+      if (cacheData.lastFailedRequest) {
+        setLastFailedRequest(cacheData.lastFailedRequest);
+      }
 
       console.log('✅ 已恢复上次的对话进度');
       message.success('已恢复上次的对话进度', 2);
@@ -194,7 +206,7 @@ const Inspiration: React.FC = () => {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [messages, currentStep, wizardData, initialIdea, selectedOptions, cacheLoaded]);
+  }, [messages, currentStep, wizardData, initialIdea, selectedOptions, lastFailedRequest, cacheLoaded]);
 
   // 自动滚动到底部
   const scrollToBottom = () => {
@@ -1041,6 +1053,7 @@ const Inspiration: React.FC = () => {
       minHeight: '100vh',
       background: 'var(--color-bg-base)',
     }}>
+      {contextHolder}
       <style>
         {`
           @keyframes fadeInUp {
@@ -1128,7 +1141,35 @@ const Inspiration: React.FC = () => {
             </Text>
           </div>
 
-          <div style={{ width: isMobile ? 60 : 120 }}></div>
+          {/* 重新开始按钮 - 只在对话进行中显示 */}
+          {currentStep !== 'idea' && currentStep !== 'generating' && currentStep !== 'complete' ? (
+            <Button
+              icon={<ReloadOutlined />}
+              onClick={() => {
+                modal.confirm({
+                  title: '确认重新开始',
+                  content: '确定要重新开始吗？当前的对话进度将会丢失。',
+                  okText: '确认',
+                  cancelText: '取消',
+                  centered: true,
+                  okButtonProps: { danger: true },
+                  onOk: () => {
+                    handleRestart();
+                  },
+                });
+              }}
+              size={isMobile ? 'middle' : 'large'}
+              style={{
+                background: 'rgba(255,255,255,0.2)',
+                borderColor: 'rgba(255,255,255,0.3)',
+                color: '#fff',
+              }}
+            >
+              {isMobile ? '重新' : '重新开始'}
+            </Button>
+          ) : (
+            <div style={{ width: isMobile ? 60 : 120 }}></div>
+          )}
         </div>
       </div>
 

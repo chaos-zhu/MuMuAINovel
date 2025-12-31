@@ -1310,7 +1310,7 @@ async def outline_generator(
         ])
         
         # 第一阶段：生成3个粗粒度大纲节点
-        yield await SSEResponse.send_progress(f"生成{outline_count}个大纲节点...", 20)
+        yield await SSEResponse.send_progress(f"生成{outline_count}个大纲节点...", 10)
         
         outline_requirements = f"{requirements}\n\n【重要说明】这是小说的开局部分，请生成{outline_count}个大纲节点，重点关注：\n"
         outline_requirements += "1. 引入主要角色和世界观设定\n"
@@ -1355,7 +1355,7 @@ async def outline_generator(
             
             # 定期更新进度和字数（5-95%，AI生成占90%）
             if chunk_count % 5 == 0:
-                progress = min(5 + (chunk_count // 3), 95)
+                progress = min(10 + (chunk_count // 3), 90)
                 yield await SSEResponse.send_progress(
                     f"生成大纲中... ({len(accumulated_text)}字符)",
                     progress

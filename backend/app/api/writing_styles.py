@@ -285,11 +285,11 @@ async def get_writing_style(
     if not style:
         raise HTTPException(status_code=404, detail="写作风格不存在")
     
-    # 检查是否有项目将其设置为默认风格
+    # 检查是否有项目将其设置为默认风格（一个风格可能被多个项目使用，使用 first() 避免 MultipleResultsFound）
     result = await db.execute(
         select(ProjectDefaultStyle).where(ProjectDefaultStyle.style_id == style_id)
     )
-    is_default = result.scalar_one_or_none() is not None
+    is_default = result.scalars().first() is not None
     
     # 返回包含 is_default 字段的字典
     return {
@@ -351,11 +351,11 @@ async def update_writing_style(
     await db.commit()
     await db.refresh(style)
     
-    # 检查是否有项目将其设置为默认风格
+    # 检查是否有项目将其设置为默认风格（一个风格可能被多个项目使用，使用 first() 避免 MultipleResultsFound）
     result = await db.execute(
         select(ProjectDefaultStyle).where(ProjectDefaultStyle.style_id == style_id)
     )
-    is_default = result.scalar_one_or_none() is not None
+    is_default = result.scalars().first() is not None
     
     # 返回包含 is_default 字段的字典
     return {
@@ -405,11 +405,11 @@ async def delete_writing_style(
     if style.user_id != user_id:
         raise HTTPException(status_code=403, detail="无权删除其他用户的风格")
     
-    # 检查是否有项目将其设置为默认风格
+    # 检查是否有项目将其设置为默认风格（一个风格可能被多个项目使用，使用 first() 避免 MultipleResultsFound）
     result = await db.execute(
         select(ProjectDefaultStyle).where(ProjectDefaultStyle.style_id == style_id)
     )
-    default_relation = result.scalar_one_or_none()
+    default_relation = result.scalars().first()
     if default_relation:
         raise HTTPException(
             status_code=400,

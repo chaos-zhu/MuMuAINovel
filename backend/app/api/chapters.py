@@ -865,7 +865,7 @@ async def analyze_chapter_background(
         
         if not task:
             logger.error(f"❌ 任务不存在: {task_id}")
-            return
+            return False
         
         # 更新任务状态（写操作，需要锁）
         async with write_lock:
@@ -886,7 +886,7 @@ async def analyze_chapter_background(
                 task.completed_at = datetime.now()
                 await db_session.commit()
             logger.error(f"❌ 章节不存在或内容为空: {chapter_id}")
-            return
+            return False
         
         async with write_lock:
             task.progress = 20
@@ -908,7 +908,7 @@ async def analyze_chapter_background(
                 task.completed_at = datetime.now()
                 await db_session.commit()
             logger.error(f"❌ AI分析失败: {chapter_id}")
-            return
+            return False
         
         async with write_lock:
             task.progress = 60

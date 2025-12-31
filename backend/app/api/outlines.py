@@ -845,7 +845,7 @@ async def _continue_outline(
             try:
                 from app.services.auto_character_service import get_auto_character_service
                 
-                logger.info(f"🔮 【预测模式】在生成大纲前预测是否需要新角色（需要用户确认）")
+                logger.info(f"🔮 【预测模式】在生成大纲前预测是否需要新角色")
                 
                 # 构建已有章节概览
                 all_chapters_brief_for_analysis = ""

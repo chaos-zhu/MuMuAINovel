@@ -6,6 +6,7 @@ from app.services.prompt_service import prompt_service, PromptService
 from app.logger import get_logger
 import json
 import re
+import asyncio
 
 logger = get_logger(__name__)
 
@@ -30,10 +31,11 @@ class PlotAnalyzer:
         content: str,
         word_count: int,
         user_id: str = None,
-        db: AsyncSession = None
+        db: AsyncSession = None,
+        max_retries: int = 3
     ) -> Optional[Dict[str, Any]]:
         """
-        分析单章内容
+        分析单章内容（带重试机制）
         
         Args:
             chapter_number: 章节号
@@ -42,62 +44,116 @@ class PlotAnalyzer:
             word_count: 字数
             user_id: 用户ID（用于获取自定义提示词）
             db: 数据库会话（用于查询自定义提示词）
+            max_retries: 最大重试次数，默认3次
         
         Returns:
             分析结果字典,失败返回None
         """
+        logger.info(f"🔍 开始分析第{chapter_number}章: {title}")
+        
+        # 如果内容过长,截取前8000字(避免超token)
+        analysis_content = content[:8000] if len(content) > 8000 else content
+        
+        # 获取自定义提示词模板
         try:
-            logger.info(f"🔍 开始分析第{chapter_number}章: {title}")
-            
-            # 如果内容过长,截取前8000字(避免超token)
-            analysis_content = content[:8000] if len(content) > 8000 else content
-            
-            # 获取自定义提示词模板
             if user_id and db:
                 template = await PromptService.get_template("PLOT_ANALYSIS", user_id, db)
             else:
                 # 降级到系统默认模板
                 template = PromptService.PLOT_ANALYSIS
-            
-            # 格式化提示词
-            prompt = PromptService.format_prompt(
-                template,
-                chapter_number=chapter_number,
-                title=title,
-                word_count=word_count,
-                content=analysis_content
-            )
-            
-            # 调用AI进行分析
-            # 注意：不指定max_tokens，使用用户在设置中配置的值
-            logger.info(f"  调用AI分析(内容长度: {len(analysis_content)}字)...")
-            accumulated_text = ""
-            async for chunk in self.ai_service.generate_text_stream(
-                prompt=prompt,
-                temperature=0.3  # 降低温度以获得更稳定的JSON输出
-            ):
-                accumulated_text += chunk
-            
-            # 提取内容
-            response_text = accumulated_text
-            
-            # 解析JSON结果
-            analysis_result = self._parse_analysis_response(response_text)
-            
-            if analysis_result:
-                logger.info(f"✅ 第{chapter_number}章分析完成")
-                logger.info(f"  - 钩子: {len(analysis_result.get('hooks', []))}个")
-                logger.info(f"  - 伏笔: {len(analysis_result.get('foreshadows', []))}个")
-                logger.info(f"  - 情节点: {len(analysis_result.get('plot_points', []))}个")
-                logger.info(f"  - 整体评分: {analysis_result.get('scores', {}).get('overall', 'N/A')}")
-                return analysis_result
-            else:
-                logger.error(f"❌ 第{chapter_number}章分析失败: JSON解析错误")
-                return None
-                
         except Exception as e:
-            logger.error(f"❌ 章节分析异常: {str(e)}")
-            return None
+            logger.warning(f"⚠️ 获取提示词模板失败，使用默认模板: {str(e)}")
+            template = PromptService.PLOT_ANALYSIS
+        
+        # 格式化提示词
+        prompt = PromptService.format_prompt(
+            template,
+            chapter_number=chapter_number,
+            title=title,
+            word_count=word_count,
+            content=analysis_content
+        )
+        
+        last_error = None
+        
+        for attempt in range(1, max_retries + 1):
+            try:
+                # 调用AI进行分析
+                logger.info(f"  📡 调用AI分析(内容长度: {len(analysis_content)}字, 尝试 {attempt}/{max_retries})...")
+                accumulated_text = ""
+                
+                try:
+                    async for chunk in self.ai_service.generate_text_stream(
+                        prompt=prompt,
+                        temperature=0.3  # 降低温度以获得更稳定的JSON输出
+                    ):
+                        accumulated_text += chunk
+                except GeneratorExit:
+                    # 流式响应被中断
+                    logger.warning(f"⚠️ 流式响应被中断(GeneratorExit)，已累积 {len(accumulated_text)} 字符")
+                    # 如果已经累积了足够内容，继续尝试解析
+                    if len(accumulated_text) < 100:
+                        raise Exception("流式响应中断，内容不足")
+                except Exception as stream_error:
+                    logger.error(f"❌ 流式生成出错: {str(stream_error)}")
+                    raise
+                
+                # 检查响应是否为空
+                if not accumulated_text or len(accumulated_text.strip()) < 10:
+                    logger.warning(f"⚠️ AI响应为空或过短(长度: {len(accumulated_text)}), 尝试 {attempt}/{max_retries}")
+                    last_error = "AI响应为空或过短"
+                    if attempt < max_retries:
+                        wait_time = min(2 ** attempt, 10)
+                        logger.info(f"  ⏳ 等待 {wait_time} 秒后重试...")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(f"❌ 第{chapter_number}章分析失败: AI响应为空，已达最大重试次数")
+                        return None
+                
+                # 提取内容
+                response_text = accumulated_text
+                logger.debug(f"  收到AI响应，长度: {len(response_text)} 字符")
+                
+                # 解析JSON结果
+                analysis_result = self._parse_analysis_response(response_text)
+                
+                if analysis_result:
+                    logger.info(f"✅ 第{chapter_number}章分析完成 (尝试 {attempt}/{max_retries})")
+                    logger.info(f"  - 钩子: {len(analysis_result.get('hooks', []))}个")
+                    logger.info(f"  - 伏笔: {len(analysis_result.get('foreshadows', []))}个")
+                    logger.info(f"  - 情节点: {len(analysis_result.get('plot_points', []))}个")
+                    logger.info(f"  - 整体评分: {analysis_result.get('scores', {}).get('overall', 'N/A')}")
+                    return analysis_result
+                else:
+                    # JSON解析失败，重试
+                    logger.warning(f"⚠️ JSON解析失败, 尝试 {attempt}/{max_retries}")
+                    last_error = "JSON解析失败"
+                    if attempt < max_retries:
+                        wait_time = min(2 ** attempt, 10)
+                        logger.info(f"  ⏳ 等待 {wait_time} 秒后重试...")
+                        await asyncio.sleep(wait_time)
+                        continue
+                    else:
+                        logger.error(f"❌ 第{chapter_number}章分析失败: JSON解析错误，已达最大重试次数")
+                        return None
+                    
+            except Exception as e:
+                last_error = str(e)
+                logger.error(f"❌ 章节分析异常(尝试 {attempt}/{max_retries}): {last_error}")
+                
+                if attempt < max_retries:
+                    wait_time = min(2 ** attempt, 10)
+                    logger.info(f"  ⏳ 等待 {wait_time} 秒后重试...")
+                    await asyncio.sleep(wait_time)
+                    continue
+                else:
+                    logger.error(f"❌ 第{chapter_number}章分析失败: {last_error}，已达最大重试次数")
+                    return None
+        
+        # 不应该到达这里，但作为安全措施
+        logger.error(f"❌ 第{chapter_number}章分析失败: {last_error}")
+        return None
     
     def _parse_analysis_response(self, response: str) -> Optional[Dict[str, Any]]:
         """

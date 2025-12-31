@@ -54,37 +54,35 @@ def clean_json_response(text: str) -> str:
         stack = []
         i = 0
         end = -1
+        in_string = False
         
         while i < len(text):
             c = text[i]
             
-            # 处理字符串（关键：正确处理转义）
+            # 处理字符串状态
             if c == '"':
-                # 计算前面有多少个连续的反斜杠
-                num_backslashes = 0
-                j = i - 1
-                while j >= 0 and text[j] == '\\':
-                    num_backslashes += 1
-                    j -= 1
+                if not in_string:
+                    # 进入字符串
+                    in_string = True
+                else:
+                    # 检查是否是转义的引号
+                    num_backslashes = 0
+                    j = i - 1
+                    while j >= 0 and text[j] == '\\':
+                        num_backslashes += 1
+                        j -= 1
+                    
+                    # 偶数个反斜杠表示引号未被转义，字符串结束
+                    if num_backslashes % 2 == 0:
+                        in_string = False
                 
-                # 偶数个反斜杠（包括0）表示引号未被转义
-                if num_backslashes % 2 == 0:
-                    # 这是字符串边界，跳过整个字符串
-                    i += 1
-                    while i < len(text):
-                        if text[i] == '"':
-                            # 再次检查转义
-                            num_backslashes = 0
-                            j = i - 1
-                            while j >= 0 and text[j] == '\\':
-                                num_backslashes += 1
-                                j -= 1
-                            if num_backslashes % 2 == 0:
-                                # 字符串结束
-                                break
-                        i += 1
-                    i += 1
-                    continue
+                i += 1
+                continue
+            
+            # 在字符串内部，跳过所有字符
+            if in_string:
+                i += 1
+                continue
             
             # 处理括号（只有在字符串外部才有效）
             if c == '{' or c == '[':
@@ -96,8 +94,12 @@ def clean_json_response(text: str) -> str:
                         end = i + 1
                         logger.debug(f"✅ 找到JSON结束位置: {end}")
                         break
+                elif len(stack) > 0:
+                    # 括号不匹配，可能是损坏的JSON，尝试继续
+                    logger.warning(f"⚠️ 括号不匹配：遇到 }} 但栈顶是 {stack[-1]}")
                 else:
-                    logger.warning(f"⚠️ 括号不匹配：遇到 }} 但栈顶是 {stack[-1] if stack else 'empty'}")
+                    # 栈为空遇到 }，忽略多余的闭合括号
+                    logger.warning(f"⚠️ 遇到多余的 }}，忽略")
             elif c == ']':
                 if len(stack) > 0 and stack[-1] == '[':
                     stack.pop()
@@ -105,10 +107,18 @@ def clean_json_response(text: str) -> str:
                         end = i + 1
                         logger.debug(f"✅ 找到JSON结束位置: {end}")
                         break
+                elif len(stack) > 0:
+                    # 括号不匹配，可能是损坏的JSON，尝试继续
+                    logger.warning(f"⚠️ 括号不匹配：遇到 ] 但栈顶是 {stack[-1]}")
                 else:
-                    logger.warning(f"⚠️ 括号不匹配：遇到 ] 但栈顶是 {stack[-1] if stack else 'empty'}")
+                    # 栈为空遇到 ]，忽略多余的闭合括号
+                    logger.warning(f"⚠️ 遇到多余的 ]，忽略")
             
             i += 1
+        
+        # 检查未闭合的字符串
+        if in_string:
+            logger.warning(f"⚠️ 字符串未闭合，JSON可能不完整")
         
         # 提取结果
         if end > 0:

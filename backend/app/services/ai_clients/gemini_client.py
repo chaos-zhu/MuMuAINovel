@@ -2,6 +2,9 @@
 from typing import Any, AsyncGenerator, Dict, List, Optional
 import httpx
 from app.services.ai_config import AIClientConfig, default_config
+from app.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class GeminiClient:
@@ -123,19 +126,34 @@ class GeminiClient:
         if system_prompt:
             payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
 
-        async with self.client.stream("POST", url, json=payload) as response:
-            response.raise_for_status()
-            async for line in response.aiter_lines():
-                if line.startswith("data: "):
-                    import json
-                    try:
-                        data = json.loads(line[6:])
-                        candidates = data.get("candidates", [])
-                        if candidates and len(candidates) > 0:
-                            parts = candidates[0].get("content", {}).get("parts", [])
-                            if parts and len(parts) > 0:
-                                text = parts[0].get("text", "")
-                                if text:
-                                    yield text
-                    except:
-                        continue
+        try:
+            async with self.client.stream("POST", url, json=payload) as response:
+                response.raise_for_status()
+                try:
+                    async for line in response.aiter_lines():
+                        if line.startswith("data: "):
+                            import json
+                            try:
+                                data = json.loads(line[6:])
+                                candidates = data.get("candidates", [])
+                                if candidates and len(candidates) > 0:
+                                    parts = candidates[0].get("content", {}).get("parts", [])
+                                    if parts and len(parts) > 0:
+                                        text = parts[0].get("text", "")
+                                        if text:
+                                            yield text
+                            except json.JSONDecodeError:
+                                continue
+                except GeneratorExit:
+                    # 生成器被关闭，这是正常的清理过程
+                    logger.debug("Gemini 流式响应生成器被关闭(GeneratorExit)")
+                    raise
+                except Exception as iter_error:
+                    logger.error(f"Gemini 流式响应迭代出错: {str(iter_error)}")
+                    raise
+        except GeneratorExit:
+            # 重新抛出GeneratorExit，让调用方处理
+            raise
+        except Exception as e:
+            logger.error(f"Gemini 流式请求出错: {str(e)}")
+            raise
