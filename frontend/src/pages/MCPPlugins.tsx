@@ -12,7 +12,6 @@ import {
   Select,
   message,
   Tag,
-  Tooltip,
   Spin,
   Empty,
   Alert,
@@ -307,9 +306,7 @@ export default function MCPPluginsPage() {
         return <Tag color="success" icon={<CheckCircleOutlined />}>运行中</Tag>;
       case 'error':
         return (
-          <Tooltip title={plugin.last_error}>
-            <Tag color="error" icon={<CloseCircleOutlined />}>错误</Tag>
-          </Tooltip>
+          <Tag color="error" icon={<CloseCircleOutlined />} title={plugin.last_error}>错误</Tag>
         );
       default:
         return <Tag color="default">未激活</Tag>;
@@ -553,50 +550,45 @@ export default function MCPPluginsPage() {
                         </div>
 
                         <Space size="small" wrap>
-                          <Tooltip title={plugin.enabled ? '禁用插件' : '启用插件'}>
-                            <Switch
-                              checked={plugin.enabled}
-                              onChange={(checked) => handleToggle(plugin, checked)}
-                              size={isMobile ? 'small' : 'default'}
-                              style={{
-                                flexShrink: 0,
-                                height: isMobile ? 16 : 22,
-                                minHeight: isMobile ? 16 : 22,
-                                lineHeight: isMobile ? '16px' : '22px'
-                              }}
-                            />
-                          </Tooltip>
-                          <Tooltip title="测试连接">
-                            <Button
-                              icon={<ThunderboltOutlined />}
-                              onClick={() => handleTest(plugin.id)}
-                              loading={testingPluginId === plugin.id}
-                              size={isMobile ? 'small' : 'middle'}
-                            />
-                          </Tooltip>
-                          <Tooltip title="查看工具">
-                            <Button
-                              icon={<ToolOutlined />}
-                              onClick={() => handleViewTools(plugin.id)}
-                              disabled={!plugin.enabled || plugin.status !== 'active'}
-                              size={isMobile ? 'small' : 'middle'}
-                            />
-                          </Tooltip>
-                          <Tooltip title="编辑">
-                            <Button
-                              icon={<EditOutlined />}
-                              onClick={() => handleEdit(plugin)}
-                              size={isMobile ? 'small' : 'middle'}
-                            />
-                          </Tooltip>
-                          <Tooltip title="删除">
-                            <Button
-                              danger
-                              icon={<DeleteOutlined />}
-                              onClick={() => handleDelete(plugin)}
-                              size={isMobile ? 'small' : 'middle'}
-                            />
-                          </Tooltip>
+                          <Switch
+                            title={plugin.enabled ? '禁用插件' : '启用插件'}
+                            checked={plugin.enabled}
+                            onChange={(checked) => handleToggle(plugin, checked)}
+                            size={isMobile ? 'small' : 'default'}
+                            style={{
+                              flexShrink: 0,
+                              height: isMobile ? 16 : 22,
+                              minHeight: isMobile ? 16 : 22,
+                              lineHeight: isMobile ? '16px' : '22px'
+                            }}
+                          />
+                          <Button
+                            title="测试连接"
+                            icon={<ThunderboltOutlined />}
+                            onClick={() => handleTest(plugin.id)}
+                            loading={testingPluginId === plugin.id}
+                            size={isMobile ? 'small' : 'middle'}
+                          />
+                          <Button
+                            title="查看工具"
+                            icon={<ToolOutlined />}
+                            onClick={() => handleViewTools(plugin.id)}
+                            disabled={!plugin.enabled || plugin.status !== 'active'}
+                            size={isMobile ? 'small' : 'middle'}
+                          />
+                          <Button
+                            title="编辑"
+                            icon={<EditOutlined />}
+                            onClick={() => handleEdit(plugin)}
+                            size={isMobile ? 'small' : 'middle'}
+                          />
+                          <Button
+                            title="删除"
+                            danger
+                            icon={<DeleteOutlined />}
+                            onClick={() => handleDelete(plugin)}
+                            size={isMobile ? 'small' : 'middle'}
+                          />
                         </Space>
                       </div>
                     </Card>

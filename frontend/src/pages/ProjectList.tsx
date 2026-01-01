@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Empty, Modal, message, Spin, Row, Col, Statistic, Space, Tag, Progress, Typography, Tooltip, Badge, Alert, Upload, Checkbox, Divider, Switch, Dropdown, Form, Input, InputNumber } from 'antd';
+import { Card, Button, Empty, Modal, message, Spin, Row, Col, Statistic, Space, Tag, Progress, Typography, Badge, Alert, Upload, Checkbox, Divider, Switch, Dropdown, Form, Input, InputNumber } from 'antd';
 import { EditOutlined, DeleteOutlined, BookOutlined, RocketOutlined, CalendarOutlined, FileTextOutlined, TrophyOutlined, FireOutlined, SettingOutlined, InfoCircleOutlined, CloseOutlined, UploadOutlined, DownloadOutlined, ApiOutlined, MoreOutlined, BulbOutlined, LoadingOutlined, FileSearchOutlined } from '@ant-design/icons';
 import { projectApi } from '../services/api';
 import { useStore } from '../store';
@@ -1031,38 +1031,34 @@ export default function ProjectList() {
                                 {formatDate(project.updated_at)}
                               </Text>
                               <Space size={4}>
-                                <Tooltip title="编辑">
-                                  <Button
-                                    type="text"
-                                    size="small"
-                                    icon={<EditOutlined />}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleEditProject(project);
-                                    }}
-                                    style={{
-                                      borderRadius: 8,
-                                      color: 'var(--color-primary)',
-                                      transition: 'all 0.2s ease'
-                                    }}
-                                  />
-                                </Tooltip>
-                                <Tooltip title="删除">
-                                  <Button
-                                    type="text"
-                                    size="small"
-                                    danger
-                                    icon={<DeleteOutlined />}
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      handleDelete(project.id);
-                                    }}
-                                    style={{
-                                      borderRadius: 8,
-                                      transition: 'all 0.2s ease'
-                                    }}
-                                  />
-                                </Tooltip>
+                                <Button
+                                  type="text"
+                                  size="small"
+                                  icon={<EditOutlined />}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleEditProject(project);
+                                  }}
+                                  style={{
+                                    borderRadius: 8,
+                                    color: 'var(--color-primary)',
+                                    transition: 'all 0.2s ease'
+                                  }}
+                                />
+                                <Button
+                                  type="text"
+                                  size="small"
+                                  danger
+                                  icon={<DeleteOutlined />}
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleDelete(project.id);
+                                  }}
+                                  style={{
+                                    borderRadius: 8,
+                                    transition: 'all 0.2s ease'
+                                  }}
+                                />
                               </Space>
                             </div>
                           </div>
@@ -1249,9 +1245,10 @@ export default function ProjectList() {
                     }}
                   />
                   <Text style={{ fontSize: window.innerWidth <= 768 ? 13 : 14 }}>包含写作风格</Text>
-                  <Tooltip title="导出项目关联的写作风格数据">
-                    <InfoCircleOutlined style={{ color: '#999', fontSize: window.innerWidth <= 768 ? 12 : 14 }} />
-                  </Tooltip>
+                  <InfoCircleOutlined
+                    title="导出项目关联的写作风格数据"
+                    style={{ color: '#999', fontSize: window.innerWidth <= 768 ? 12 : 14 }}
+                  />
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                   <Switch
@@ -1266,9 +1263,10 @@ export default function ProjectList() {
                     }}
                   />
                   <Text style={{ fontSize: window.innerWidth <= 768 ? 13 : 14 }}>包含生成历史</Text>
-                  <Tooltip title="导出AI生成的历史记录（最多100条）">
-                    <InfoCircleOutlined style={{ color: '#999', fontSize: window.innerWidth <= 768 ? 12 : 14 }} />
-                  </Tooltip>
+                  <InfoCircleOutlined
+                    title="导出AI生成的历史记录（最多100条）"
+                    style={{ color: '#999', fontSize: window.innerWidth <= 768 ? 12 : 14 }}
+                  />
                 </div>
               </Space>
             </Card>

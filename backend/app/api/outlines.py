@@ -1052,26 +1052,49 @@ async def _continue_outline(
             mcp_references=mcp_reference_materials
         )
         
-        # 调用AI生成当前批次
+        # 调用AI生成当前批次（带重试机制）
         logger.info(f"正在调用AI流式生成第{batch_num + 1}批...")
-        accumulated_text = ""
-        chunk_count = 0
         
-        async for chunk in user_ai_service.generate_text_stream(
-            prompt=prompt,
-            provider=request.provider,
-            model=request.model
-        ):
-            chunk_count += 1
-            accumulated_text += chunk
+        max_retries = 2
+        retry_count = 0
+        outline_data = None
+        
+        while retry_count <= max_retries:
+            accumulated_text = ""
+            chunk_count = 0
             
-            # 这里是非SSE接口，不需要发送chunk
-        
-        ai_content = accumulated_text
-        ai_response = {"content": ai_content}
-        
-        # 解析响应
-        outline_data = _parse_ai_response(ai_content)
+            # 第一次使用原始prompt，重试时添加格式强调
+            current_prompt = prompt if retry_count == 0 else (
+                prompt + "\n\n【重要提醒】请确保返回完整的JSON数组，不要截断。每个章节对象必须包含完整的title、summary等字段。"
+            )
+            
+            async for chunk in user_ai_service.generate_text_stream(
+                prompt=current_prompt,
+                provider=request.provider,
+                model=request.model
+            ):
+                chunk_count += 1
+                accumulated_text += chunk
+                
+                # 这里是非SSE接口，不需要发送chunk
+            
+            ai_content = accumulated_text
+            ai_response = {"content": ai_content}
+            
+            # 解析响应
+            try:
+                outline_data = _parse_ai_response(ai_content, raise_on_error=True)
+                break  # 解析成功，跳出循环
+                
+            except JSONParseError as e:
+                retry_count += 1
+                if retry_count > max_retries:
+                    # 超过最大重试次数，使用fallback数据
+                    logger.error(f"❌ 第{batch_num + 1}批解析失败，已达最大重试次数({max_retries})，使用fallback数据")
+                    outline_data = _parse_ai_response(ai_content, raise_on_error=False)
+                    break
+                
+                logger.warning(f"⚠️ 第{batch_num + 1}批JSON解析失败（第{retry_count}次），正在重试...")
         
         # 保存当前批次的大纲
         batch_outlines = await _save_outlines(
@@ -1111,8 +1134,27 @@ async def _continue_outline(
     return OutlineListResponse(total=len(all_outlines), items=all_outlines)
 
 
-def _parse_ai_response(ai_response: str) -> list:
-    """解析AI响应为章节数据列表（使用统一的JSON清洗方法）"""
+class JSONParseError(Exception):
+    """JSON解析失败异常，用于触发重试"""
+    def __init__(self, message: str, original_content: str = ""):
+        super().__init__(message)
+        self.original_content = original_content
+
+
+def _parse_ai_response(ai_response: str, raise_on_error: bool = False) -> list:
+    """
+    解析AI响应为章节数据列表（使用统一的JSON清洗方法）
+    
+    Args:
+        ai_response: AI返回的原始文本
+        raise_on_error: 如果为True，解析失败时抛出异常而不是返回fallback数据
+        
+    Returns:
+        解析后的章节数据列表
+        
+    Raises:
+        JSONParseError: 当raise_on_error=True且解析失败时抛出
+    """
     try:
         # 使用统一的JSON清洗方法（从AIService导入）
         from app.services.ai_service import AIService
@@ -1129,19 +1171,49 @@ def _parse_ai_response(ai_response: str) -> list:
             else:
                 outline_data = [outline_data]
         
-        logger.info(f"✅ 成功解析 {len(outline_data)} 个章节数据")
-        return outline_data
+        # 验证解析结果是否有效（至少有一个有效章节）
+        valid_chapters = [
+            ch for ch in outline_data
+            if isinstance(ch, dict) and (ch.get("title") or ch.get("summary") or ch.get("content"))
+        ]
+        
+        if not valid_chapters:
+            error_msg = "解析结果无效：未找到有效的章节数据"
+            logger.error(f"❌ {error_msg}")
+            if raise_on_error:
+                raise JSONParseError(error_msg, ai_response)
+            return [{
+                "title": "AI生成的大纲",
+                "content": ai_response[:1000],
+                "summary": ai_response[:1000]
+            }]
+        
+        logger.info(f"✅ 成功解析 {len(valid_chapters)} 个章节数据")
+        return valid_chapters
         
     except json.JSONDecodeError as e:
+        error_msg = f"JSON解析失败: {e}"
         logger.error(f"❌ AI响应解析失败: {e}")
+        
+        if raise_on_error:
+            raise JSONParseError(error_msg, ai_response)
+        
         # 返回一个包含原始内容的章节
         return [{
             "title": "AI生成的大纲",
             "content": ai_response[:1000],
             "summary": ai_response[:1000]
         }]
+    except JSONParseError:
+        # 重新抛出JSONParseError
+        raise
     except Exception as e:
-        logger.error(f"❌ 解析异常: {str(e)}")
+        error_msg = f"解析异常: {str(e)}"
+        logger.error(f"❌ {error_msg}")
+        
+        if raise_on_error:
+            raise JSONParseError(error_msg, ai_response)
+        
         return [{
             "title": "解析异常的大纲",
             "content": "系统错误",
@@ -1389,8 +1461,60 @@ async def new_outline_generator(
         ai_content = accumulated_text
         ai_response = {"content": ai_content}
         
-        # 解析响应
-        outline_data = _parse_ai_response(ai_content)
+        # 解析响应（带重试机制）
+        max_retries = 2
+        retry_count = 0
+        outline_data = None
+        
+        while retry_count <= max_retries:
+            try:
+                # 使用 raise_on_error=True，解析失败时抛出异常
+                outline_data = _parse_ai_response(ai_content, raise_on_error=True)
+                break  # 解析成功，跳出循环
+                
+            except JSONParseError as e:
+                retry_count += 1
+                if retry_count > max_retries:
+                    # 超过最大重试次数，使用fallback数据
+                    logger.error(f"❌ 大纲解析失败，已达最大重试次数({max_retries})，使用fallback数据")
+                    yield await SSEResponse.send_progress(
+                        f"⚠️ 解析失败，使用备用数据",
+                        96.5
+                    )
+                    outline_data = _parse_ai_response(ai_content, raise_on_error=False)
+                    break
+                
+                logger.warning(f"⚠️ JSON解析失败（第{retry_count}次），正在重试...")
+                yield await SSEResponse.send_progress(
+                    f"⚠️ 解析失败，正在重试({retry_count}/{max_retries})...",
+                    96
+                )
+                
+                # 重新调用AI生成
+                accumulated_text = ""
+                chunk_count = 0
+                
+                # 在prompt中添加格式强调
+                retry_prompt = prompt + "\n\n【重要提醒】请确保返回完整的JSON数组，不要截断。每个章节对象必须包含完整的title、summary等字段。"
+                
+                async for chunk in user_ai_service.generate_text_stream(
+                    prompt=retry_prompt,
+                    provider=provider_param,
+                    model=model_param
+                ):
+                    chunk_count += 1
+                    accumulated_text += chunk
+                    
+                    # 发送内容块
+                    yield await SSEResponse.send_chunk(chunk)
+                    
+                    # 每20个块发送心跳
+                    if chunk_count % 20 == 0:
+                        yield await SSEResponse.send_heartbeat()
+                
+                ai_content = accumulated_text
+                ai_response = {"content": ai_content}
+                logger.info(f"🔄 重试生成完成，累计{len(ai_content)}字符")
         
         # 全新生成模式：删除旧大纲和关联的所有章节
         yield await SSEResponse.send_progress("清理旧大纲和章节...", 97)
@@ -1919,8 +2043,60 @@ async def continue_outline_generator(
             ai_content = accumulated_text
             ai_response = {"content": ai_content}
             
-            # 解析响应
-            outline_data = _parse_ai_response(ai_content)
+            # 解析响应（带重试机制）
+            max_retries = 2
+            retry_count = 0
+            outline_data = None
+            
+            while retry_count <= max_retries:
+                try:
+                    # 使用 raise_on_error=True，解析失败时抛出异常
+                    outline_data = _parse_ai_response(ai_content, raise_on_error=True)
+                    break  # 解析成功，跳出循环
+                    
+                except JSONParseError as e:
+                    retry_count += 1
+                    if retry_count > max_retries:
+                        # 超过最大重试次数，使用fallback数据
+                        logger.error(f"❌ 第{batch_num + 1}批解析失败，已达最大重试次数({max_retries})，使用fallback数据")
+                        yield await SSEResponse.send_progress(
+                            f"⚠️ 第{str(batch_num + 1)}批解析失败，使用备用数据",
+                            batch_progress + 11
+                        )
+                        outline_data = _parse_ai_response(ai_content, raise_on_error=False)
+                        break
+                    
+                    logger.warning(f"⚠️ 第{batch_num + 1}批JSON解析失败（第{retry_count}次），正在重试...")
+                    yield await SSEResponse.send_progress(
+                        f"⚠️ 第{str(batch_num + 1)}批解析失败，正在重试({retry_count}/{max_retries})...",
+                        batch_progress + 10.5
+                    )
+                    
+                    # 重新调用AI生成
+                    accumulated_text = ""
+                    chunk_count = 0
+                    
+                    # 在prompt中添加格式强调
+                    retry_prompt = prompt + "\n\n【重要提醒】请确保返回完整的JSON数组，不要截断。每个章节对象必须包含完整的title、summary等字段。"
+                    
+                    async for chunk in user_ai_service.generate_text_stream(
+                        prompt=retry_prompt,
+                        provider=provider_param,
+                        model=model_param
+                    ):
+                        chunk_count += 1
+                        accumulated_text += chunk
+                        
+                        # 发送内容块
+                        yield await SSEResponse.send_chunk(chunk)
+                        
+                        # 每20个块发送心跳
+                        if chunk_count % 20 == 0:
+                            yield await SSEResponse.send_heartbeat()
+                    
+                    ai_content = accumulated_text
+                    ai_response = {"content": ai_content}
+                    logger.info(f"🔄 第{batch_num + 1}批重试生成完成，累计{len(ai_content)}字符")
             
             # 保存当前批次的大纲
             batch_outlines = await _save_outlines(

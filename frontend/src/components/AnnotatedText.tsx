@@ -1,5 +1,4 @@
 import React, { useMemo, useEffect, useRef } from 'react';
-import { Tooltip } from 'antd';
 
 // 标注数据类型
 export interface MemoryAnnotation {
@@ -219,113 +218,54 @@ const AnnotatedText: React.FC<AnnotatedTextProps> = ({
     const icon = TYPE_ICONS[annotation.type];
     const isActive = activeAnnotationId === annotation.id;
 
-    // 🔧 工具提示内容：如果有多个标注，显示所有标注信息
-    const tooltipContent = (
-      <div style={{ maxWidth: 350 }}>
-        {annotations && annotations.length > 1 ? (
-          // 多个标注
-          <div>
-            <div style={{ fontWeight: 'bold', marginBottom: 8, borderBottom: '1px solid rgba(255,255,255,0.3)', paddingBottom: 4 }}>
-              📍 此处有 {annotations.length} 个标注
-            </div>
-            {annotations.map((ann, idx) => (
-              <div key={ann.id} style={{
-                marginBottom: idx < annotations.length - 1 ? 8 : 0,
-                paddingBottom: idx < annotations.length - 1 ? 8 : 0,
-                borderBottom: idx < annotations.length - 1 ? '1px solid rgba(255,255,255,0.1)' : 'none'
-              }}>
-                <div style={{ fontWeight: 'bold', marginBottom: 4, fontSize: 13 }}>
-                  {TYPE_ICONS[ann.type]} {ann.title}
-                </div>
-                <div style={{ fontSize: 11, opacity: 0.9 }}>
-                  {ann.content.slice(0, 80)}
-                  {ann.content.length > 80 ? '...' : ''}
-                </div>
-                <div style={{ marginTop: 4, fontSize: 10, opacity: 0.7 }}>
-                  重要性: {(ann.importance * 10).toFixed(1)}/10
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          // 单个标注
-          <div>
-            <div style={{ fontWeight: 'bold', marginBottom: 4 }}>
-              {icon} {annotation.title}
-            </div>
-            <div style={{ fontSize: 12, opacity: 0.9 }}>
-              {annotation.content.slice(0, 100)}
-              {annotation.content.length > 100 ? '...' : ''}
-            </div>
-            <div style={{ marginTop: 8, fontSize: 11, opacity: 0.7 }}>
-              重要性: {(annotation.importance * 10).toFixed(1)}/10
-            </div>
-            {annotation.tags && annotation.tags.length > 0 && (
-              <div style={{ marginTop: 4, fontSize: 11 }}>
-                {annotation.tags.map((tag, i) => (
-                  <span
-                    key={i}
-                    style={{
-                      display: 'inline-block',
-                      background: 'rgba(255,255,255,0.2)',
-                      padding: '2px 6px',
-                      borderRadius: 3,
-                      marginRight: 4,
-                    }}
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    );
+    // 简化工具提示内容，不再使用复杂的React元素，改为纯文本或移除Tooltip
+    const tooltipText = annotations && annotations.length > 1
+      ? `此处有 ${annotations.length} 个标注`
+      : `${annotation.title}: ${annotation.content.slice(0, 100)}${annotation.content.length > 100 ? '...' : ''}`;
 
     return (
-      <Tooltip key={index} title={tooltipContent} placement="top">
+      <span
+        key={index}
+        title={tooltipText}
+        ref={(el) => {
+          if (annotation) {
+            annotationRefs.current[annotation.id] = el;
+          }
+        }}
+        data-annotation-id={annotation?.id}
+        className={`annotated-text ${isActive ? 'active' : ''}`}
+        style={{
+          position: 'relative',
+          borderBottom: `2px solid ${color}`,
+          cursor: 'pointer',
+          backgroundColor: isActive ? `${color}22` : 'transparent',
+          transition: 'all 0.2s',
+          padding: '2px 0',
+        }}
+        onClick={() => onAnnotationClick?.(annotation)}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.backgroundColor = `${color}33`;
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.backgroundColor = isActive
+            ? `${color}22`
+            : 'transparent';
+        }}
+      >
+        {segment.content}
         <span
-          ref={(el) => {
-            if (annotation) {
-              annotationRefs.current[annotation.id] = el;
-            }
-          }}
-          data-annotation-id={annotation?.id}
-          className={`annotated-text ${isActive ? 'active' : ''}`}
           style={{
-            position: 'relative',
-            borderBottom: `2px solid ${color}`,
-            cursor: 'pointer',
-            backgroundColor: isActive ? `${color}22` : 'transparent',
-            transition: 'all 0.2s',
-            padding: '2px 0',
-          }}
-          onClick={() => onAnnotationClick?.(annotation)}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = `${color}33`;
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = isActive
-              ? `${color}22`
-              : 'transparent';
+            position: 'absolute',
+            top: -20,
+            left: '50%',
+            transform: 'translateX(-50%)',
+            fontSize: 14,
+            pointerEvents: 'none',
           }}
         >
-          {segment.content}
-          <span
-            style={{
-              position: 'absolute',
-              top: -20,
-              left: '50%',
-              transform: 'translateX(-50%)',
-              fontSize: 14,
-              pointerEvents: 'none',
-            }}
-          >
-            {icon}
-          </span>
+          {icon}
         </span>
-      </Tooltip>
+      </span>
     );
   };
 

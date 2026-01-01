@@ -50,7 +50,7 @@ function App() {
           <Route path="/user-management" element={<ProtectedRoute><UserManagement /></ProtectedRoute>} />
           <Route path="/chapters/:chapterId/reader" element={<ProtectedRoute><ChapterReader /></ProtectedRoute>} />
           <Route path="/project/:projectId" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>}>
-            <Route index element={<Navigate to="world-setting" replace />} />
+            <Route index element={<Navigate to="sponsor" replace />} />
             <Route path="world-setting" element={<WorldSetting />} />
             <Route path="careers" element={<Careers />} />
             <Route path="outline" element={<Outline />} />

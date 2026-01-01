@@ -96,6 +96,11 @@ export default function ProjectDetail() {
 
   const menuItems = [
     {
+      key: 'sponsor',
+      icon: <HeartOutlined />,
+      label: <Link to={`/project/${projectId}/sponsor`}>赞助支持</Link>,
+    },
+    {
       key: 'world-setting',
       icon: <GlobalOutlined />,
       label: <Link to={`/project/${projectId}/world-setting`}>世界设定</Link>,
@@ -145,11 +150,6 @@ export default function ProjectDetail() {
     //   icon: <ToolOutlined />,
     //   label: <Link to={`/project/${projectId}/polish`}>AI去味</Link>,
     // },
-    {
-      key: 'sponsor',
-      icon: <HeartOutlined />,
-      label: <Link to={`/project/${projectId}/sponsor`}>赞助支持</Link>,
-    },
   ];
 
   // 根据当前路径动态确定选中的菜单项
@@ -166,7 +166,7 @@ export default function ProjectDetail() {
     if (path.includes('/writing-styles')) return 'writing-styles';
     if (path.includes('/sponsor')) return 'sponsor';
     // if (path.includes('/polish')) return 'polish';
-    return 'world-setting'; // 默认选中世界设定
+    return 'sponsor'; // 默认选中赞助支持
   }, [location.pathname]);
 
   if (loading || !currentProject) {

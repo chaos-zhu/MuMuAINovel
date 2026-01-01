@@ -21,9 +21,9 @@ interface SponsorOption {
 const sponsorOptions: SponsorOption[] = [
     { amount: 5, label: '🌶️ 一包辣条', image: '/5.png', description: '¥5' },
     { amount: 10, label: '🍱 一顿拼好饭', image: '/10.png', description: '¥10' },
-    { amount: 20, label: '🧋 一杯奶茶', image: '/20.png', description: '¥20' },
+    { amount: 20, label: '🧋 一杯咖啡', image: '/20.png', description: '¥20' },
     { amount: 50, label: '🍖 一次烧烤', image: '/50.png', description: '¥50' },
-    { amount: 'custom', label: '💰 任意金额', image: '/xx.png', description: '自定义' },
+    { amount: 99, label: '🍲 一顿海底捞', image: '/99.png', description: '¥99' },
 ];
 
 const benefits = [

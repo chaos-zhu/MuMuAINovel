@@ -1,4 +1,4 @@
-import { Modal, Timeline, Tag, Avatar, Empty, Spin, Button, Space, Tooltip } from 'antd';
+import { Modal, Timeline, Tag, Avatar, Empty, Spin, Button, Space } from 'antd';
 import { useState, useEffect } from 'react';
 import {
   BugOutlined,
@@ -130,15 +130,14 @@ export default function ChangelogModal({ visible, onClose }: ChangelogModalProps
         <Space>
           <GithubOutlined />
           <span>更新日志</span>
-          <Tooltip title="刷新">
-            <Button
-              type="text"
-              size="small"
-              icon={<ReloadOutlined />}
-              onClick={handleRefresh}
-              loading={loading}
-            />
-          </Tooltip>
+          <Button
+            type="text"
+            size="small"
+            icon={<ReloadOutlined />}
+            onClick={handleRefresh}
+            loading={loading}
+            title="刷新"
+          />
         </Space>
       }
       open={visible}

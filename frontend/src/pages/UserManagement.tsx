@@ -15,7 +15,6 @@ import {
   Typography,
   Badge,
   InputNumber,
-  Tooltip,
   Row,
   Col,
   Pagination,
@@ -350,27 +349,23 @@ export default function UserManagement() {
         // 桌面端：保持原有按钮样式
         return (
           <Space size="small">
-            <Tooltip title="编辑用户">
-              <Button
-                type="link"
-                size="small"
-                icon={<EditOutlined />}
-                onClick={() => handleEdit(record)}
-              >
-                编辑
-              </Button>
-            </Tooltip>
+            <Button
+              type="link"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => handleEdit(record)}
+            >
+              编辑
+            </Button>
 
-            <Tooltip title="重置密码">
-              <Button
-                type="link"
-                size="small"
-                icon={<KeyOutlined />}
-                onClick={() => handleResetPassword(record)}
-              >
-                重置密码
-              </Button>
-            </Tooltip>
+            <Button
+              type="link"
+              size="small"
+              icon={<KeyOutlined />}
+              onClick={() => handleResetPassword(record)}
+            >
+              重置密码
+            </Button>
 
             <Popconfirm
               title={`确定${isActive ? '禁用' : '启用'}该用户吗？`}
@@ -378,16 +373,14 @@ export default function UserManagement() {
               okText="确定"
               cancelText="取消"
             >
-              <Tooltip title={isActive ? '禁用用户' : '启用用户'}>
-                <Button
-                  type="link"
-                  size="small"
-                  danger={isActive}
-                  icon={isActive ? <StopOutlined /> : <CheckCircleOutlined />}
-                >
-                  {isActive ? '禁用' : '启用'}
-                </Button>
-              </Tooltip>
+              <Button
+                type="link"
+                size="small"
+                danger={isActive}
+                icon={isActive ? <StopOutlined /> : <CheckCircleOutlined />}
+              >
+                {isActive ? '禁用' : '启用'}
+              </Button>
             </Popconfirm>
 
             {!record.is_admin && (
@@ -398,16 +391,14 @@ export default function UserManagement() {
                 cancelText="取消"
                 okButtonProps={{ danger: true }}
               >
-                <Tooltip title="删除用户">
-                  <Button
-                    type="link"
-                    size="small"
-                    danger
-                    icon={<DeleteOutlined />}
-                  >
-                    删除
-                  </Button>
-                </Tooltip>
+                <Button
+                  type="link"
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                >
+                  删除
+                </Button>
               </Popconfirm>
             )}
           </Space>

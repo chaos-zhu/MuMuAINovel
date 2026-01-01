@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Typography, Space, Divider, Badge, Tooltip, Button } from 'antd';
+import { Typography, Space, Divider, Badge, Button } from 'antd';
 import { GithubOutlined, CopyrightOutlined, HeartFilled, ClockCircleOutlined, GiftOutlined } from '@ant-design/icons';
 import { VERSION_INFO, getVersionString } from '../config/version';
 import { checkLatestVersion } from '../services/versionService';
@@ -70,22 +70,21 @@ export default function AppFooter() {
             flexWrap: 'wrap'
           }}>
             <Badge dot={hasUpdate} offset={[-8, 2]}>
-              <Tooltip title={hasUpdate ? `发现新版本 v${latestVersion}，点击查看` : '当前版本'}>
-                <Text
-                  onClick={handleVersionClick}
-                  style={{
-                    fontSize: 11,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 4,
-                    color: 'var(--color-primary)',
-                    cursor: hasUpdate ? 'pointer' : 'default',
-                  }}
-                >
-                  <strong style={{ color: 'var(--color-text-primary)' }}>{VERSION_INFO.projectName}</strong>
-                  <span>{getVersionString()}</span>
-                </Text>
-              </Tooltip>
+              <Text
+                onClick={handleVersionClick}
+                style={{
+                  fontSize: 11,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 4,
+                  color: 'var(--color-primary)',
+                  cursor: hasUpdate ? 'pointer' : 'default',
+                }}
+                title={hasUpdate ? `发现新版本 v${latestVersion}，点击查看` : '当前版本'}
+              >
+                <strong style={{ color: 'var(--color-text-primary)' }}>{VERSION_INFO.projectName}</strong>
+                <span>{getVersionString()}</span>
+              </Text>
             </Badge>
             <Divider type="vertical" style={{ margin: '0 4px', borderColor: 'var(--color-border)' }} />
             <Button
@@ -144,34 +143,33 @@ export default function AppFooter() {
           >
             {/* 版本信息 */}
             <Badge dot={hasUpdate} offset={[-8, 2]}>
-              <Tooltip title={hasUpdate ? `发现新版本 v${latestVersion}，点击查看` : '当前版本'}>
-                <Text
-                  onClick={handleVersionClick}
-                  style={{
-                    fontSize: 12,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 6,
-                    color: 'var(--color-text-secondary)',
-                    textShadow: 'none',
-                    cursor: hasUpdate ? 'pointer' : 'default',
-                    transition: 'all 0.3s',
-                  }}
-                  onMouseEnter={(e) => {
-                    if (hasUpdate) {
-                      e.currentTarget.style.transform = 'scale(1.05)';
-                    }
-                  }}
-                  onMouseLeave={(e) => {
-                    if (hasUpdate) {
-                      e.currentTarget.style.transform = 'scale(1)';
-                    }
-                  }}
-                >
-                  <strong style={{ color: 'var(--color-text-primary)' }}>{VERSION_INFO.projectName}</strong>
-                  <span>{getVersionString()}</span>
-                </Text>
-              </Tooltip>
+              <Text
+                onClick={handleVersionClick}
+                style={{
+                  fontSize: 12,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 6,
+                  color: 'var(--color-text-secondary)',
+                  textShadow: 'none',
+                  cursor: hasUpdate ? 'pointer' : 'default',
+                  transition: 'all 0.3s',
+                }}
+                onMouseEnter={(e) => {
+                  if (hasUpdate) {
+                    e.currentTarget.style.transform = 'scale(1.05)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (hasUpdate) {
+                    e.currentTarget.style.transform = 'scale(1)';
+                  }
+                }}
+                title={hasUpdate ? `发现新版本 v${latestVersion}，点击查看` : '当前版本'}
+              >
+                <strong style={{ color: 'var(--color-text-primary)' }}>{VERSION_INFO.projectName}</strong>
+                <span>{getVersionString()}</span>
+              </Text>
             </Badge>
 
             {/* GitHub 链接 */}

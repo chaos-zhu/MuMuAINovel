@@ -12,8 +12,7 @@ import {
   Empty,
   Typography,
   Row,
-  Col,
-  Tooltip
+  Col
 } from 'antd';
 import {
   PlusOutlined,
@@ -232,28 +231,26 @@ export default function WritingStyles() {
                     padding: '16px',
                   }}
                   actions={[
-                    <Tooltip key="default" title={style.is_default ? '当前默认' : '设为默认'}>
-                      <span
-                        onClick={() => !style.is_default && handleSetDefault(style.id)}
-                        style={{ cursor: style.is_default ? 'default' : 'pointer' }}
-                      >
-                        {style.is_default ? (
-                          <StarFilled style={{ color: '#faad14', fontSize: 18 }} />
-                        ) : (
-                          <StarOutlined style={{ fontSize: 18 }} />
-                        )}
-                      </span>
-                    </Tooltip>,
-                    <Tooltip key="edit" title={style.user_id === null ? '预设风格不可编辑' : '编辑'}>
-                      <EditOutlined
-                        onClick={() => style.user_id !== null && handleEdit(style)}
-                        style={{
-                          fontSize: 18,
-                          cursor: style.user_id === null ? 'not-allowed' : 'pointer',
-                          color: style.user_id === null ? '#ccc' : undefined
-                        }}
-                      />
-                    </Tooltip>,
+                    <span
+                      key="default"
+                      onClick={() => !style.is_default && handleSetDefault(style.id)}
+                      style={{ cursor: style.is_default ? 'default' : 'pointer' }}
+                    >
+                      {style.is_default ? (
+                        <StarFilled style={{ color: '#faad14', fontSize: 18 }} />
+                      ) : (
+                        <StarOutlined style={{ fontSize: 18 }} />
+                      )}
+                    </span>,
+                    <EditOutlined
+                      key="edit"
+                      onClick={() => style.user_id !== null && handleEdit(style)}
+                      style={{
+                        fontSize: 18,
+                        cursor: style.user_id === null ? 'not-allowed' : 'pointer',
+                        color: style.user_id === null ? '#ccc' : undefined
+                      }}
+                    />,
                     <Popconfirm
                       key="delete"
                       title="确定删除这个风格吗？"
@@ -263,19 +260,13 @@ export default function WritingStyles() {
                       cancelText="取消"
                       disabled={style.user_id === null}
                     >
-                      <Tooltip title={
-                        style.user_id === null
-                          ? '预设风格不可删除'
-                          : '删除'
-                      }>
-                        <DeleteOutlined
-                          style={{
-                            fontSize: 18,
-                            color: style.user_id === null ? '#ccc' : undefined,
-                            cursor: style.user_id === null ? 'not-allowed' : 'pointer'
-                          }}
-                        />
-                      </Tooltip>
+                      <DeleteOutlined
+                        style={{
+                          fontSize: 18,
+                          color: style.user_id === null ? '#ccc' : undefined,
+                          cursor: style.user_id === null ? 'not-allowed' : 'pointer'
+                        }}
+                      />
                     </Popconfirm>,
                   ]}
                 >

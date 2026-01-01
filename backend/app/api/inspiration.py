@@ -7,7 +7,7 @@ import json
 from app.database import get_db
 from app.services.ai_service import AIService
 from app.api.settings import get_user_ai_service
-from app.services.prompt_service import prompt_service, PromptService
+from app.services.prompt_service import PromptService
 from app.logger import get_logger
 
 router = APIRouter(prefix="/inspiration", tags=["灵感模式"])
@@ -441,17 +441,13 @@ async def quick_generate(
         existing_text = "\n".join(existing_info) if existing_info else "暂无信息"
         
         # 获取自定义提示词模板
-        prompt_template_str = await PromptService.get_template("INSPIRATION_QUICK_COMPLETE", user_id, db)
+        system_template = await PromptService.get_template("INSPIRATION_QUICK_COMPLETE", user_id, db)
         
         # 格式化提示词
-        try:
-            prompts = json.loads(prompt_template_str)
-            # 格式化参数
-            prompts["system"] = prompts["system"].replace("{existing}", existing_text)
-            prompts["user"] = prompts["user"].replace("{existing}", existing_text)
-        except (json.JSONDecodeError, KeyError):
-            # 降级使用原有方法
-            prompts = prompt_service.get_inspiration_quick_complete_prompt(existing=existing_text)
+        prompts = {
+            "system": PromptService.format_prompt(system_template, existing=existing_text),
+            "user": "请补全小说信息"
+        }
         
         # 调用AI - 流式生成并累积文本
         accumulated_text = ""
