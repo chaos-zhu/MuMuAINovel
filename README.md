@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-1.2.3-blue.svg)
+![Version](https://img.shields.io/badge/version-1.2.4-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109.0-green.svg)
 ![React](https://img.shields.io/badge/react-18.3.1-blue.svg)
@@ -23,6 +23,24 @@
 如果这个项目对你有帮助，欢迎通过以下方式支持开发：
 
 **[☕ 请我喝杯咖啡](https://mumuverse.space:1588/)**
+
+### 🎁 赞助专属权益
+
+| 权益 | 说明 |
+|------|------|
+| 📋 **优先需求响应** | 您的功能需求和问题反馈将获得优先处理 |
+| 🚀 **Windows一键启动** | 获取免安装EXE程序，双击即可使用 |
+| 💬 **专属技术支持** | 加入赞助者内部群，获得远程协助和配置指导 |
+
+### ☕ 赞助金额
+
+| 金额 | 描述 |
+|------|------|
+| ¥5 | 🌶️ 一包辣条 |
+| ¥10 | 🍱 一顿拼好饭 |
+| ¥20 | 🧋 一杯咖啡 |
+| ¥50 | 🍖 一次烧烤 |
+| ¥99 | 🍲 一顿海底捞 |
 
 您的支持是我持续开发的动力！🙏
 
@@ -129,10 +147,144 @@ docker-compose up -d
 # 1. 拉取最新镜像（已包含模型文件）
 docker pull mumujie/mumuainovel:latest
 
-# 2. 配置 .env 文件
-cp backend/.env.example .env
-# 编辑 .env 填入配置
+# 2. 创建 docker-compose.yml（点击下方展开查看完整配置）
+```
 
+<details>
+<summary>📄 点击展开 docker-compose.yml 完整配置</summary>
+
+```yaml
+services:
+  postgres:
+    image: postgres:18-alpine
+    container_name: mumuainovel-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mumuai_novel}
+      POSTGRES_USER: ${POSTGRES_USER:-mumuai}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-123456}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./backend/scripts/init_postgres.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mumuai} -d ${POSTGRES_DB:-mumuai_novel}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - ai-story-network
+    command:
+      - postgres
+      - -c
+      - max_connections=${POSTGRES_MAX_CONNECTIONS:-200}
+      - -c
+      - shared_buffers=${POSTGRES_SHARED_BUFFERS:-256MB}
+      - -c
+      - effective_cache_size=${POSTGRES_EFFECTIVE_CACHE_SIZE:-1GB}
+      - -c
+      - maintenance_work_mem=${POSTGRES_MAINTENANCE_WORK_MEM:-64MB}
+      - -c
+      - checkpoint_completion_target=${POSTGRES_CHECKPOINT_COMPLETION_TARGET:-0.9}
+      - -c
+      - wal_buffers=${POSTGRES_WAL_BUFFERS:-16MB}
+      - -c
+      - default_statistics_target=${POSTGRES_DEFAULT_STATISTICS_TARGET:-100}
+      - -c
+      - random_page_cost=${POSTGRES_RANDOM_PAGE_COST:-1.1}
+      - -c
+      - effective_io_concurrency=${POSTGRES_EFFECTIVE_IO_CONCURRENCY:-200}
+      - -c
+      - work_mem=${POSTGRES_WORK_MEM:-4MB}
+      - -c
+      - min_wal_size=${POSTGRES_MIN_WAL_SIZE:-1GB}
+      - -c
+      - max_wal_size=${POSTGRES_MAX_WAL_SIZE:-4GB}
+
+  mumuainovel:
+    image: mumujie/mumuainovel:latest
+    container_name: mumuainovel
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+    environment:
+      # 应用配置
+      - APP_NAME=${APP_NAME:-MuMuAINovel}
+      - APP_VERSION=${APP_VERSION:-1.0.0}
+      - APP_HOST=${APP_HOST:-0.0.0.0}
+      - APP_PORT=8000
+      - DEBUG=${DEBUG:-false}
+      # 数据库配置
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-mumuai}:${POSTGRES_PASSWORD:-123456}@postgres:5432/${POSTGRES_DB:-mumuai_novel}
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-123456}
+      # PostgreSQL 连接池配置
+      - DATABASE_POOL_SIZE=${DATABASE_POOL_SIZE:-30}
+      - DATABASE_MAX_OVERFLOW=${DATABASE_MAX_OVERFLOW:-20}
+      - DATABASE_POOL_TIMEOUT=${DATABASE_POOL_TIMEOUT:-60}
+      - DATABASE_POOL_RECYCLE=${DATABASE_POOL_RECYCLE:-1800}
+      - DATABASE_POOL_PRE_PING=${DATABASE_POOL_PRE_PING:-True}
+      - DATABASE_POOL_USE_LIFO=${DATABASE_POOL_USE_LIFO:-True}
+      # 代理配置（可选）
+      - HTTP_PROXY=${HTTP_PROXY:-}
+      - HTTPS_PROXY=${HTTPS_PROXY:-}
+      - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1}
+      # AI 服务配置
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENAI_BASE_URL=${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GEMINI_BASE_URL=${GEMINI_BASE_URL:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-}
+      - DEFAULT_AI_PROVIDER=${DEFAULT_AI_PROVIDER:-openai}
+      - DEFAULT_MODEL=${DEFAULT_MODEL:-gpt-4o-mini}
+      - DEFAULT_TEMPERATURE=${DEFAULT_TEMPERATURE:-0.7}
+      - DEFAULT_MAX_TOKENS=${DEFAULT_MAX_TOKENS:-32000}
+      # LinuxDO OAuth 配置
+      - LINUXDO_CLIENT_ID=${LINUXDO_CLIENT_ID:-11111}
+      - LINUXDO_CLIENT_SECRET=${LINUXDO_CLIENT_SECRET:-11111}
+      - LINUXDO_REDIRECT_URI=${LINUXDO_REDIRECT_URI:-http://localhost:8000/api/auth/linuxdo/callback}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8000}
+      # 本地账户登录配置
+      - LOCAL_AUTH_ENABLED=${LOCAL_AUTH_ENABLED:-true}
+      - LOCAL_AUTH_USERNAME=${LOCAL_AUTH_USERNAME:-admin}
+      - LOCAL_AUTH_PASSWORD=${LOCAL_AUTH_PASSWORD:-admin123}
+      - LOCAL_AUTH_DISPLAY_NAME=${LOCAL_AUTH_DISPLAY_NAME:-本地管理员}
+      # 会话配置
+      - SESSION_EXPIRE_MINUTES=${SESSION_EXPIRE_MINUTES:-120}
+      - SESSION_REFRESH_THRESHOLD_MINUTES=${SESSION_REFRESH_THRESHOLD_MINUTES:-30}
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - ai-story-network
+
+volumes:
+  postgres_data:
+    driver: local
+
+networks:
+  ai-story-network:
+    driver: bridge
+```
+
+</details>
+
+```bash
 # 3. 启动服务
 docker-compose up -d
 
