@@ -354,26 +354,14 @@ class AutoCharacterService:
             mcp_references=""  # 暂时不使用MCP增强
         )
         
-        # 调用AI生成（使用统一的JSON调用方法）
+        # 调用AI生成（禁用MCP，避免累积超时导致卡死）
         try:
-            if enable_mcp and user_id:
-                result = await self.ai_service.generate_text_with_mcp(
-                    prompt=prompt,
-                    user_id=user_id,
-                    db_session=db,
-                    enable_mcp=True,
-                    max_tool_rounds=2
-                )
-                content = result.get("content", "")
-                # 使用统一的JSON清洗方法
-                cleaned = self.ai_service._clean_json_response(content)
-                character_data = json.loads(cleaned)
-            else:
-                # 非MCP调用：使用带自动重试的JSON调用
-                character_data = await self.ai_service.call_with_json_retry(
-                    prompt=prompt,
-                    max_retries=3
-                )
+            # 🔧 优化：角色详情生成不使用MCP，只在分析阶段使用MCP
+            # 这样可以减少大量的外部工具调用，避免超时和卡死
+            character_data = await self.ai_service.call_with_json_retry(
+                prompt=prompt,
+                max_retries=2  # 减少重试次数以加快速度
+            )
             
             char_name = character_data.get('name', '未知')
             logger.info(f"    ✅ 角色详情生成成功: {char_name}")

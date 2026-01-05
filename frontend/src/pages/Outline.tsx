@@ -1892,8 +1892,10 @@ export default function Outline() {
       setSSEModalVisible(true);
 
       // 准备请求数据，添加确认的组织
+      // ⚠️ 移除 confirmed_characters，避免重复创建角色
+      const { confirmed_characters, ...baseData } = pendingGenerateData;
       const requestData = {
-        ...pendingGenerateData,
+        ...baseData,
         confirmed_organizations: selectedOrganizations
       };
 
@@ -1953,8 +1955,9 @@ export default function Outline() {
       setSSEModalVisible(true);
 
       // 准备请求数据，禁用自动组织引入
+      const { confirmed_characters, ...baseData } = pendingGenerateData;
       const requestData = {
-        ...pendingGenerateData,
+        ...baseData,
         enable_auto_organizations: false  // 禁用自动组织引入
       };
 

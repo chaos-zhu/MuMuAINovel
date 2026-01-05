@@ -909,7 +909,8 @@ async def _continue_outline(
     stage_instruction = stage_instructions.get(request.plot_stage, "")
     
     # 🎭 【方案A】先角色后大纲：在生成大纲前预测并创建角色
-    if request.enable_auto_characters:
+    # 🔧 判断：如果confirmed_organizations存在，说明已经是组织确认阶段，跳过角色处理
+    if request.enable_auto_characters and not request.confirmed_organizations:
         # 检查是否有用户确认的角色列表
         if request.confirmed_characters:
             # 直接使用用户确认的角色列表创建角色
@@ -920,8 +921,18 @@ async def _continue_outline(
                 
                 auto_char_service = get_auto_character_service(user_ai_service)
                 
+                # 🔧 去重检查：获取现有角色名称列表，避免重复创建
+                existing_character_names = {char.name for char in characters}
+                actually_created_count = 0
+                
                 for char_data in request.confirmed_characters:
                     try:
+                        # 检查角色是否已存在
+                        char_name = char_data.get("name") or char_data.get("character_name")
+                        if char_name in existing_character_names:
+                            logger.warning(f"⚠️ 角色 '{char_name}' 已存在，跳过创建")
+                            continue
+                        
                         # 生成角色详细信息
                         character_data = await auto_char_service._generate_character_details(
                             spec=char_data,
@@ -951,6 +962,8 @@ async def _continue_outline(
                             )
                         
                         characters.append(character)
+                        existing_character_names.add(character.name)  # 更新已存在的角色名称集合
+                        actually_created_count += 1
                         logger.info(f"✅ 创建确认的角色: {character.name}")
                         
                     except Exception as e:
@@ -958,7 +971,11 @@ async def _continue_outline(
                         continue
                 
                 # 提交角色到数据库
-                await db.commit()
+                if actually_created_count > 0:
+                    await db.commit()
+                    logger.info(f"✅ 【确认模式】实际创建了 {actually_created_count} 个新角色（跳过了 {len(request.confirmed_characters) - actually_created_count} 个已存在的角色）")
+                else:
+                    logger.info(f"ℹ️ 【确认模式】所有角色均已存在，无需创建")
                 
                 # 更新角色信息（供后续大纲生成使用）
                 characters_info = "\n".join([
@@ -966,8 +983,6 @@ async def _continue_outline(
                     f"{char.personality[:100] if char.personality else '暂无描述'}"
                     for char in characters
                 ])
-                
-                logger.info(f"✅ 【确认模式】成功创建 {len(request.confirmed_characters)} 个用户确认的角色")
                 
             except Exception as e:
                 logger.error(f"⚠️ 【确认模式】创建确认角色失败: {e}", exc_info=True)
@@ -2058,8 +2073,10 @@ async def continue_outline_generator(
         # 🎭 【方案A】先角色后大纲：在生成大纲前预测并创建角色
         enable_auto_characters = data.get("enable_auto_characters", True)
         confirmed_characters = data.get("confirmed_characters")
+        confirmed_organizations = data.get("confirmed_organizations")
         
-        if enable_auto_characters:
+        # 🔧 判断：如果confirmed_organizations存在，说明已经是组织确认阶段，跳过角色处理
+        if enable_auto_characters and not confirmed_organizations:
             # 检查是否有用户确认的角色列表
             if confirmed_characters:
                 # 直接使用用户确认的角色列表创建角色
@@ -2075,9 +2092,18 @@ async def continue_outline_generator(
                     
                     auto_char_service = get_auto_character_service(user_ai_service)
                     
-                    created_count = 0
+                    # 🔧 去重检查：获取现有角色名称列表，避免重复创建
+                    existing_character_names = {char.name for char in characters}
+                    actually_created_count = 0
+                    
                     for char_data in confirmed_characters:
                         try:
+                            # 检查角色是否已存在
+                            char_name = char_data.get("name") or char_data.get("character_name")
+                            if char_name in existing_character_names:
+                                logger.warning(f"⚠️ 角色 '{char_name}' 已存在，跳过创建")
+                                continue
+                            
                             # 生成角色详细信息
                             character_data = await auto_char_service._generate_character_details(
                                 spec=char_data,
@@ -2107,7 +2133,8 @@ async def continue_outline_generator(
                                 )
                             
                             characters.append(character)
-                            created_count += 1
+                            existing_character_names.add(character.name)  # 更新已存在的角色名称集合
+                            actually_created_count += 1
                             logger.info(f"✅ 创建确认的角色: {character.name}")
                             
                         except Exception as e:
@@ -2115,13 +2142,19 @@ async def continue_outline_generator(
                             continue
                     
                     # 提交角色到数据库
-                    await db.commit()
-                    
-                    yield await SSEResponse.send_progress(
-                        f"✅ 【确认模式】成功创建 {created_count} 个角色",
-                        28
-                    )
-                    logger.info(f"✅ 【确认模式】成功创建 {created_count} 个用户确认的角色")
+                    if actually_created_count > 0:
+                        await db.commit()
+                        yield await SSEResponse.send_progress(
+                            f"✅ 【确认模式】实际创建了 {actually_created_count} 个新角色（跳过 {len(confirmed_characters) - actually_created_count} 个已存在）",
+                            28
+                        )
+                        logger.info(f"✅ 【确认模式】实际创建了 {actually_created_count} 个新角色（跳过了 {len(confirmed_characters) - actually_created_count} 个已存在的角色）")
+                    else:
+                        yield await SSEResponse.send_progress(
+                            f"ℹ️ 【确认模式】所有角色均已存在，无需创建",
+                            28
+                        )
+                        logger.info(f"ℹ️ 【确认模式】所有角色均已存在，无需创建")
                     
                 except Exception as e:
                     logger.error(f"⚠️ 【确认模式】创建确认角色失败: {e}", exc_info=True)
@@ -2261,7 +2294,8 @@ async def continue_outline_generator(
         
         # 🏛️ 【组织引入】在生成大纲前预测并创建组织
         enable_auto_organizations = data.get("enable_auto_organizations", True)
-        confirmed_organizations = data.get("confirmed_organizations")
+        # confirmed_organizations在上面已经获取了，这里注释掉避免重复
+        # confirmed_organizations = data.get("confirmed_organizations")
         
         if enable_auto_organizations:
             from app.models.relationship import Organization
