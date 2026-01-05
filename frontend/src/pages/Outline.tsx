@@ -33,6 +33,37 @@ interface CharacterConfirmationData {
   chapter_range: string;
 }
 
+// 组织预测数据类型
+interface PredictedOrganization {
+  name?: string;
+  organization_description: string;
+  organization_type: string;
+  importance: string;
+  appearance_chapter: number;
+  power_level: number;
+  plot_function: string;
+  location?: string;
+  motto?: string;
+  initial_members: Array<{
+    character_name: string;
+    position: string;
+    reason?: string;
+  }>;
+  relationship_suggestions: Array<{
+    target_organization: string;
+    relationship_type: string;
+    reason?: string;
+  }>;
+}
+
+interface OrganizationConfirmationData {
+  code: string;
+  message: string;
+  predicted_organizations: PredictedOrganization[];
+  reason: string;
+  chapter_range: string;
+}
+
 const { TextArea } = Input;
 
 export default function Outline() {
@@ -55,6 +86,11 @@ export default function Outline() {
   const [characterConfirmVisible, setCharacterConfirmVisible] = useState(false);
   const [pendingGenerateData, setPendingGenerateData] = useState<any>(null);
   const [selectedCharacterIndices, setSelectedCharacterIndices] = useState<number[]>([]);
+
+  // 组织确认相关状态
+  const [organizationConfirmData, setOrganizationConfirmData] = useState<OrganizationConfirmationData | null>(null);
+  const [organizationConfirmVisible, setOrganizationConfirmVisible] = useState(false);
+  const [selectedOrganizationIndices, setSelectedOrganizationIndices] = useState<number[]>([]);
 
   // 缓存批量展开的规划数据，避免重复AI调用
   const [cachedBatchExpansionResponse, setCachedBatchExpansionResponse] = useState<BatchOutlineExpansionResponse | null>(null);
@@ -123,6 +159,15 @@ export default function Outline() {
       );
     }
   }, [characterConfirmData]);
+
+  // 当组织确认数据变化时，初始化选中状态（默认全选）
+  useEffect(() => {
+    if (organizationConfirmData) {
+      setSelectedOrganizationIndices(
+        organizationConfirmData.predicted_organizations.map((_, idx) => idx)
+      );
+    }
+  }, [organizationConfirmData]);
 
   // 移除事件监听，避免无限循环
   // Hook 内部已经更新了 store，不需要再次刷新
@@ -205,6 +250,9 @@ export default function Outline() {
     plot_stage?: 'development' | 'climax' | 'ending';
     keep_existing?: boolean;
     enable_auto_characters?: boolean;
+    require_character_confirmation?: boolean;
+    enable_auto_organizations?: boolean;
+    require_organization_confirmation?: boolean;
   }
 
   const handleGenerate = async (values: GenerateFormValues) => {
@@ -237,7 +285,10 @@ export default function Outline() {
         mode: values.mode || 'auto',
         story_direction: values.story_direction,
         plot_stage: values.plot_stage || 'development',
-        enable_auto_characters: values.enable_auto_characters !== undefined ? values.enable_auto_characters : true
+        enable_auto_characters: values.enable_auto_characters !== undefined ? values.enable_auto_characters : true,
+        require_character_confirmation: values.require_character_confirmation !== undefined ? values.require_character_confirmation : true,
+        enable_auto_organizations: values.enable_auto_organizations !== undefined ? values.enable_auto_organizations : true,
+        require_organization_confirmation: values.require_organization_confirmation !== undefined ? values.require_organization_confirmation : true
       };
 
       // 只有在用户选择了模型时才添加model参数
@@ -280,6 +331,20 @@ export default function Outline() {
           // 显示角色确认对话框
           setCharacterConfirmData(data);
           setCharacterConfirmVisible(true);
+        },
+        onOrganizationConfirmation: (data: any) => {
+          // ✨ 新增：处理组织确认事件
+          console.log('收到组织确认请求:', data);
+          // 关闭SSE进度Modal
+          setSSEModalVisible(false);
+          setIsGenerating(false);
+
+          // 保存待处理的生成数据
+          setPendingGenerateData(requestData);
+
+          // 显示组织确认对话框
+          setOrganizationConfirmData(data);
+          setOrganizationConfirmVisible(true);
         },
         onError: (error: string) => {
           // 现在只处理真正的错误
@@ -359,6 +424,9 @@ export default function Outline() {
             theme: currentProject.theme || '',
             model: defaultModel, // 添加默认模型
             enable_auto_characters: false, // 默认禁用自动角色引入
+            require_character_confirmation: true, // 默认需要用户确认
+            enable_auto_organizations: false, // 默认禁用自动组织引入
+            require_organization_confirmation: true, // 默认需要用户确认
           }}
         >
           {hasOutlines && (
@@ -467,19 +535,94 @@ export default function Outline() {
                     <TextArea rows={2} placeholder="其他特殊要求（可选）" />
                   </Form.Item>
 
-                  {/* 自动角色引入开关 - 仅在续写模式显示 */}
-                  {isContinue && (
+              {/* 自动角色和组织引入开关 - 仅在续写模式显示 */}
+              {isContinue && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {/* 角色引入部分 */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'flex-start' }}>
                     <Form.Item
                       label="智能角色引入"
                       name="enable_auto_characters"
                       tooltip="AI会根据剧情发展自动判断是否需要引入新角色，并自动创建角色卡片和建立关系"
+                      style={{ marginBottom: 0 }}
                     >
                       <Radio.Group buttonStyle="solid">
                         <Radio.Button value={true}>启用</Radio.Button>
                         <Radio.Button value={false}>禁用</Radio.Button>
                       </Radio.Group>
                     </Form.Item>
-                  )}
+                    
+                    {/* 角色确认选项 */}
+                    <Form.Item
+                      noStyle
+                      shouldUpdate={(prevValues, currentValues) =>
+                        prevValues.enable_auto_characters !== currentValues.enable_auto_characters
+                      }
+                    >
+                      {({ getFieldValue }) => {
+                        const enableAutoChars = getFieldValue('enable_auto_characters');
+                        if (!enableAutoChars) return null;
+                        
+                        return (
+                          <Form.Item
+                            label="新角色确认"
+                            name="require_character_confirmation"
+                            tooltip="启用后，AI预测到需要新角色时会先让您确认；禁用后，AI预测的角色将直接创建"
+                            style={{ marginBottom: 0 }}
+                          >
+                            <Radio.Group buttonStyle="solid">
+                              <Radio.Button value={true}>需要确认</Radio.Button>
+                              <Radio.Button value={false}>直接创建</Radio.Button>
+                            </Radio.Group>
+                          </Form.Item>
+                        );
+                      }}
+                    </Form.Item>
+                  </div>
+
+                  {/* 组织引入部分 */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 24, alignItems: 'flex-start' }}>
+                    <Form.Item
+                      label="智能组织引入"
+                      name="enable_auto_organizations"
+                      tooltip="AI会根据剧情发展自动判断是否需要引入新组织/势力，并自动创建设定和建立关系"
+                      style={{ marginBottom: 0 }}
+                    >
+                      <Radio.Group buttonStyle="solid">
+                        <Radio.Button value={true}>启用</Radio.Button>
+                        <Radio.Button value={false}>禁用</Radio.Button>
+                      </Radio.Group>
+                    </Form.Item>
+                    
+                    {/* 组织确认选项 */}
+                    <Form.Item
+                      noStyle
+                      shouldUpdate={(prevValues, currentValues) =>
+                        prevValues.enable_auto_organizations !== currentValues.enable_auto_organizations
+                      }
+                    >
+                      {({ getFieldValue }) => {
+                        const enableAutoOrgs = getFieldValue('enable_auto_organizations');
+                        if (!enableAutoOrgs) return null;
+                        
+                        return (
+                          <Form.Item
+                            label="新组织确认"
+                            name="require_organization_confirmation"
+                            tooltip="启用后，AI预测到需要新组织时会先让您确认；禁用后，AI预测的组织将直接创建"
+                            style={{ marginBottom: 0 }}
+                          >
+                            <Radio.Group buttonStyle="solid">
+                              <Radio.Button value={true}>需要确认</Radio.Button>
+                              <Radio.Button value={false}>直接创建</Radio.Button>
+                            </Radio.Group>
+                          </Form.Item>
+                        );
+                      }}
+                    </Form.Item>
+                  </div>
+                </div>
+              )}
                 </>
               );
             }}
@@ -1640,6 +1783,15 @@ export default function Outline() {
           setCharacterConfirmData(null);
           // 刷新大纲列表
           refreshOutlines();
+        },
+        onOrganizationConfirmation: (data: any) => {
+          // 处理可能的后续组织确认
+          console.log('收到组织确认请求:', data);
+          setSSEModalVisible(false);
+          setIsGenerating(false);
+          setPendingGenerateData(requestData);
+          setOrganizationConfirmData(data);
+          setOrganizationConfirmVisible(true);
         }
       });
 
@@ -1666,7 +1818,7 @@ export default function Outline() {
 
       // 显示进度Modal
       setSSEProgress(0);
-      setSSEMessage('跳过角色创建，开始续写大纲...');
+      setSSEMessage('跳过角色创建，继续生成...');
       setSSEModalVisible(true);
 
       // 准备请求数据，禁用自动角色引入
@@ -1686,6 +1838,15 @@ export default function Outline() {
         },
         onResult: (data: any) => {
           console.log('生成完成，结果:', data);
+        },
+        onOrganizationConfirmation: (data: any) => {
+          // 处理可能的后续组织确认
+          console.log('收到组织确认请求:', data);
+          setSSEModalVisible(false);
+          setIsGenerating(false);
+          setPendingGenerateData(requestData);
+          setOrganizationConfirmData(data);
+          setOrganizationConfirmVisible(true);
         },
         onError: (error: string) => {
           message.error(`生成失败: ${error}`);
@@ -1708,6 +1869,128 @@ export default function Outline() {
 
     } catch (error) {
       console.error('跳过角色创建失败:', error);
+      message.error('操作失败');
+      setSSEModalVisible(false);
+      setIsGenerating(false);
+    }
+  };
+
+  // 处理组织确认 - 用户同意创建组织
+  const handleConfirmOrganizations = async (selectedOrganizations: PredictedOrganization[]) => {
+    if (!pendingGenerateData) {
+      message.error('生成数据丢失，请重新操作');
+      return;
+    }
+
+    try {
+      setOrganizationConfirmVisible(false);
+      setIsGenerating(true);
+
+      // 显示进度Modal
+      setSSEProgress(0);
+      setSSEMessage('正在创建确认的组织...');
+      setSSEModalVisible(true);
+
+      // 准备请求数据，添加确认的组织
+      const requestData = {
+        ...pendingGenerateData,
+        confirmed_organizations: selectedOrganizations
+      };
+
+      console.log('携带确认组织重新请求:', requestData);
+
+      // 重新发起SSE请求
+      const apiUrl = `/api/outlines/generate-stream`;
+      const client = new SSEPostClient(apiUrl, requestData, {
+        onProgress: (msg: string, progress: number) => {
+          setSSEMessage(msg);
+          setSSEProgress(progress);
+        },
+        onResult: (data: any) => {
+          console.log('生成完成，结果:', data);
+        },
+        onError: (error: string) => {
+          message.error(`生成失败: ${error}`);
+          setSSEModalVisible(false);
+          setIsGenerating(false);
+        },
+        onComplete: () => {
+          message.success('大纲生成完成！');
+          setSSEModalVisible(false);
+          setIsGenerating(false);
+          // 清理状态
+          setPendingGenerateData(null);
+          setOrganizationConfirmData(null);
+          // 刷新大纲列表
+          refreshOutlines();
+        }
+      });
+
+      client.connect();
+
+    } catch (error) {
+      console.error('确认组织失败:', error);
+      message.error('操作失败');
+      setSSEModalVisible(false);
+      setIsGenerating(false);
+    }
+  };
+
+  // 处理组织确认 - 用户拒绝创建组织
+  const handleRejectOrganizations = async () => {
+    if (!pendingGenerateData) {
+      message.error('生成数据丢失，请重新操作');
+      return;
+    }
+
+    try {
+      setOrganizationConfirmVisible(false);
+      setIsGenerating(true);
+
+      // 显示进度Modal
+      setSSEProgress(0);
+      setSSEMessage('跳过组织创建，继续生成...');
+      setSSEModalVisible(true);
+
+      // 准备请求数据，禁用自动组织引入
+      const requestData = {
+        ...pendingGenerateData,
+        enable_auto_organizations: false  // 禁用自动组织引入
+      };
+
+      console.log('跳过组织创建，重新请求:', requestData);
+
+      // 重新发起SSE请求
+      const apiUrl = `/api/outlines/generate-stream`;
+      const client = new SSEPostClient(apiUrl, requestData, {
+        onProgress: (msg: string, progress: number) => {
+          setSSEMessage(msg);
+          setSSEProgress(progress);
+        },
+        onResult: (data: any) => {
+          console.log('生成完成，结果:', data);
+        },
+        onError: (error: string) => {
+          message.error(`生成失败: ${error}`);
+          setSSEModalVisible(false);
+          setIsGenerating(false);
+        },
+        onComplete: () => {
+          message.success('大纲生成完成！');
+          setSSEModalVisible(false);
+          setIsGenerating(false);
+          // 清理状态
+          setPendingGenerateData(null);
+          setOrganizationConfirmData(null);
+          // 刷新大纲列表
+          refreshOutlines();
+        }
+      });
+
+      client.connect();
+
+    } catch (error) {
+      console.error('跳过组织创建失败:', error);
       message.error('操作失败');
       setSSEModalVisible(false);
       setIsGenerating(false);
@@ -1853,10 +2136,146 @@ export default function Outline() {
     );
   };
 
+  // 渲染组织确认对话框
+  const renderOrganizationConfirmModal = () => {
+    if (!organizationConfirmData) return null;
+
+    return (
+      <Modal
+        title={
+          <Space>
+            <ExclamationCircleOutlined style={{ color: 'var(--color-warning)' }} />
+            <span>确认引入新组织</span>
+          </Space>
+        }
+        open={organizationConfirmVisible}
+        onOk={() => {
+          const selectedOrganizations = organizationConfirmData.predicted_organizations.filter(
+            (_, idx) => selectedOrganizationIndices.includes(idx)
+          );
+          handleConfirmOrganizations(selectedOrganizations);
+        }}
+        onCancel={() => {
+          modalApi.confirm({
+            title: '确认操作',
+            content: '是否跳过组织创建，直接续写大纲？',
+            okText: '跳过组织，继续续写',
+            cancelText: '返回选择',
+            onOk: handleRejectOrganizations
+          });
+        }}
+        width={800}
+        centered
+        okText={`确认创建选中的 ${selectedOrganizationIndices.length} 个组织`}
+        cancelText="跳过组织创建"
+      >
+        <div>
+          <div style={{ marginBottom: 16, padding: 12, background: 'var(--color-warning-bg)', borderRadius: 4, border: '1px solid var(--color-warning-border)' }}>
+            <div style={{ fontWeight: 500, marginBottom: 8, color: '#d48806' }}>
+              AI 分析结果
+            </div>
+            <div style={{ color: '#666', marginBottom: 8 }}>
+              {organizationConfirmData.reason}
+            </div>
+            <Tag color="blue">{organizationConfirmData.chapter_range}</Tag>
+            <Tag color="green">{organizationConfirmData.predicted_organizations.length} 个预测组织</Tag>
+          </div>
+
+          <div style={{ marginBottom: 12 }}>
+            <Space>
+              <Button
+                size="small"
+                onClick={() => setSelectedOrganizationIndices(
+                  organizationConfirmData.predicted_organizations.map((_, idx) => idx)
+                )}
+              >
+                全选
+              </Button>
+              <Button
+                size="small"
+                onClick={() => setSelectedOrganizationIndices([])}
+              >
+                全不选
+              </Button>
+            </Space>
+          </div>
+
+          <List
+            dataSource={organizationConfirmData.predicted_organizations}
+            renderItem={(org, index) => (
+              <List.Item
+                key={index}
+                style={{
+                  background: selectedOrganizationIndices.includes(index) ? '#f0f5ff' : 'transparent',
+                  padding: 12,
+                  borderRadius: 4,
+                  marginBottom: 8,
+                  border: selectedOrganizationIndices.includes(index) ? '1px solid var(--color-primary)' : '1px solid var(--color-border-secondary)',
+                  cursor: 'pointer'
+                }}
+                onClick={() => {
+                  if (selectedOrganizationIndices.includes(index)) {
+                    setSelectedOrganizationIndices(selectedOrganizationIndices.filter(i => i !== index));
+                  } else {
+                    setSelectedOrganizationIndices([...selectedOrganizationIndices, index]);
+                  }
+                }}
+              >
+                <div style={{ width: '100%' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                    <Space>
+                      <input
+                        type="checkbox"
+                        checked={selectedOrganizationIndices.includes(index)}
+                        onChange={() => { }}
+                        style={{ cursor: 'pointer' }}
+                      />
+                      <span style={{ fontWeight: 500, fontSize: 16 }}>
+                        {org.name || org.organization_description}
+                      </span>
+                      <Tag color="blue">{org.organization_type}</Tag>
+                      <Tag color="orange">势力等级: {org.power_level}</Tag>
+                    </Space>
+                    <Tag>第{org.appearance_chapter}章登场</Tag>
+                  </div>
+
+                  <div style={{ marginBottom: 8, color: '#666' }}>
+                    <strong>剧情作用：</strong>{org.plot_function}
+                  </div>
+
+                  {org.location && (
+                    <div style={{ marginBottom: 8 }}>
+                      <strong>地点：</strong>{org.location}
+                    </div>
+                  )}
+
+                  {org.initial_members && org.initial_members.length > 0 && (
+                    <div style={{ marginBottom: 8 }}>
+                      <strong>初始成员：</strong>
+                      <Space wrap style={{ marginLeft: 8 }}>
+                        {org.initial_members.map((member, idx) => (
+                          <Tag key={idx} color="purple">
+                            {member.character_name} - {member.position}
+                          </Tag>
+                        ))}
+                      </Space>
+                    </div>
+                  )}
+                </div>
+              </List.Item>
+            )}
+          />
+        </div>
+      </Modal>
+    );
+  };
+
   return (
     <>
       {/* 角色确认对话框 */}
       {renderCharacterConfirmModal()}
+      {/* 组织确认对话框 */}
+      {renderOrganizationConfirmModal()}
 
       {/* 批量展开预览 Modal */}
       <Modal

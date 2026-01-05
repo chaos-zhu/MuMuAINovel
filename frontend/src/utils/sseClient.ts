@@ -18,6 +18,7 @@ export interface SSEClientOptions {
   onComplete?: () => void;
   onConnectionError?: (error: Event) => void;
   onCharacterConfirmation?: (data: any) => void;  // 新增：角色确认回调
+  onOrganizationConfirmation?: (data: any) => void; // 新增：组织确认回调
 }
 
 export class SSEClient {
@@ -197,6 +198,13 @@ export class SSEPostClient {
                   // 处理角色确认事件
                   if (this.options.onCharacterConfirmation) {
                     this.options.onCharacterConfirmation(data);
+                  }
+                  currentEvent = '';  // 重置事件类型
+                  return;  // 暂停流程，等待用户确认
+                } else if (currentEvent === 'organization_confirmation_required') {
+                  // 处理组织确认事件
+                  if (this.options.onOrganizationConfirmation) {
+                    this.options.onOrganizationConfirmation(data);
                   }
                   currentEvent = '';  // 重置事件类型
                   return;  // 暂停流程，等待用户确认
