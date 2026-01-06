@@ -172,13 +172,18 @@ async def create_sse_generator(
 
 def create_sse_response(generator: AsyncGenerator[str, None]) -> StreamingResponse:
     """
-    创建SSE StreamingResponse
+    创建SSE StreamingResponse - 兼容HTTP/2协议
     
     Args:
         generator: SSE消息生成器
         
     Returns:
         StreamingResponse对象
+    
+    注意：
+    - HTTP/2不支持Connection头，已移除
+    - 明确指定charset=utf-8以确保编码正确
+    - 添加CORS头以支持跨域请求
     """
     async def wrapper():
         """包装生成器以捕获StreamingResponse初始化时的GeneratorExit"""
@@ -192,10 +197,13 @@ def create_sse_response(generator: AsyncGenerator[str, None]) -> StreamingRespon
     
     return StreamingResponse(
         wrapper(),
-        media_type="text/event-stream",
+        media_type="text/event-stream; charset=utf-8",  # 明确指定charset
         headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
+            "Cache-Control": "no-cache, no-transform",  # 禁用缓存和转换
+            # 移除 Connection: keep-alive (HTTP/2不兼容)
             "X-Accel-Buffering": "no",  # 禁用nginx缓冲
+            "Access-Control-Allow-Origin": "*",  # CORS支持
+            "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
         }
     )
