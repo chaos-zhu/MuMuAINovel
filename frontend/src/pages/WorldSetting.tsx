@@ -1,5 +1,5 @@
-import { Card, Descriptions, Empty, Typography, Button, Modal, Form, Input, message, Flex } from 'antd';
-import { GlobalOutlined, EditOutlined, SyncOutlined } from '@ant-design/icons';
+import { Card, Descriptions, Empty, Typography, Button, Modal, Form, Input, message, Flex, InputNumber, Select } from 'antd';
+import { GlobalOutlined, EditOutlined, SyncOutlined, FormOutlined } from '@ant-design/icons';
 import { useState } from 'react';
 import { useStore } from '../store';
 import { cardStyles } from '../components/CardStyles';
@@ -14,6 +14,9 @@ export default function WorldSetting() {
   const [isEditModalVisible, setIsEditModalVisible] = useState(false);
   const [editForm] = Form.useForm();
   const [isSaving, setIsSaving] = useState(false);
+  const [isEditProjectModalVisible, setIsEditProjectModalVisible] = useState(false);
+  const [editProjectForm] = Form.useForm();
+  const [isSavingProject, setIsSavingProject] = useState(false);
   const [isRegenerating, setIsRegenerating] = useState(false);
   const [regenerateProgress, setRegenerateProgress] = useState(0);
   const [regenerateMessage, setRegenerateMessage] = useState('');
@@ -197,6 +200,27 @@ export default function WorldSetting() {
               }}
             >
               <span className="button-text-mobile">AI重新生成</span>
+            </Button>
+            <Button
+              type="primary"
+              icon={<FormOutlined />}
+              onClick={() => {
+                editProjectForm.setFieldsValue({
+                  title: currentProject.title || '',
+                  description: currentProject.description || '',
+                  theme: currentProject.theme || '',
+                  genre: currentProject.genre || '',
+                  narrative_perspective: currentProject.narrative_perspective || '',
+                  target_words: currentProject.target_words || 0,
+                });
+                setIsEditProjectModalVisible(true);
+              }}
+              style={{
+                minWidth: 'fit-content',
+                flex: '1 1 auto'
+              }}
+            >
+              <span className="button-text-mobile">编辑基础信息</span>
             </Button>
             <Button
               type="primary"
@@ -427,6 +451,144 @@ export default function WorldSetting() {
               placeholder="描述这个世界的特殊规则和设定..."
               showCount
               maxLength={1000}
+            />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 编辑项目基础信息模态框 */}
+      <Modal
+        title="编辑项目基础信息"
+        open={isEditProjectModalVisible}
+        centered
+        onCancel={() => {
+          setIsEditProjectModalVisible(false);
+          editProjectForm.resetFields();
+        }}
+        onOk={async () => {
+          try {
+            const values = await editProjectForm.validateFields();
+            setIsSavingProject(true);
+
+            const updatedProject = await projectApi.updateProject(currentProject.id, {
+              title: values.title,
+              description: values.description,
+              theme: values.theme,
+              genre: values.genre,
+              narrative_perspective: values.narrative_perspective,
+              target_words: values.target_words,
+            });
+
+            setCurrentProject(updatedProject);
+            message.success('项目基础信息更新成功');
+            setIsEditProjectModalVisible(false);
+            editProjectForm.resetFields();
+          } catch (error) {
+            console.error('更新项目基础信息失败:', error);
+            message.error('更新失败，请重试');
+          } finally {
+            setIsSavingProject(false);
+          }
+        }}
+        confirmLoading={isSavingProject}
+        width={800}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Form
+          form={editProjectForm}
+          layout="vertical"
+          style={{ marginTop: 16 }}
+        >
+          <Form.Item
+            label="小说名称"
+            name="title"
+            rules={[
+              { required: true, message: '请输入小说名称' },
+              { max: 200, message: '名称不能超过200字' }
+            ]}
+          >
+            <Input
+              placeholder="请输入小说名称"
+              showCount
+              maxLength={200}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="小说简介"
+            name="description"
+            rules={[
+              { max: 1000, message: '简介不能超过1000字' }
+            ]}
+          >
+            <TextArea
+              rows={4}
+              placeholder="请输入小说简介（选填）"
+              showCount
+              maxLength={1000}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="小说主题"
+            name="theme"
+            rules={[
+              { max: 500, message: '主题不能超过500字' }
+            ]}
+          >
+            <TextArea
+              rows={3}
+              placeholder="请输入小说主题（选填）"
+              showCount
+              maxLength={500}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="小说类型"
+            name="genre"
+            rules={[
+              { max: 100, message: '类型不能超过100字' }
+            ]}
+          >
+            <Input
+              placeholder="请输入小说类型，如：玄幻、都市、科幻等（选填）"
+              showCount
+              maxLength={100}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="叙事视角"
+            name="narrative_perspective"
+          >
+            <Select
+              placeholder="请选择叙事视角（选填）"
+              allowClear
+              options={[
+                { label: '第一人称', value: '第一人称' },
+                { label: '第三人称', value: '第三人称' },
+                { label: '全知视角', value: '全知视角' }
+              ]}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="目标字数"
+            name="target_words"
+            rules={[
+              { type: 'number', min: 0, message: '目标字数不能为负数' },
+              { type: 'number', max: 2147483647, message: '目标字数超出范围' }
+            ]}
+          >
+            <InputNumber
+              style={{ width: '100%' }}
+              placeholder="请输入目标字数（选填，最大21亿字）"
+              min={0}
+              max={2147483647}
+              step={1000}
+              addonAfter="字"
             />
           </Form.Item>
         </Form>

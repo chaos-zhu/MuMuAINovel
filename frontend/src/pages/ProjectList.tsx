@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Empty, Modal, message, Spin, Row, Col, Statistic, Space, Tag, Progress, Typography, Badge, Alert, Upload, Checkbox, Divider, Switch, Dropdown, Form, Input, InputNumber } from 'antd';
+import { Card, Button, Empty, Modal, message, Spin, Row, Col, Statistic, Space, Tag, Progress, Typography, Badge, Alert, Upload, Checkbox, Divider, Switch, Dropdown } from 'antd';
 import { EditOutlined, DeleteOutlined, BookOutlined, RocketOutlined, CalendarOutlined, FileTextOutlined, TrophyOutlined, FireOutlined, SettingOutlined, InfoCircleOutlined, CloseOutlined, UploadOutlined, DownloadOutlined, ApiOutlined, MoreOutlined, BulbOutlined, LoadingOutlined, FileSearchOutlined } from '@ant-design/icons';
 import { projectApi } from '../services/api';
 import { useStore } from '../store';
@@ -29,11 +29,6 @@ export default function ProjectList() {
     includeWritingStyles: true,
     includeGenerationHistory: true,
   });
-  const [editModalVisible, setEditModalVisible] = useState(false);
-  const [editingProject, setEditingProject] = useState<any>(null);
-  const [editForm] = Form.useForm();
-  const [updating, setUpdating] = useState(false);
-
   const { refreshProjects, deleteProject } = useProjectSync();
 
   useEffect(() => {
@@ -76,45 +71,6 @@ export default function ProjectList() {
         }
       },
     });
-  };
-
-  const handleEditProject = (project: any) => {
-    setEditingProject(project);
-    editForm.setFieldsValue({
-      description: project.description || '',
-      target_words: project.target_words || 0,
-    });
-    setEditModalVisible(true);
-  };
-
-  const handleCloseEditModal = () => {
-    setEditModalVisible(false);
-    setEditingProject(null);
-    editForm.resetFields();
-  };
-
-  const handleUpdateProject = async () => {
-    try {
-      const values = await editForm.validateFields();
-      setUpdating(true);
-
-      await projectApi.updateProject(editingProject.id, {
-        description: values.description,
-        target_words: values.target_words,
-      });
-
-      message.success('项目更新成功');
-      handleCloseEditModal();
-      await refreshProjects();
-    } catch (error: any) {
-      if (error.errorFields) {
-        message.error('请检查表单填写');
-      } else {
-        message.error('更新失败，请重试');
-      }
-    } finally {
-      setUpdating(false);
-    }
   };
 
   const handleEnterProject = async (project: any) => {
@@ -1034,20 +990,6 @@ export default function ProjectList() {
                                 <Button
                                   type="text"
                                   size="small"
-                                  icon={<EditOutlined />}
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleEditProject(project);
-                                  }}
-                                  style={{
-                                    borderRadius: 8,
-                                    color: 'var(--color-primary)',
-                                    transition: 'all 0.2s ease'
-                                  }}
-                                />
-                                <Button
-                                  type="text"
-                                  size="small"
                                   danger
                                   icon={<DeleteOutlined />}
                                   onClick={(e) => {
@@ -1351,65 +1293,6 @@ export default function ProjectList() {
               />
             )}
           </Space>
-        </Modal>
-
-        {/* 编辑项目对话框 */}
-        <Modal
-          title={`编辑项目: ${editingProject?.title || ''}`}
-          open={editModalVisible}
-          onOk={handleUpdateProject}
-          onCancel={handleCloseEditModal}
-          confirmLoading={updating}
-          okText="保存"
-          cancelText="取消"
-          width={window.innerWidth <= 768 ? '90%' : 600}
-          centered
-          styles={{
-            body: {
-              maxHeight: window.innerWidth <= 768 ? '60vh' : 'auto',
-              overflowY: 'auto',
-              padding: window.innerWidth <= 768 ? '16px' : '24px'
-            }
-          }}
-        >
-          <Form
-            form={editForm}
-            layout="vertical"
-            autoComplete="off"
-          >
-            <Form.Item
-              label="项目简介"
-              name="description"
-              rules={[
-                { max: 1000, message: '简介不能超过1000字' }
-              ]}
-            >
-              <Input.TextArea
-                rows={4}
-                placeholder="请输入项目简介（选填）"
-                showCount
-                maxLength={1000}
-              />
-            </Form.Item>
-
-            <Form.Item
-              label="目标字数"
-              name="target_words"
-              rules={[
-                { type: 'number', min: 0, message: '目标字数不能为负数' },
-                { type: 'number', max: 2147483647, message: '目标字数超出范围' }
-              ]}
-            >
-              <InputNumber
-                style={{ width: '100%' }}
-                placeholder="请输入目标字数（选填，最大21亿字）"
-                min={0}
-                max={2147483647}
-                step={1000}
-                addonAfter="字"
-              />
-            </Form.Item>
-          </Form>
         </Modal>
 
         <ChangelogFloatingButton />
