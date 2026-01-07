@@ -75,6 +75,48 @@ async def verify_project_access(project_id: str, user_id: str, db: AsyncSession)
     return project
 
 
+def _build_chapters_brief(outlines: List[Outline], max_recent: int = 20) -> str:
+    """构建章节概览字符串"""
+    target = outlines[-max_recent:] if len(outlines) > max_recent else outlines
+    return "\n".join([f"第{o.order_index}章《{o.title}》" for o in target])
+
+
+def _build_characters_info(characters: List[Character]) -> str:
+    """构建角色信息字符串"""
+    return "\n".join([
+        f"- {char.name} ({'组织' if char.is_organization else '角色'}, {char.role_type}): "
+        f"{char.personality[:100] if char.personality else '暂无描述'}"
+        for char in characters
+    ])
+
+
+async def _get_existing_organizations(project_id: str, db: AsyncSession) -> List[dict]:
+    """获取项目现有组织列表"""
+    from app.models.relationship import Organization
+    
+    organizations_result = await db.execute(
+        select(Character, Organization)
+        .join(Organization, Character.id == Organization.character_id)
+        .where(
+            Character.project_id == project_id,
+            Character.is_organization == True
+        )
+    )
+    organizations_raw = organizations_result.all()
+    return [
+        {
+            "id": org.id,
+            "name": char.name,
+            "organization_type": char.organization_type,
+            "organization_purpose": char.organization_purpose,
+            "power_level": org.power_level,
+            "location": org.location,
+            "motto": org.motto
+        }
+        for char, org in organizations_raw
+    ]
+
+
 @router.post("", response_model=OutlineResponse, summary="创建大纲")
 async def create_outline(
     outline: OutlineCreate,
@@ -145,26 +187,8 @@ async def get_project_outlines(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    """获取指定项目的所有大纲（路径参数版本）"""
-    # 验证用户权限
-    user_id = getattr(request.state, 'user_id', None)
-    await verify_project_access(project_id, user_id, db)
-    
-    # 获取总数
-    count_result = await db.execute(
-        select(func.count(Outline.id)).where(Outline.project_id == project_id)
-    )
-    total = count_result.scalar_one()
-    
-    # 获取大纲列表
-    result = await db.execute(
-        select(Outline)
-        .where(Outline.project_id == project_id)
-        .order_by(Outline.order_index)
-    )
-    outlines = result.scalars().all()
-    
-    return OutlineListResponse(total=total, items=outlines)
+    """获取指定项目的所有大纲（路径参数版本，兼容旧API）"""
+    return await get_outlines(project_id, request, db)
 
 
 @router.get("/{outline_id}", response_model=OutlineResponse, summary="获取大纲详情")
@@ -406,18 +430,7 @@ async def predict_characters(
         characters = characters_result.scalars().all()
         
         # 构建已有章节概览
-        all_chapters_brief = ""
-        if len(existing_outlines) > 20:
-            recent_20 = existing_outlines[-20:]
-            all_chapters_brief = "\n".join([
-                f"第{o.order_index}章《{o.title}》"
-                for o in recent_20
-            ])
-        else:
-            all_chapters_brief = "\n".join([
-                f"第{o.order_index}章《{o.title}》"
-                for o in existing_outlines
-            ])
+        all_chapters_brief = _build_chapters_brief(existing_outlines)
         
         # 调用自动角色服务进行预测
         from app.services.auto_character_service import get_auto_character_service
@@ -479,7 +492,6 @@ async def predict_organizations(
     
     用于组织确认机制的第一步：在生成大纲前预测组织需求
     """
-    from app.schemas.outline import OrganizationPredictionResponse, PredictedOrganization
     from app.models.relationship import Organization
     
     # 验证用户权限
@@ -510,40 +522,10 @@ async def predict_organizations(
         characters = characters_result.scalars().all()
         
         # 获取现有组织
-        organizations_result = await db.execute(
-            select(Character, Organization)
-            .join(Organization, Character.id == Organization.character_id)
-            .where(
-                Character.project_id == request_data.project_id,
-                Character.is_organization == True
-            )
-        )
-        organizations_raw = organizations_result.all()
-        existing_organizations = []
-        for char, org in organizations_raw:
-            existing_organizations.append({
-                "id": org.id,
-                "name": char.name,
-                "organization_type": char.organization_type,
-                "organization_purpose": char.organization_purpose,
-                "power_level": org.power_level,
-                "location": org.location,
-                "motto": org.motto
-            })
+        existing_organizations = await _get_existing_organizations(request_data.project_id, db)
         
         # 构建已有章节概览
-        all_chapters_brief = ""
-        if len(existing_outlines) > 20:
-            recent_20 = existing_outlines[-20:]
-            all_chapters_brief = "\n".join([
-                f"第{o.order_index}章《{o.title}》"
-                for o in recent_20
-            ])
-        else:
-            all_chapters_brief = "\n".join([
-                f"第{o.order_index}章《{o.title}》"
-                for o in existing_outlines
-            ])
+        all_chapters_brief = _build_chapters_brief(existing_outlines)
         
         # 调用自动组织服务进行预测
         from app.services.auto_organization_service import get_auto_organization_service
@@ -613,11 +595,7 @@ async def _generate_new_outline(
         select(Character).where(Character.project_id == project.id)
     )
     characters = characters_result.scalars().all()
-    characters_info = "\n".join([
-        f"- {char.name} ({'组织' if char.is_organization else '角色'}, {char.role_type}): "
-        f"{char.personality[:100] if char.personality else '暂无描述'}"
-        for char in characters
-    ])
+    characters_info = _build_characters_info(characters)
     
     # 🔍 MCP工具增强：收集情节设计参考资料（优化版）
     mcp_reference_materials = ""
@@ -894,11 +872,7 @@ async def _continue_outline(
         select(Character).where(Character.project_id == project.id)
     )
     characters = characters_result.scalars().all()
-    characters_info = "\n".join([
-        f"- {char.name} ({'组织' if char.is_organization else '角色'}, {char.role_type}): "
-        f"{char.personality[:100] if char.personality else '暂无描述'}"
-        for char in characters
-    ])
+    characters_info = _build_characters_info(characters)
     
     # 情节阶段指导
     stage_instructions = {
@@ -978,11 +952,7 @@ async def _continue_outline(
                     logger.info(f"ℹ️ 【确认模式】所有角色均已存在，无需创建")
                 
                 # 更新角色信息（供后续大纲生成使用）
-                characters_info = "\n".join([
-                    f"- {char.name} ({'组织' if char.is_organization else '角色'}, {char.role_type}): "
-                    f"{char.personality[:100] if char.personality else '暂无描述'}"
-                    for char in characters
-                ])
+                characters_info = _build_characters_info(characters)
                 
             except Exception as e:
                 logger.error(f"⚠️ 【确认模式】创建确认角色失败: {e}", exc_info=True)
@@ -992,18 +962,7 @@ async def _continue_outline(
                 from app.services.auto_character_service import get_auto_character_service
                 
                 # 构建已有章节概览
-                all_chapters_brief_for_analysis = ""
-                if len(existing_outlines) > 20:
-                    recent_20 = existing_outlines[-20:]
-                    all_chapters_brief_for_analysis = "\n".join([
-                        f"第{o.order_index}章《{o.title}》"
-                        for o in recent_20
-                    ])
-                else:
-                    all_chapters_brief_for_analysis = "\n".join([
-                        f"第{o.order_index}章《{o.title}》"
-                        for o in existing_outlines
-                    ])
+                all_chapters_brief_for_analysis = _build_chapters_brief(existing_outlines)
                 
                 auto_char_service = get_auto_character_service(user_ai_service)
                 
@@ -1075,11 +1034,7 @@ async def _continue_outline(
                         
                         # 更新角色信息（供后续大纲生成使用）
                         characters.extend(auto_result["new_characters"])
-                        characters_info = "\n".join([
-                            f"- {char.name} ({'组织' if char.is_organization else '角色'}, {char.role_type}): "
-                            f"{char.personality[:100] if char.personality else '暂无描述'}"
-                            for char in characters
-                        ])
+                        characters_info = _build_characters_info(characters)
                     else:
                         logger.info(f"✅ 【直接创建模式】AI判断无需引入新角色，继续生成大纲")
                     
@@ -1091,29 +1046,8 @@ async def _continue_outline(
     
     # 🏛️ 【组织引入】在生成大纲前预测并创建组织
     if request.enable_auto_organizations:
-        from app.models.relationship import Organization
-        
         # 获取现有组织
-        organizations_result = await db.execute(
-            select(Character, Organization)
-            .join(Organization, Character.id == Organization.character_id)
-            .where(
-                Character.project_id == project.id,
-                Character.is_organization == True
-            )
-        )
-        organizations_raw = organizations_result.all()
-        existing_organizations = []
-        for char, org in organizations_raw:
-            existing_organizations.append({
-                "id": org.id,
-                "name": char.name,
-                "organization_type": char.organization_type,
-                "organization_purpose": char.organization_purpose,
-                "power_level": org.power_level,
-                "location": org.location,
-                "motto": org.motto
-            })
+        existing_organizations = await _get_existing_organizations(project.id, db)
         
         # 检查是否有用户确认的组织列表
         if request.confirmed_organizations:
@@ -1177,11 +1111,7 @@ async def _continue_outline(
                 await db.commit()
                 
                 # 更新角色信息（供后续大纲生成使用）
-                characters_info = "\n".join([
-                    f"- {char.name} ({'组织' if char.is_organization else '角色'}, {char.role_type}): "
-                    f"{char.personality[:100] if char.personality else '暂无描述'}"
-                    for char in characters
-                ])
+                characters_info = _build_characters_info(characters)
                 
                 logger.info(f"✅ 【确认模式】成功创建 {len(request.confirmed_organizations)} 个用户确认的组织")
                 
@@ -1193,18 +1123,7 @@ async def _continue_outline(
                 from app.services.auto_organization_service import get_auto_organization_service
                 
                 # 构建已有章节概览
-                all_chapters_brief_for_org_analysis = ""
-                if len(existing_outlines) > 20:
-                    recent_20 = existing_outlines[-20:]
-                    all_chapters_brief_for_org_analysis = "\n".join([
-                        f"第{o.order_index}章《{o.title}》"
-                        for o in recent_20
-                    ])
-                else:
-                    all_chapters_brief_for_org_analysis = "\n".join([
-                        f"第{o.order_index}章《{o.title}》"
-                        for o in existing_outlines
-                    ])
+                all_chapters_brief_for_org_analysis = _build_chapters_brief(existing_outlines)
                 
                 auto_org_service = get_auto_organization_service(user_ai_service)
                 
@@ -1281,11 +1200,7 @@ async def _continue_outline(
                             org_char = org_item.get("character")
                             if org_char:
                                 characters.append(org_char)
-                        characters_info = "\n".join([
-                            f"- {char.name} ({'组织' if char.is_organization else '角色'}, {char.role_type}): "
-                            f"{char.personality[:100] if char.personality else '暂无描述'}"
-                            for char in characters
-                        ])
+                        characters_info = _build_characters_info(characters)
                     else:
                         logger.info(f"✅ 【直接创建模式】AI判断无需引入新组织，继续生成大纲")
                     
@@ -1711,11 +1626,7 @@ async def new_outline_generator(
             select(Character).where(Character.project_id == project_id)
         )
         characters = characters_result.scalars().all()
-        characters_info = "\n".join([
-            f"- {char.name} ({'组织' if char.is_organization else '角色'}, {char.role_type}): "
-            f"{char.personality[:100] if char.personality else '暂无描述'}"
-            for char in characters
-        ])
+        characters_info = _build_characters_info(characters)
         
         # 🔍 MCP工具增强：收集情节设计参考资料（优化版）
         mcp_reference_materials = ""
@@ -2049,11 +1960,7 @@ async def continue_outline_generator(
             select(Character).where(Character.project_id == project_id)
         )
         characters = characters_result.scalars().all()
-        characters_info = "\n".join([
-            f"- {char.name} ({'组织' if char.is_organization else '角色'}, {char.role_type}): "
-            f"{char.personality[:100] if char.personality else '暂无描述'}"
-            for char in characters
-        ])
+        characters_info = _build_characters_info(characters)
 
         # 分批配置
         batch_size = 5
@@ -2195,35 +2102,19 @@ async def continue_outline_generator(
                     from app.services.auto_character_service import get_auto_character_service
                     
                     # 构建已有章节概览
-                    all_chapters_brief_for_analysis = ""
-                    if len(existing_outlines) > 20:
-                        recent_20 = existing_outlines[-20:]
-                        all_chapters_brief_for_analysis = "\n".join([
-                            f"第{o.order_index}章《{o.title}》"
-                            for o in recent_20
-                        ])
-                    else:
-                        all_chapters_brief_for_analysis = "\n".join([
-                            f"第{o.order_index}章《{o.title}》"
-                            for o in existing_outlines
-                        ])
+                    all_chapters_brief_for_analysis = _build_chapters_brief(existing_outlines)
                     
                     auto_char_service = get_auto_character_service(user_ai_service)
                     
                     if require_confirmation:
                         # 🔮 预测模式：仅预测角色，不自动创建，需要用户确认
                         yield await SSEResponse.send_progress(
-                            "🔮 【预测模式】AI分析角色需求...",
-                            11
+                            "🔮 【预测模式】开始分析角色需求...",
+                            12
                         )
-                        
                         logger.info(f"🔮 【预测模式】在生成大纲前预测是否需要新角色")
                         
-                        yield await SSEResponse.send_progress(
-                            "🤖 【预测模式】AI智能预测新角色...",
-                            15
-                        )
-                        
+                        # 进度消息不使用回调，因为在async generator中无法嵌套yield
                         auto_result = await auto_char_service.analyze_and_create_characters(
                             project_id=project_id,
                             outline_content="",  # 预测模式不需要大纲内容
@@ -2237,6 +2128,11 @@ async def continue_outline_generator(
                             plot_stage=data.get("plot_stage", "development"),
                             story_direction=data.get("story_direction", "自然延续"),
                             preview_only=True  # ✅ 仅预测不创建
+                        )
+                        
+                        yield await SSEResponse.send_progress(
+                            "✅ 【预测模式】角色需求分析完成",
+                            18
                         )
                         
                         # 检查是否需要新角色
@@ -2266,25 +2162,53 @@ async def continue_outline_generator(
                     else:
                         # 🚀 直接创建模式：预测后自动创建，无需用户确认
                         yield await SSEResponse.send_progress(
-                            "🚀 【直接创建模式】检测并自动创建新角色（无需确认）...",
-                            13
+                            "🚀 【直接创建模式】开始分析并创建角色...",
+                            14
                         )
-                        
                         logger.info(f"🚀 【直接创建模式】在生成大纲前预测并直接创建新角色")
                         
-                        auto_result = await auto_char_service.analyze_and_create_characters(
-                            project_id=project_id,
-                            outline_content="",
-                            existing_characters=list(characters),
-                            db=db,
-                            user_id=user_id,
-                            enable_mcp=data.get("enable_mcp", True),
-                            all_chapters_brief=all_chapters_brief_for_analysis,
-                            start_chapter=last_chapter_number + 1,
-                            chapter_count=total_chapters_to_generate,
-                            plot_stage=data.get("plot_stage", "development"),
-                            story_direction=data.get("story_direction", "自然延续"),
-                            preview_only=False  # ✅ 直接创建角色
+                        # 使用队列桥接回调和generator
+                        import asyncio
+                        progress_queue = asyncio.Queue()
+                        
+                        async def char_progress_callback(message):
+                            await progress_queue.put(message)
+                        
+                        # 启动服务任务
+                        char_task = asyncio.create_task(
+                            auto_char_service.analyze_and_create_characters(
+                                project_id=project_id,
+                                outline_content="",
+                                existing_characters=list(characters),
+                                db=db,
+                                user_id=user_id,
+                                enable_mcp=data.get("enable_mcp", True),
+                                all_chapters_brief=all_chapters_brief_for_analysis,
+                                start_chapter=last_chapter_number + 1,
+                                chapter_count=total_chapters_to_generate,
+                                plot_stage=data.get("plot_stage", "development"),
+                                story_direction=data.get("story_direction", "自然延续"),
+                                preview_only=False,
+                                progress_callback=char_progress_callback
+                            )
+                        )
+                        
+                        # 在等待任务完成的同时，消费队列中的进度消息
+                        char_progress_base = 14
+                        while not char_task.done():
+                            try:
+                                message = await asyncio.wait_for(progress_queue.get(), timeout=0.1)
+                                char_progress_base = min(char_progress_base + 1, 17)
+                                yield await SSEResponse.send_progress(message, char_progress_base)
+                            except asyncio.TimeoutError:
+                                pass
+                        
+                        # 获取结果
+                        auto_result = await char_task
+                        
+                        yield await SSEResponse.send_progress(
+                            "✅ 【直接创建模式】角色分析和创建完成",
+                            18
                         )
                         
                         # 如果创建了新角色，更新角色列表
@@ -2302,11 +2226,7 @@ async def continue_outline_generator(
                             
                             # 更新角色信息（供后续大纲生成使用）
                             characters.extend(auto_result["new_characters"])
-                            characters_info = "\n".join([
-                                f"- {char.name} ({'组织' if char.is_organization else '角色'}, {char.role_type}): "
-                                f"{char.personality[:100] if char.personality else '暂无描述'}"
-                                for char in characters
-                            ])
+                            characters_info = _build_characters_info(characters)
                         else:
                             yield await SSEResponse.send_progress(
                                 "✅ 【直接创建模式】无需引入新角色，继续生成大纲",
@@ -2329,29 +2249,8 @@ async def continue_outline_generator(
         # confirmed_organizations = data.get("confirmed_organizations")
         
         if enable_auto_organizations:
-            from app.models.relationship import Organization
-            
             # 获取现有组织
-            organizations_result = await db.execute(
-                select(Character, Organization)
-                .join(Organization, Character.id == Organization.character_id)
-                .where(
-                    Character.project_id == project_id,
-                    Character.is_organization == True
-                )
-            )
-            organizations_raw = organizations_result.all()
-            existing_organizations = []
-            for char, org in organizations_raw:
-                existing_organizations.append({
-                    "id": org.id,
-                    "name": char.name,
-                    "organization_type": char.organization_type,
-                    "organization_purpose": char.organization_purpose,
-                    "power_level": org.power_level,
-                    "location": org.location,
-                    "motto": org.motto
-                })
+            existing_organizations = await _get_existing_organizations(project_id, db)
             
             # 检查是否有用户确认的组织列表
             if confirmed_organizations:
@@ -2465,34 +2364,17 @@ async def continue_outline_generator(
                     from app.services.auto_organization_service import get_auto_organization_service
                     
                     # 构建已有章节概览
-                    all_chapters_brief_for_org_analysis = ""
-                    if len(existing_outlines) > 20:
-                        recent_20 = existing_outlines[-20:]
-                        all_chapters_brief_for_org_analysis = "\n".join([
-                            f"第{o.order_index}章《{o.title}》"
-                            for o in recent_20
-                        ])
-                    else:
-                        all_chapters_brief_for_org_analysis = "\n".join([
-                            f"第{o.order_index}章《{o.title}》"
-                            for o in existing_outlines
-                        ])
+                    all_chapters_brief_for_org_analysis = _build_chapters_brief(existing_outlines)
 
                     auto_org_service = get_auto_organization_service(user_ai_service)
                     
                     if require_org_confirmation:
                         # 🔮 预测模式：仅预测组织，不自动创建，需要用户确认
                         yield await SSEResponse.send_progress(
-                            "🔮 【预测模式】AI分析组织需求...",
-                            21
-                        )
-                        
-                        logger.info(f"🔮 【预测模式】在生成大纲前预测是否需要新组织")
-                        
-                        yield await SSEResponse.send_progress(
-                            "🤖 【预测模式】AI智能预测新组织...",
+                            "🔮 【预测模式】开始分析组织需求...",
                             22
                         )
+                        logger.info(f"🔮 【预测模式】在生成大纲前预测是否需要新组织")
                         
                         auto_result = await auto_org_service.analyze_and_create_organizations(
                             project_id=project_id,
@@ -2508,6 +2390,11 @@ async def continue_outline_generator(
                             plot_stage=data.get("plot_stage", "development"),
                             story_direction=data.get("story_direction", "自然延续"),
                             preview_only=True  # ✅ 仅预测不创建
+                        )
+                        
+                        yield await SSEResponse.send_progress(
+                            "✅ 【预测模式】组织需求分析完成",
+                            28
                         )
                         
                         # 检查是否需要新组织
@@ -2537,31 +2424,54 @@ async def continue_outline_generator(
                     else:
                         # 🚀 直接创建模式：预测后自动创建，无需用户确认
                         yield await SSEResponse.send_progress(
-                            "🚀 【直接创建模式】AI分析组织需求...",
-                            23
+                            "🚀 【直接创建模式】开始分析并创建组织...",
+                            24
                         )
-                        
                         logger.info(f"🚀 【直接创建模式】在生成大纲前预测并直接创建新组织")
                         
-                        yield await SSEResponse.send_progress(
-                            "🤖 【直接创建模式】AI预测并生成组织详情...",
-                            25
+                        # 使用队列桥接回调和generator
+                        import asyncio
+                        org_progress_queue = asyncio.Queue()
+                        
+                        async def org_progress_callback(message):
+                            await org_progress_queue.put(message)
+                        
+                        # 启动服务任务
+                        org_task = asyncio.create_task(
+                            auto_org_service.analyze_and_create_organizations(
+                                project_id=project_id,
+                                outline_content="",
+                                existing_characters=list(characters),
+                                existing_organizations=existing_organizations,
+                                db=db,
+                                user_id=user_id,
+                                enable_mcp=data.get("enable_mcp", True),
+                                all_chapters_brief=all_chapters_brief_for_org_analysis,
+                                start_chapter=last_chapter_number + 1,
+                                chapter_count=total_chapters_to_generate,
+                                plot_stage=data.get("plot_stage", "development"),
+                                story_direction=data.get("story_direction", "自然延续"),
+                                preview_only=False,
+                                progress_callback=org_progress_callback
+                            )
                         )
                         
-                        auto_result = await auto_org_service.analyze_and_create_organizations(
-                            project_id=project_id,
-                            outline_content="",
-                            existing_characters=list(characters),
-                            existing_organizations=existing_organizations,
-                            db=db,
-                            user_id=user_id,
-                            enable_mcp=data.get("enable_mcp", True),
-                            all_chapters_brief=all_chapters_brief_for_org_analysis,
-                            start_chapter=last_chapter_number + 1,
-                            chapter_count=total_chapters_to_generate,
-                            plot_stage=data.get("plot_stage", "development"),
-                            story_direction=data.get("story_direction", "自然延续"),
-                            preview_only=False  # ✅ 直接创建组织
+                        # 在等待任务完成的同时，消费队列中的进度消息
+                        org_progress_base = 24
+                        while not org_task.done():
+                            try:
+                                message = await asyncio.wait_for(org_progress_queue.get(), timeout=0.1)
+                                org_progress_base = min(org_progress_base + 1, 27)
+                                yield await SSEResponse.send_progress(message, org_progress_base)
+                            except asyncio.TimeoutError:
+                                pass
+                        
+                        # 获取结果
+                        auto_result = await org_task
+                        
+                        yield await SSEResponse.send_progress(
+                            "✅ 【直接创建模式】组织分析和创建完成",
+                            28
                         )
                         
                         # 如果创建了新组织，更新角色列表
@@ -2587,11 +2497,7 @@ async def continue_outline_generator(
                                 org_char = org_item.get("character")
                                 if org_char:
                                     characters.append(org_char)
-                            characters_info = "\n".join([
-                                f"- {char.name} ({'组织' if char.is_organization else '角色'}, {char.role_type}): "
-                                f"{char.personality[:100] if char.personality else '暂无描述'}"
-                                for char in characters
-                            ])
+                            characters_info = _build_characters_info(characters)
                         else:
                             yield await SSEResponse.send_progress(
                                 "✅ 【直接创建模式】无需引入新组织，继续生成大纲",

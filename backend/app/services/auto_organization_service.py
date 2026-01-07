@@ -1,5 +1,5 @@
 """自动组织引入服务 - 在续写大纲时根据剧情推进自动引入新组织"""
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Callable, Awaitable
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 import json
@@ -34,7 +34,8 @@ class AutoOrganizationService:
         chapter_count: int = 3,
         plot_stage: str = "发展",
         story_direction: str = "继续推进主线剧情",
-        preview_only: bool = False
+        preview_only: bool = False,
+        progress_callback: Optional[Callable[[str], Awaitable[None]]] = None
     ) -> Dict[str, Any]:
         """
         预测性分析并创建需要的新组织
@@ -86,6 +87,9 @@ class AutoOrganizationService:
         existing_chars_summary = self._build_character_summary(existing_characters)
         
         # 3. AI预测性分析是否需要新组织
+        if progress_callback:
+            await progress_callback("🤖 AI分析组织需求...")
+        
         analysis_result = await self._analyze_organization_needs(
             project=project,
             outline_content=outline_content,
@@ -100,6 +104,9 @@ class AutoOrganizationService:
             plot_stage=plot_stage,
             story_direction=story_direction
         )
+        
+        if progress_callback:
+            await progress_callback("✅ 组织需求分析完成")
         
         # 4. 判断是否需要创建组织
         if not analysis_result or not analysis_result.get("needs_new_organizations"):
@@ -141,6 +148,9 @@ class AutoOrganizationService:
                 logger.info(f"  [{idx+1}/{len(organization_specs)}] 生成组织规格: {spec_name}")
                 logger.debug(f"     组织规格内容: {json.dumps(spec, ensure_ascii=False)}")
                 
+                if progress_callback:
+                    await progress_callback(f"🏛️ [{idx+1}/{len(organization_specs)}] 生成组织详情: {spec_name}")
+                
                 # 生成组织详细信息
                 organization_data = await self._generate_organization_details(
                     spec=spec,
@@ -153,6 +163,9 @@ class AutoOrganizationService:
                 )
                 
                 logger.debug(f"     AI生成的组织数据: {json.dumps(organization_data, ensure_ascii=False)[:200]}")
+                
+                if progress_callback:
+                    await progress_callback(f"💾 [{idx+1}/{len(organization_specs)}] 保存组织: {organization_data.get('name', spec_name)}")
                 
                 # 创建组织记录（先创建Character记录，再创建Organization记录）
                 character, organization = await self._create_organization_record(
@@ -167,10 +180,17 @@ class AutoOrganizationService:
                 })
                 logger.info(f"  ✅ 创建新组织: {character.name}, ID: {organization.id}")
                 
+                if progress_callback:
+                    await progress_callback(f"✅ [{idx+1}/{len(organization_specs)}] 组织创建成功: {character.name}")
+                
                 # 建立成员关系
                 members_data = organization_data.get("initial_members", [])
                 if members_data:
                     logger.info(f"  🔗 开始创建 {len(members_data)} 个成员关系...")
+                    
+                    if progress_callback:
+                        await progress_callback(f"🔗 [{idx+1}/{len(organization_specs)}] 建立 {len(members_data)} 个成员关系")
+                    
                     members = await self._create_member_relationships(
                         organization=organization,
                         member_specs=members_data,
