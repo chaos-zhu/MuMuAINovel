@@ -292,25 +292,11 @@ class AutoOrganizationService:
         )
         
         try:
-            # 调用AI分析（使用统一的JSON调用方法）
-            if enable_mcp and user_id:
-                result = await self.ai_service.generate_text_with_mcp(
-                    prompt=prompt,
-                    user_id=user_id,
-                    db_session=db,
-                    enable_mcp=True,
-                    max_tool_rounds=2
-                )
-                content = result.get("content", "")
-                # 使用统一的JSON清洗方法
-                cleaned = self.ai_service._clean_json_response(content)
-                analysis = json.loads(cleaned)
-            else:
-                # 非MCP调用：使用带自动重试的JSON调用
-                analysis = await self.ai_service.call_with_json_retry(
-                    prompt=prompt,
-                    max_retries=3
-                )
+            # 使用统一的JSON调用方法（支持自动MCP工具加载）
+            analysis = await self.ai_service.call_with_json_retry(
+                prompt=prompt,
+                max_retries=3,
+            )
             
             logger.info(f"  ✅ AI分析完成: needs_new_organizations={analysis.get('needs_new_organizations')}")
             return analysis
@@ -362,24 +348,11 @@ class AutoOrganizationService:
         
         # 调用AI生成（使用统一的JSON调用方法）
         try:
-            if enable_mcp and user_id:
-                result = await self.ai_service.generate_text_with_mcp(
-                    prompt=prompt,
-                    user_id=user_id,
-                    db_session=db,
-                    enable_mcp=True,
-                    max_tool_rounds=2
-                )
-                content = result.get("content", "")
-                # 使用统一的JSON清洗方法
-                cleaned = self.ai_service._clean_json_response(content)
-                organization_data = json.loads(cleaned)
-            else:
-                # 非MCP调用：使用带自动重试的JSON调用
-                organization_data = await self.ai_service.call_with_json_retry(
-                    prompt=prompt,
-                    max_retries=3
-                )
+            # 使用统一的JSON调用方法（支持自动MCP工具加载）
+            organization_data = await self.ai_service.call_with_json_retry(
+                prompt=prompt,
+                max_retries=3,
+            )
             
             org_name = organization_data.get('name', '未知')
             logger.info(f"    ✅ 组织详情生成成功: {org_name}")

@@ -167,7 +167,7 @@ async def get_db(request: Request):
     _session_stats["created"] += 1
     _session_stats["active"] += 1
     
-    logger.debug(f"📊 会话创建 [User:{user_id}][ID:{session_id}] - 活跃:{_session_stats['active']}, 总创建:{_session_stats['created']}, 总关闭:{_session_stats['closed']}")
+    # logger.debug(f"📊 会话创建 [User:{user_id}][ID:{session_id}] - 活跃:{_session_stats['active']}, 总创建:{_session_stats['created']}, 总关闭:{_session_stats['closed']}")
     
     try:
         yield session

@@ -37,6 +37,14 @@ interface GenerationSteps {
   outline: GenerationStep;
 }
 
+interface WorldBuildingResult {
+  project_id: string;
+  time_period: string;
+  location: string;
+  atmosphere: string;
+  rules: string;
+}
+
 export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
   config,
   storagePrefix,
@@ -64,7 +72,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
   // 保存生成数据，用于重试
   const [generationData, setGenerationData] = useState<GenerationConfig | null>(null);
   // 保存世界观生成结果，用于后续步骤
-  const [worldBuildingResult, setWorldBuildingResult] = useState<any>(null);
+  const [worldBuildingResult, setWorldBuildingResult] = useState<WorldBuildingResult | null>(null);
 
   // LocalStorage 键名
   const storageKeys = {
@@ -102,6 +110,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
         handleAutoGenerate(config);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [config, resumeProjectId]);
 
   // 恢复未完成项目的生成
@@ -125,33 +134,40 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       const wizardStep = project.wizard_step || 0;
 
       // 根据wizard_step判断从哪里继续
+      // wizard_step: 0=未开始, 1=世界观已完成, 2=职业体系已完成, 3=角色已完成, 4=大纲已完成
+      // 获取世界观数据（用于后续步骤）
+      const worldResult = {
+        project_id: projectIdParam,
+        time_period: project.world_time_period || '',
+        location: project.world_location || '',
+        atmosphere: project.world_atmosphere || '',
+        rules: project.world_rules || ''
+      };
+
       if (wizardStep === 0) {
         // 从世界观开始
         message.info('从世界观步骤开始生成...');
         setGenerationSteps({ worldBuilding: 'processing', careers: 'pending', characters: 'pending', outline: 'pending' });
         await resumeFromWorldBuilding(data);
       } else if (wizardStep === 1) {
-        // 世界观已完成,从角色开始
-        message.info('世界观已完成,从角色步骤继续...');
-        setGenerationSteps({ worldBuilding: 'completed', careers: 'completed', characters: 'processing', outline: 'pending' });
-
-        // 获取世界观数据
-        const worldResult = {
-          project_id: projectIdParam,
-          time_period: project.world_time_period || '',
-          location: project.world_location || '',
-          atmosphere: project.world_atmosphere || '',
-          rules: project.world_rules || ''
-        };
+        // 世界观已完成，从职业体系开始
+        message.info('世界观已完成，从职业体系步骤继续...');
+        setGenerationSteps({ worldBuilding: 'completed', careers: 'processing', characters: 'pending', outline: 'pending' });
         setWorldBuildingResult(worldResult);
-        setProgress(33);
-
-        await resumeFromCharacters(data, worldResult);
+        setProgress(20);
+        await resumeFromCareers(data, worldResult);
       } else if (wizardStep === 2) {
-        // 世界观和角色已完成,从大纲开始
-        message.info('世界观和角色已完成,从大纲步骤继续...');
+        // 职业体系已完成，从角色开始
+        message.info('职业体系已完成，从角色步骤继续...');
+        setGenerationSteps({ worldBuilding: 'completed', careers: 'completed', characters: 'processing', outline: 'pending' });
+        setWorldBuildingResult(worldResult);
+        setProgress(40);
+        await resumeFromCharacters(data, worldResult);
+      } else if (wizardStep === 3) {
+        // 角色已完成，从大纲开始
+        message.info('角色已完成，从大纲步骤继续...');
         setGenerationSteps({ worldBuilding: 'completed', careers: 'completed', characters: 'completed', outline: 'processing' });
-        setProgress(66);
+        setProgress(70);
         await resumeFromOutline(data, projectIdParam);
       } else {
         // 已全部完成
@@ -211,11 +227,47 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       }
     );
 
+    await resumeFromCareers(data, worldResult);
+  };
+
+  // 恢复:从职业体系步骤继续
+  const resumeFromCareers = async (data: GenerationConfig, worldResult: WorldBuildingResult) => {
+    const pid = projectId || worldResult.project_id;
+
+    setGenerationSteps(prev => ({ ...prev, careers: 'processing' }));
+    setProgressMessage('正在生成职业体系...');
+
+    await wizardStreamApi.generateCareerSystemStream(
+      {
+        project_id: pid,
+      },
+      {
+        onProgress: (msg, prog) => {
+          setProgress(prog);
+          setProgressMessage(msg);
+        },
+        onResult: (result) => {
+          console.log(`成功生成职业体系：主职业${result.main_careers_count}个，副职业${result.sub_careers_count}个`);
+          setGenerationSteps(prev => ({ ...prev, careers: 'completed' }));
+        },
+        onError: (error) => {
+          console.error('职业体系生成失败:', error);
+          setErrorDetails(`职业体系生成失败: ${error}`);
+          setGenerationSteps(prev => ({ ...prev, careers: 'error' }));
+          setLoading(false);
+          throw new Error(error);
+        },
+        onComplete: () => {
+          console.log('职业体系生成完成');
+        }
+      }
+    );
+
     await resumeFromCharacters(data, worldResult);
   };
 
   // 恢复:从角色步骤继续
-  const resumeFromCharacters = async (data: GenerationConfig, worldResult: any) => {
+  const resumeFromCharacters = async (data: GenerationConfig, worldResult: WorldBuildingResult) => {
     const genreString = Array.isArray(data.genre) ? data.genre.join('、') : data.genre;
     const pid = projectId || worldResult.project_id;
 
@@ -342,26 +394,11 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
             // 直接使用后端返回的进度值
             setProgress(prog);
             setProgressMessage(msg);
-
-            // 检测职业体系生成阶段
-            if (msg.includes('职业体系')) {
-              if (msg.includes('开始') || msg.includes('生成')) {
-                setGenerationSteps(prev => ({
-                  ...prev,
-                  worldBuilding: 'completed',
-                  careers: 'processing'
-                }));
-              }
-              if (msg.includes('完成') || msg.includes('✅')) {
-                setGenerationSteps(prev => ({ ...prev, careers: 'completed' }));
-              }
-            }
           },
           onResult: (result) => {
             setProjectId(result.project_id);
             setWorldBuildingResult(result);
             setGenerationSteps(prev => ({ ...prev, worldBuilding: 'completed' }));
-            // 职业体系状态已在onProgress中更新
           },
           onError: (error) => {
             console.error('世界观生成失败:', error);
@@ -385,7 +422,37 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       setWorldBuildingResult(worldResult);
       saveProgress(createdProjectId, data, 'generating');
 
-      // 步骤2: 生成角色
+      // 步骤2: 生成职业体系
+      setGenerationSteps(prev => ({ ...prev, careers: 'processing' }));
+      setProgressMessage('正在生成职业体系...');
+
+      await wizardStreamApi.generateCareerSystemStream(
+        {
+          project_id: createdProjectId,
+        },
+        {
+          onProgress: (msg, prog) => {
+            setProgress(prog);
+            setProgressMessage(msg);
+          },
+          onResult: (result) => {
+            console.log(`成功生成职业体系：主职业${result.main_careers_count}个，副职业${result.sub_careers_count}个`);
+            setGenerationSteps(prev => ({ ...prev, careers: 'completed' }));
+          },
+          onError: (error) => {
+            console.error('职业体系生成失败:', error);
+            setErrorDetails(`职业体系生成失败: ${error}`);
+            setGenerationSteps(prev => ({ ...prev, careers: 'error' }));
+            setLoading(false);
+            throw new Error(error);
+          },
+          onComplete: () => {
+            console.log('职业体系生成完成');
+          }
+        }
+      );
+
+      // 步骤3: 生成角色
       setGenerationSteps(prev => ({ ...prev, characters: 'processing' }));
       setProgressMessage('正在生成角色...');
 
@@ -497,6 +564,9 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       if (generationSteps.worldBuilding === 'error') {
         message.info('从世界观步骤开始重新生成...');
         await retryFromWorldBuilding();
+      } else if (generationSteps.careers === 'error') {
+        message.info('从职业体系步骤继续生成...');
+        await retryFromCareers();
       } else if (generationSteps.characters === 'error') {
         message.info('从角色步骤继续生成...');
         await retryFromCharacters();
@@ -504,9 +574,10 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
         message.info('从大纲步骤继续生成...');
         await retryFromOutline();
       }
-    } catch (error: any) {
+    } catch (error) {
       console.error('智能重试失败:', error);
-      message.error('重试失败：' + (error.message || '未知错误'));
+      const errorMessage = error instanceof Error ? error.message : '未知错误';
+      message.error('重试失败：' + errorMessage);
       setLoading(false);
     }
   };
@@ -537,20 +608,6 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
           // 直接使用后端返回的进度值
           setProgress(prog);
           setProgressMessage(msg);
-
-          // 检测职业体系生成阶段
-          if (msg.includes('职业体系')) {
-            if (msg.includes('开始') || msg.includes('生成')) {
-              setGenerationSteps(prev => ({
-                ...prev,
-                worldBuilding: 'completed',
-                careers: 'processing'
-              }));
-            }
-            if (msg.includes('完成') || msg.includes('✅')) {
-              setGenerationSteps(prev => ({ ...prev, careers: 'completed' }));
-            }
-          }
         },
         onResult: (result) => {
           setProjectId(result.project_id);
@@ -574,13 +631,68 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       throw new Error('项目创建失败：未获取到项目ID');
     }
 
-    await continueFromCharacters(worldResult);
+    await continueFromCareers(worldResult);
+  };
+
+  // 从职业体系步骤继续
+  const retryFromCareers = async () => {
+    if (!worldBuildingResult) {
+      message.warning('缺少必要数据，无法从职业体系步骤继续');
+      setLoading(false);
+      return;
+    }
+
+    const pid = worldBuildingResult.project_id || projectId;
+    if (!pid) {
+      message.warning('缺少项目ID，无法从职业体系步骤继续');
+      setLoading(false);
+      return;
+    }
+
+    setGenerationSteps(prev => ({ ...prev, careers: 'processing' }));
+    setProgressMessage('重新生成职业体系...');
+
+    await wizardStreamApi.generateCareerSystemStream(
+      {
+        project_id: pid,
+      },
+      {
+        onProgress: (msg, prog) => {
+          setProgress(prog);
+          setProgressMessage(msg);
+        },
+        onResult: (result) => {
+          console.log(`成功生成职业体系：主职业${result.main_careers_count}个，副职业${result.sub_careers_count}个`);
+          setGenerationSteps(prev => ({ ...prev, careers: 'completed' }));
+        },
+        onError: (error) => {
+          console.error('职业体系生成失败:', error);
+          setErrorDetails(`职业体系生成失败: ${error}`);
+          setGenerationSteps(prev => ({ ...prev, careers: 'error' }));
+          setLoading(false);
+          throw new Error(error);
+        },
+        onComplete: () => {
+          console.log('职业体系重新生成完成');
+        }
+      }
+    );
+
+    await continueFromCharacters(worldBuildingResult);
   };
 
   // 从角色步骤继续
   const retryFromCharacters = async () => {
-    if (!generationData || !projectId || !worldBuildingResult) {
+    if (!generationData || !worldBuildingResult) {
       message.warning('缺少必要数据，无法从角色步骤继续');
+      setLoading(false);
+      return;
+    }
+
+    // 优先使用 worldBuildingResult 中的 project_id，因为重试可能创建了新项目
+    const pid = worldBuildingResult.project_id || projectId;
+    if (!pid) {
+      message.warning('缺少项目ID，无法从角色步骤继续');
       setLoading(false);
       return;
     }
@@ -592,7 +704,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
 
     await wizardStreamApi.generateCharactersStream(
       {
-        project_id: projectId,
+        project_id: pid,
         count: generationData.character_count,
         world_context: {
           time_period: worldBuildingResult.time_period || '',
@@ -626,13 +738,21 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       }
     );
 
-    await continueFromOutline();
+    await continueFromOutline(pid);
   };
 
   // 从大纲步骤继续
   const retryFromOutline = async () => {
-    if (!generationData || !projectId) {
+    if (!generationData) {
       message.warning('缺少必要数据，无法从大纲步骤继续');
+      setLoading(false);
+      return;
+    }
+
+    // 优先使用 worldBuildingResult 中的 project_id，fallback 到状态中的 projectId
+    const pid = (worldBuildingResult?.project_id) || projectId;
+    if (!pid) {
+      message.warning('缺少项目ID，无法从大纲步骤继续');
       setLoading(false);
       return;
     }
@@ -642,7 +762,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
 
     await wizardStreamApi.generateCompleteOutlineStream(
       {
-        project_id: projectId,
+        project_id: pid,
         chapter_count: generationData.chapter_count,
         narrative_perspective: generationData.narrative_perspective,
         target_words: generationData.target_words,
@@ -676,20 +796,59 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
     setLoading(false);
 
     // 调用完成回调
-    if (projectId) {
-      onComplete(projectId);
+    if (pid) {
+      onComplete(pid);
 
       // 延迟1秒后自动跳转到项目详情页
       setTimeout(() => {
-        navigate(`/project/${projectId}`);
+        navigate(`/project/${pid}`);
       }, 1000);
     }
   };
 
-  // 从角色步骤开始的完整流程
-  const continueFromCharacters = async (worldResult: any) => {
+  // 从职业体系步骤开始的完整流程
+  const continueFromCareers = async (worldResult: WorldBuildingResult) => {
     if (!generationData || !worldResult?.project_id) return;
 
+    const pid = worldResult.project_id;
+
+    setGenerationSteps(prev => ({ ...prev, careers: 'processing' }));
+    setProgressMessage('正在生成职业体系...');
+
+    await wizardStreamApi.generateCareerSystemStream(
+      {
+        project_id: pid,
+      },
+      {
+        onProgress: (msg, prog) => {
+          setProgress(prog);
+          setProgressMessage(msg);
+        },
+        onResult: (result) => {
+          console.log(`成功生成职业体系：主职业${result.main_careers_count}个，副职业${result.sub_careers_count}个`);
+          setGenerationSteps(prev => ({ ...prev, careers: 'completed' }));
+        },
+        onError: (error) => {
+          console.error('职业体系生成失败:', error);
+          setErrorDetails(`职业体系生成失败: ${error}`);
+          setGenerationSteps(prev => ({ ...prev, careers: 'error' }));
+          setLoading(false);
+          throw new Error(error);
+        },
+        onComplete: () => {
+          console.log('职业体系生成完成');
+        }
+      }
+    );
+
+    await continueFromCharacters(worldResult);
+  };
+
+  // 从角色步骤开始的完整流程
+  const continueFromCharacters = async (worldResult: WorldBuildingResult) => {
+    if (!generationData || !worldResult?.project_id) return;
+
+    const pid = worldResult.project_id;
     const genreString = Array.isArray(generationData.genre) ? generationData.genre.join('、') : generationData.genre;
 
     setGenerationSteps(prev => ({ ...prev, characters: 'processing' }));
@@ -697,7 +856,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
 
     await wizardStreamApi.generateCharactersStream(
       {
-        project_id: worldResult.project_id,
+        project_id: pid,
         count: generationData.character_count,
         world_context: {
           time_period: worldResult.time_period || '',
@@ -731,19 +890,19 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       }
     );
 
-    await continueFromOutline();
+    await continueFromOutline(pid);
   };
 
   // 从大纲步骤开始的完整流程
-  const continueFromOutline = async () => {
-    if (!generationData || !projectId) return;
+  const continueFromOutline = async (pid: string) => {
+    if (!generationData || !pid) return;
 
     setGenerationSteps(prev => ({ ...prev, outline: 'processing' }));
     setProgressMessage('正在生成大纲...');
 
     await wizardStreamApi.generateCompleteOutlineStream(
       {
-        project_id: projectId,
+        project_id: pid,
         chapter_count: generationData.chapter_count,
         narrative_perspective: generationData.narrative_perspective,
         target_words: generationData.target_words,
@@ -777,12 +936,12 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
     setLoading(false);
 
     // 调用完成回调
-    if (projectId) {
-      onComplete(projectId);
+    if (pid) {
+      onComplete(pid);
 
       // 延迟1秒后自动跳转到项目详情页
       setTimeout(() => {
-        navigate(`/project/${projectId}`);
+        navigate(`/project/${pid}`);
       }, 1000);
     }
   };

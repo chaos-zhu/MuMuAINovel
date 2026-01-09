@@ -77,10 +77,8 @@ class Settings(BaseSettings):
     default_temperature: float = 0.7
     default_max_tokens: int = 32000
     
-    # MCP适配器配置
-    enable_mcp_adapter: bool = True  # 是否启用MCP适配器（自动检测API能力）
-    mcp_adapter_cache_ttl_hours: int = 24  # API能力检测缓存时长（小时）
-    mcp_adapter_auto_fallback: bool = True  # 是否启用自动降级（FC失败时切换到提示词注入）
+    # MCP配置
+    mcp_max_rounds: int = 3  # MCP工具调用最大轮数（全局统一控制）
     
     # LinuxDO OAuth2 配置
     LINUXDO_CLIENT_ID: Optional[str] = None

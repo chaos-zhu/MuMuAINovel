@@ -12,7 +12,7 @@ from app.database import close_db, _session_stats
 from app.logger import setup_logging, get_logger
 from app.middleware import RequestIDMiddleware
 from app.middleware.auth_middleware import AuthMiddleware
-from app.mcp.registry import mcp_registry
+from app.mcp import mcp_client, register_status_sync
 
 setup_logging(
     level=config_settings.log_level,
@@ -27,12 +27,15 @@ logger = get_logger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
+    # 注册MCP状态同步服务
+    register_status_sync()
+    
     logger.info("应用启动完成")
     
     yield
     
     # 清理MCP插件
-    await mcp_registry.cleanup_all()
+    await mcp_client.cleanup()
     
     # 清理HTTP客户端池
     from app.services.ai_service import cleanup_http_clients

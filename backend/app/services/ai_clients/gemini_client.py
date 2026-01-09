@@ -111,7 +111,18 @@ class GeminiClient:
         temperature: float,
         max_tokens: int,
         system_prompt: Optional[str] = None,
-    ) -> AsyncGenerator[str, None]:
+        tools: Optional[list] = None,
+        tool_choice: Optional[str] = None,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        流式生成，支持工具调用
+        
+        Yields:
+            Dict with keys:
+            - content: str - 文本内容块
+            - tool_calls: list - 工具调用列表（如果有）
+            - done: bool - 是否结束
+        """
         url = f"{self.base_url}/models/{model}:streamGenerateContent?key={self.api_key}&alt=sse"
         
         contents = []
@@ -125,6 +136,8 @@ class GeminiClient:
         }
         if system_prompt:
             payload["systemInstruction"] = {"parts": [{"text": system_prompt}]}
+        if tools:
+            payload["tools"] = self._convert_tools_to_gemini(tools)
 
         try:
             async with self.client.stream("POST", url, json=payload) as response:
@@ -139,9 +152,26 @@ class GeminiClient:
                                 if candidates and len(candidates) > 0:
                                     parts = candidates[0].get("content", {}).get("parts", [])
                                     if parts and len(parts) > 0:
-                                        text = parts[0].get("text", "")
+                                        text = ""
+                                        function_calls = []
+                                        for part in parts:
+                                            if "text" in part:
+                                                text += part["text"]
+                                            elif "functionCall" in part:
+                                                fc = part["functionCall"]
+                                                function_calls.append({
+                                                    "id": f"call_{fc['name']}",
+                                                    "type": "function",
+                                                    "function": {
+                                                        "name": fc["name"],
+                                                        "arguments": fc.get("args", {})
+                                                    }
+                                                })
+                                        
                                         if text:
-                                            yield text
+                                            yield {"content": text}
+                                        if function_calls:
+                                            yield {"tool_calls": function_calls}
                             except json.JSONDecodeError:
                                 continue
                 except GeneratorExit:

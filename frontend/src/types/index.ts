@@ -667,7 +667,7 @@ export interface MCPPlugin {
   plugin_name: string;
   display_name: string;
   description?: string;
-  plugin_type: 'http' | 'stdio';
+  plugin_type: 'http' | 'stdio' | 'streamable_http' | 'sse';
   category: string;
 
   // HTTP类型字段
@@ -693,7 +693,7 @@ export interface MCPPluginCreate {
   plugin_name: string;
   display_name?: string;
   description?: string;
-  server_type: 'http' | 'stdio';
+  server_type: 'http' | 'stdio' | 'streamable_http' | 'sse';
   server_url?: string;
   command?: string;
   args?: string[];

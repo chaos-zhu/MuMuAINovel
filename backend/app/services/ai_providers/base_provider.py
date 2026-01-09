@@ -28,6 +28,9 @@ class BaseAIProvider(ABC):
         temperature: float,
         max_tokens: int,
         system_prompt: Optional[str] = None,
+        tools: Optional[List[Dict]] = None,
+        tool_choice: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> AsyncGenerator[str, None]:
         """流式生成"""
         pass

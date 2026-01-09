@@ -356,7 +356,7 @@ export function useChapterSync() {
                     message.progress || 0
                   );
                 }
-              } else if (message.type === 'content' && message.content) {
+              } else if ((message.type === 'content' || message.type === 'chunk') && message.content) {
                 fullContent += message.content;
                 if (onProgress) {
                   onProgress(fullContent);

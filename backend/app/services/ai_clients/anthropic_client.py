@@ -71,7 +71,18 @@ class AnthropicClient:
         temperature: float,
         max_tokens: int,
         system_prompt: Optional[str] = None,
-    ) -> AsyncGenerator[str, None]:
+        tools: Optional[list] = None,
+        tool_choice: Optional[str] = None,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        流式生成，支持工具调用
+        
+        Yields:
+            Dict with keys:
+            - content: str - 文本内容块
+            - tool_calls: list - 工具调用列表（如果有）
+            - done: bool - 是否结束
+        """
         kwargs = {
             "model": model,
             "max_tokens": max_tokens,
@@ -80,12 +91,42 @@ class AnthropicClient:
         }
         if system_prompt:
             kwargs["system"] = system_prompt
+        if tools:
+            kwargs["tools"] = tools
+            if tool_choice == "required":
+                kwargs["tool_choice"] = {"type": "any"}
+            elif tool_choice == "auto":
+                kwargs["tool_choice"] = {"type": "auto"}
 
         try:
             async with self.client.messages.stream(**kwargs) as stream:
                 try:
-                    async for text in stream.text_stream:
-                        yield text
+                    tool_calls = []
+                    async for chunk in stream:
+                        # 处理不同类型的块
+                        if chunk.type == "text_delta":
+                            yield {"content": chunk.text}
+                        elif chunk.type == "tool_use_delta":
+                            # 工具调用增量
+                            if not tool_calls or tool_calls[-1].get("id") != chunk.id:
+                                tool_calls.append({
+                                    "id": chunk.id,
+                                    "type": "function",
+                                    "function": {
+                                        "name": chunk.name,
+                                        "arguments": ""
+                                    }
+                                })
+                            # 追加参数
+                            if tool_calls[-1]["function"]["arguments"] is None:
+                                tool_calls[-1]["function"]["arguments"] = ""
+                            tool_calls[-1]["function"]["arguments"] += chunk.input_gets_new_text or ""
+                        elif chunk.type == "message_delta":
+                            if chunk.stop_reason:
+                                # 流结束
+                                if tool_calls:
+                                    yield {"tool_calls": tool_calls}
+                                yield {"done": True, "finish_reason": chunk.stop_reason}
                 except GeneratorExit:
                     # 生成器被关闭，这是正常的清理过程
                     logger.debug("Anthropic 流式响应生成器被关闭(GeneratorExit)")

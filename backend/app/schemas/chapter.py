@@ -1,5 +1,5 @@
 """章节相关的Pydantic模型"""
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
@@ -58,8 +58,7 @@ class ChapterResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ChapterListResponse(BaseModel):
@@ -142,8 +141,7 @@ class ExpansionPlanUpdate(BaseModel):
     estimated_words: Optional[int] = Field(None, description="预估字数", ge=500, le=10000)
     scenes: Optional[List[SceneData]] = Field(None, description="场景列表")
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(json_schema_extra={
             "example": {
                 "key_events": ["主角遇到挑战", "关键决策时刻"],
                 "character_focus": ["张三", "李四"],
@@ -159,7 +157,7 @@ class ExpansionPlanUpdate(BaseModel):
                     }
                 ]
             }
-        }
+        })
 
 
 class ExpansionPlanResponse(BaseModel):

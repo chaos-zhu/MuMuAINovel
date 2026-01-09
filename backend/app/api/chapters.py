@@ -45,7 +45,7 @@ from app.services.memory_service import memory_service
 from app.services.chapter_regenerator import ChapterRegenerator
 from app.logger import get_logger
 from app.api.settings import get_user_ai_service
-from app.utils.sse_response import create_sse_response
+from app.utils.sse_response import SSEResponse, create_sse_response
 
 router = APIRouter(prefix="/chapters", tags=["章节管理"])
 logger = get_logger(__name__)
@@ -1172,7 +1172,6 @@ async def generate_chapter_content_stream(
     """
     style_id = generate_request.style_id
     target_word_count = generate_request.target_word_count or 3000
-    enable_mcp = generate_request.enable_mcp if hasattr(generate_request, 'enable_mcp') else True
     custom_model = generate_request.model if hasattr(generate_request, 'model') else None
     temp_narrative_perspective = generate_request.narrative_perspective if hasattr(generate_request, 'narrative_perspective') else None
     # 预先验证章节存在性（使用临时会话）
@@ -1211,25 +1210,36 @@ async def generate_chapter_content_stream(
         # 获取当前用户ID（在生成器外部就需要）
         current_user_id = getattr(request.state, "user_id", "system")
         
+        # 初始化标准进度追踪器
+        from app.utils.sse_response import WizardProgressTracker
+        tracker = WizardProgressTracker("章节")
+        
         try:
+            yield await tracker.start()
+            
             # 创建新的数据库会话
             async for db_session in get_db(request):
+                # === 加载阶段 ===
+                yield await tracker.loading("加载章节信息...", 0.2)
+                
                 # 重新获取章节信息
                 chapter_result = await db_session.execute(
                     select(Chapter).where(Chapter.id == chapter_id)
                 )
                 current_chapter = chapter_result.scalar_one_or_none()
                 if not current_chapter:
-                    yield f"data: {json.dumps({'type': 'error', 'error': '章节不存在'}, ensure_ascii=False)}\n\n"
+                    yield await tracker.error("章节不存在", 404)
                     return
             
+                yield await tracker.loading("加载项目信息...", 0.4)
+                
                 # 获取项目信息
                 project_result = await db_session.execute(
                     select(Project).where(Project.id == current_chapter.project_id)
                 )
                 project = project_result.scalar_one_or_none()
                 if not project:
-                    yield f"data: {json.dumps({'type': 'error', 'error': '项目不存在'}, ensure_ascii=False)}\n\n"
+                    yield await tracker.error("项目不存在", 404)
                     return
                 
                 # 获取项目的大纲模式
@@ -1333,80 +1343,7 @@ async def generate_chapter_content_stream(
                 logger.info(f"  - 相关记忆: {chapter_context.context_stats.get('memory_count', 0)} 条")
                 logger.info(f"  - 总上下文长度: {chapter_context.context_stats.get('total_length', 0)} 字符")
             
-                # 发送开始事件
-                yield f"data: {json.dumps({'type': 'start', 'message': '开始AI创作...'}, ensure_ascii=False)}\n\n"
-                
-                # 发送初始进度0%
-                yield f"data: {json.dumps({'type': 'progress', 'progress': 0, 'message': '准备生成...', 'status': 'processing'}, ensure_ascii=False)}\n\n"
-                
-                # 🔧 MCP工具增强：收集章节参考资料（优化版）
-                mcp_reference_materials = ""
-                if enable_mcp and current_user_id:
-                    try:
-                        # 1️⃣ 静默检查工具可用性
-                        from app.services.mcp_tool_service import mcp_tool_service
-                        available_tools = await mcp_tool_service.get_user_enabled_tools(
-                            user_id=current_user_id,
-                            db_session=db_session
-                        )
-                        
-                        # 2️⃣ 只在有工具时才显示消息和调用
-                        if available_tools:
-                            yield f"data: {json.dumps({'type': 'progress', 'message': '🔍 使用MCP工具收集参考资料...', 'progress': 28}, ensure_ascii=False)}\n\n"
-                            
-                            # 构建资料收集提示词
-                            planning_prompt = f"""你正在为小说《{project.title}》创作第{current_chapter.chapter_number}章《{current_chapter.title}》。
-
-【章节大纲】
-{outline.content if outline else current_chapter.summary or '暂无大纲'}
-
-【小说信息】
-- 题材：{project.genre or '未设定'}
-- 主题：{project.theme or '未设定'}
-- 时代背景：{project.world_time_period or '未设定'}
-- 地理位置：{project.world_location or '未设定'}
-
-【任务】
-请使用可用工具搜索相关背景资料，帮助创作更真实、更有深度的章节内容。
-你可以查询：
-1. 该章节涉及的历史事件或时代背景
-2. 地理环境和场景描写参考
-3. 相关领域的专业知识（如武术、科技、魔法等）
-4. 文化习俗和生活细节
-
-请根据章节内容，有针对性地查询1-2个最关键的问题。"""
-                            
-                            # 调用MCP增强的AI（非流式，限制1轮避免超时）
-                            planning_result = await user_ai_service.generate_text_with_mcp(
-                                prompt=planning_prompt,
-                                user_id=current_user_id,
-                                db_session=db_session,
-                                enable_mcp=True,
-                                max_tool_rounds=2,  # ✅ 减少为1轮，避免超时
-                                tool_choice="auto",
-                                provider=None,
-                                model=None
-                            )
-                            
-                            # 3️⃣ 提取参考资料并显示结果
-                            if planning_result.get("tool_calls_made", 0) > 0:
-                                tool_count = planning_result["tool_calls_made"]
-                                yield f"data: {json.dumps({'type': 'progress', 'message': f'✅ MCP工具调用成功（{tool_count}次）', 'progress': 32}, ensure_ascii=False)}\n\n"
-                                mcp_reference_materials = planning_result.get("content", "")
-                                logger.info(f"📚 MCP工具收集参考资料：{len(mcp_reference_materials)} 字符")
-                            else:
-                                yield f"data: {json.dumps({'type': 'progress', 'message': 'ℹ️ MCP未使用工具，继续', 'progress': 32}, ensure_ascii=False)}\n\n"
-                        else:
-                            logger.debug(f"用户 {current_user_id} 未启用MCP工具，跳过MCP增强")
-                            # 未启用MCP时也发送进度，保持连贯性
-                            yield f"data: {json.dumps({'type': 'progress', 'message': '准备生成内容...', 'progress': 10}, ensure_ascii=False)}\n\n"
-                            
-                    except Exception as e:
-                        logger.warning(f"⚠️ MCP工具调用失败，降级为基础模式: {str(e)}")
-                        yield f"data: {json.dumps({'type': 'progress', 'message': '⚠️ MCP工具暂时不可用，使用基础模式', 'progress': 10}, ensure_ascii=False)}\n\n"
-                else:
-                    # 如果未启用MCP，也发送基础进度
-                    yield f"data: {json.dumps({'type': 'progress', 'message': '开始构建创作上下文...', 'progress': 10}, ensure_ascii=False)}\n\n"
+                yield await tracker.loading("上下文构建完成", 0.8)
                 
                 # 🎭 确定使用的叙事人称（临时指定 > 项目默认 > 系统默认）
                 chapter_perspective = (
@@ -1496,25 +1433,16 @@ async def generate_chapter_content_stream(
                         characters_info=characters_info or '暂无角色信息'
                     )
                 
-                # 添加 MCP 参考资料（如果有）
-                if mcp_reference_materials:
-                    mcp_section = f"\n\n<mcp_reference>\n{mcp_reference_materials}\n</mcp_reference>"
-                    base_prompt = base_prompt.replace("</task>", f"{mcp_section}\n</task>")
-                    logger.info(f"📖 已整合MCP参考资料（{len(mcp_reference_materials)}字符）")
-                
                 # 应用写作风格
                 if style_content:
                     prompt = WritingStyleManager.apply_style_to_prompt(base_prompt, style_content)
                 else:
                     prompt = base_prompt
                 
-                if mcp_reference_materials:
-                    logger.info(f"📖 已整合MCP参考资料（{len(mcp_reference_materials)}字符）到章节生成提示词")
+                # === 准备阶段 ===
+                yield await tracker.preparing("准备AI提示词...")
                 
                 logger.info(f"开始AI流式创作章节 {chapter_id}")
-                
-                # 发送开始生成的进度
-                yield f"data: {json.dumps({'type': 'progress', 'progress': 10, 'message': '开始AI创作...', 'status': 'processing'}, ensure_ascii=False)}\n\n"
                 
                 # 🎨 方案一：将写作风格注入到系统提示词（最高优先级）
                 system_prompt_with_style = None
@@ -1530,7 +1458,8 @@ async def generate_chapter_content_stream(
                 # 准备生成参数
                 generate_kwargs = {
                     "prompt": prompt,
-                    "system_prompt": system_prompt_with_style  # 🔑 关键：使用系统提示词传递风格
+                    "system_prompt": system_prompt_with_style, 
+                    "tool_choice": "required"
                 }
                 if custom_model:
                     logger.info(f"  使用自定义模型: {custom_model}")
@@ -1538,47 +1467,38 @@ async def generate_chapter_content_stream(
                     # 注意：这里使用用户配置的AI服务，模型参数会覆盖默认模型
                     # 如果需要切换provider，需要在前端传递provider参数
                 
-                # 流式生成内容
+                # === 生成阶段 ===
                 full_content = ""
                 chunk_count = 0
-                last_progress = 0
+                
+                yield await tracker.generating(
+                    current_chars=0,
+                    estimated_total=target_word_count
+                )
                 
                 async for chunk in user_ai_service.generate_text_stream(**generate_kwargs):
                     full_content += chunk
                     chunk_count += 1
                     
                     # 发送内容块
-                    yield f"data: {json.dumps({'type': 'content', 'content': chunk}, ensure_ascii=False)}\n\n"
+                    yield await tracker.generating_chunk(chunk)
                     
-                    # 每5个chunk发送一次进度更新（10-95%，更平滑）
+                    # 每5个chunk发送一次进度更新
                     if chunk_count % 5 == 0:
-                        current_word_count = len(full_content)
-                        # 优化进度计算：使用更平滑的递增方式
-                        # 基于chunk数量和字数的混合计算，避免大幅跳跃
-                        chunk_progress = min(40, chunk_count // 5)  # chunk贡献最多40%
-                        word_progress = min(45, int((current_word_count / target_word_count) * 45))  # 字数贡献最多45%
-                        estimated_progress = min(95, 10 + chunk_progress + word_progress)
-                        
-                        # 只在进度变化时发送
-                        if estimated_progress > last_progress:
-                            progress_data = {
-                                'type': 'progress',
-                                'progress': estimated_progress,
-                                'message': f'正在创作中... 已生成 {current_word_count} 字',
-                                'word_count': current_word_count,
-                                'status': 'processing'
-                            }
-                            yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
-                            last_progress = estimated_progress
+                        yield await tracker.generating(
+                            current_chars=len(full_content),
+                            estimated_total=target_word_count,
+                            message=f'正在创作中... 已生成 {len(full_content)} 字'
+                        )
                     
                     # 每20个chunk发送心跳
                     if chunk_count % 20 == 0:
-                        yield f"data: {json.dumps({'type': 'heartbeat'}, ensure_ascii=False)}\n\n"
+                        yield await tracker.heartbeat()
                     
                     await asyncio.sleep(0)  # 让出控制权
                 
-                # 发送保存进度
-                yield f"data: {json.dumps({'type': 'progress', 'progress': 97, 'message': '正在保存章节...', 'status': 'processing'}, ensure_ascii=False)}\n\n"
+                # === 保存阶段 ===
+                yield await tracker.saving("正在保存章节...", 0.3)
                 
                 # 更新章节内容到数据库
                 old_word_count = current_chapter.word_count or 0
@@ -1634,25 +1554,28 @@ async def generate_chapter_content_stream(
                     ai_service=user_ai_service
                 )
                 
-                # 发送最终进度100%
-                yield f"data: {json.dumps({'type': 'progress', 'progress': 99, 'message': '创作完成！', 'word_count': new_word_count, 'status': 'success'}, ensure_ascii=False)}\n\n"
+                yield await tracker.saving("章节保存完成", 0.8)
                 
-                # 发送完成事件（包含分析任务ID）
-                completion_data = {
-                    'type': 'done',
-                    'message': '创作完成',
+                # === 完成阶段 ===
+                yield await tracker.complete("创作完成！")
+                
+                # 发送结果数据
+                yield await tracker.result({
                     'word_count': new_word_count,
                     'analysis_task_id': task_id
-                }
-                yield f"data: {json.dumps(completion_data, ensure_ascii=False)}\n\n"
+                })
                 
-                # 发送分析开始事件
-                analysis_started_data = {
-                    'type': 'analysis_started',
-                    'task_id': task_id,
-                    'message': '章节分析已开始'
-                }
-                yield f"data: {json.dumps(analysis_started_data, ensure_ascii=False)}\n\n"
+                # 发送分析开始事件（使用自定义事件）
+                yield await SSEResponse.send_event(
+                    event='analysis_started',
+                    data={
+                        'task_id': task_id,
+                        'message': '章节分析已开始'
+                    }
+                )
+                
+                # 发送完成信号
+                yield await tracker.done()
                 
                 break  # 退出async for db_session循环
         
@@ -1675,7 +1598,7 @@ async def generate_chapter_content_stream(
                         logger.info("章节生成事务已回滚（异常）")
                 except Exception as rollback_error:
                     logger.error(f"回滚失败: {str(rollback_error)}")
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+            yield await tracker.error(str(e))
         finally:
             # 确保数据库会话被正确关闭
             if db_session:
@@ -2813,7 +2736,8 @@ async def generate_single_chapter_for_batch(
     # 准备生成参数
     generate_kwargs = {
         "prompt": prompt,
-        "system_prompt": system_prompt_with_style  # 🔑 关键：使用系统提示词传递风格
+        "system_prompt": system_prompt_with_style,
+        "tool_choice": "required"
     }
     # 如果传入了自定义模型，使用指定的模型
     if custom_model:
@@ -3029,11 +2953,16 @@ async def regenerate_chapter_stream(
         db_session = None
         db_committed = False
         
+        # 初始化标准进度追踪器
+        from app.utils.sse_response import WizardProgressTracker
+        tracker = WizardProgressTracker("章节重新生成")
+        
         try:
+            yield await tracker.start()
+            
             # 创建独立数据库会话
             async for db_session in get_db(request):
-                # 发送开始事件
-                yield f"data: {json.dumps({'type': 'start', 'message': '开始重新生成章节...'}, ensure_ascii=False)}\n\n"
+                yield await tracker.loading("加载章节信息...", 0.5)
                 
                 # 创建重新生成任务
                 regen_task = RegenerationTask(
@@ -3062,13 +2991,25 @@ async def regenerate_chapter_stream(
                 task_id = regen_task.id
                 logger.info(f"📝 创建重新生成任务: {task_id}")
                 
-                yield f"data: {json.dumps({'type': 'task_created', 'task_id': task_id}, ensure_ascii=False)}\n\n"
+                yield await tracker.preparing("准备重新生成...")
+                
+                yield await SSEResponse.send_event(
+                    event='task_created',
+                    data={'task_id': task_id}
+                )
                 
                 # 初始化重新生成器
                 regenerator = ChapterRegenerator(user_ai_service)
                 
-                # 流式生成新内容
+                # === 生成阶段 ===
                 full_content = ""
+                estimated_total = regenerate_request.target_word_count or len(chapter.content)
+                
+                yield await tracker.generating(
+                    current_chars=0,
+                    estimated_total=estimated_total
+                )
+                
                 async for event in regenerator.regenerate_with_feedback(
                     chapter=chapter,
                     analysis=analysis,
@@ -3083,18 +3024,34 @@ async def regenerate_chapter_stream(
                         # 内容块
                         chunk = event['content']
                         full_content += chunk
-                        yield f"data: {json.dumps({'type': 'chunk', 'content': chunk}, ensure_ascii=False)}\n\n"
+                        yield await tracker.generating_chunk(chunk)
+                        
+                        # 定期更新进度
+                        if len(full_content) % 500 == 0:
+                            yield await tracker.generating(
+                                current_chars=len(full_content),
+                                estimated_total=estimated_total,
+                                message=f'重新生成中... 已生成 {len(full_content)} 字'
+                            )
                     elif event['type'] == 'progress':
-                        # 进度更新
-                        progress_data = {
-                            'type': 'progress',
-                            'progress': event.get('progress', 0),
-                            'message': event.get('message', ''),
-                            'word_count': event.get('word_count', 0)
-                        }
-                        yield f"data: {json.dumps(progress_data, ensure_ascii=False)}\n\n"
+                        # 进度更新 - 映射到对应阶段
+                        progress = event.get('progress', 0)
+                        message = event.get('message', '')
+                        if progress < 20:
+                            yield await tracker.preparing(message)
+                        elif progress < 85:
+                            yield await tracker.generating(
+                                current_chars=len(full_content),
+                                estimated_total=estimated_total,
+                                message=message
+                            )
+                        else:
+                            yield await tracker.parsing(message)
                     
                     await asyncio.sleep(0)
+                
+                # === 保存阶段 ===
+                yield await tracker.saving("保存重新生成的内容...", 0.5)
                 
                 # 更新任务状态
                 regen_task.status = 'completed'
@@ -3108,25 +3065,22 @@ async def regenerate_chapter_stream(
                 await db_session.commit()
                 db_committed = True
                 
-                # 先发送结果数据
-                result_data = {
-                    'type': 'result',
-                    'data': {
-                        'task_id': task_id,
-                        'word_count': len(full_content),
-                        'version_number': regen_task.version_number,
-                        'auto_applied': regenerate_request.auto_apply,
-                        'diff_stats': diff_stats
-                    }
-                }
-                yield f"data: {json.dumps(result_data, ensure_ascii=False)}\n\n"
+                yield await tracker.saving("保存完成", 0.9)
                 
-                # 再发送完成事件
-                completion_data = {
-                    'type': 'done',
-                    'message': '重新生成完成'
-                }
-                yield f"data: {json.dumps(completion_data, ensure_ascii=False)}\n\n"
+                # === 完成阶段 ===
+                yield await tracker.complete("重新生成完成！")
+                
+                # 发送结果数据
+                yield await tracker.result({
+                    'task_id': task_id,
+                    'word_count': len(full_content),
+                    'version_number': regen_task.version_number,
+                    'auto_applied': regenerate_request.auto_apply,
+                    'diff_stats': diff_stats
+                })
+                
+                # 发送完成信号
+                yield await tracker.done()
                 
                 logger.info(f"✅ 章节重新生成完成: {chapter_id}, 任务: {task_id}")
                 
@@ -3151,7 +3105,7 @@ async def regenerate_chapter_stream(
                 except Exception as update_error:
                     logger.error(f"更新任务失败状态失败: {str(update_error)}")
             
-            yield f"data: {json.dumps({'type': 'error', 'error': str(e)}, ensure_ascii=False)}\n\n"
+            yield await tracker.error(str(e))
         
         finally:
             if db_session:

@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Form, Input, Button, Select, Slider, InputNumber, message, Space, Typography, Spin, Modal, Alert, Grid, Tabs, List, Tag, Popconfirm, Empty, Row, Col } from 'antd';
-import { SettingOutlined, SaveOutlined, DeleteOutlined, ReloadOutlined, ArrowLeftOutlined, InfoCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, ThunderboltOutlined, PlusOutlined, EditOutlined, CopyOutlined } from '@ant-design/icons';
-import { settingsApi } from '../services/api';
+import { SettingOutlined, SaveOutlined, DeleteOutlined, ReloadOutlined, ArrowLeftOutlined, InfoCircleOutlined, CheckCircleOutlined, CloseCircleOutlined, ThunderboltOutlined, PlusOutlined, EditOutlined, CopyOutlined, WarningOutlined } from '@ant-design/icons';
+import { settingsApi, mcpPluginApi } from '../services/api';
 import type { SettingsUpdate, APIKeyPreset, PresetCreateRequest, APIKeyPresetConfig } from '../types';
 
 const { Title, Text } = Typography;
@@ -95,10 +95,86 @@ export default function SettingsPage() {
   const handleSave = async (values: SettingsUpdate) => {
     setLoading(true);
     try {
+      // 检查是否与 MCP 缓存的配置不一致
+      const verifiedConfigStr = localStorage.getItem('mcp_verified_config');
+      let configChanged = false;
+      
+      if (verifiedConfigStr) {
+        try {
+          const verifiedConfig = JSON.parse(verifiedConfigStr);
+          configChanged =
+            verifiedConfig.provider !== values.api_provider ||
+            verifiedConfig.baseUrl !== values.api_base_url ||
+            verifiedConfig.model !== values.llm_model;
+        } catch (e) {
+          console.error('Failed to parse verified config:', e);
+        }
+      }
+      
       await settingsApi.saveSettings(values);
       message.success('设置已保存');
       setHasSettings(true);
       setIsDefaultSettings(false);
+      
+      // 如果配置发生变化，需要处理 MCP 插件
+      if (configChanged) {
+        // 清除 MCP 验证缓存
+        localStorage.removeItem('mcp_verified_config');
+        
+        // 检查并禁用所有 MCP 插件
+        try {
+          const plugins = await mcpPluginApi.getPlugins();
+          const activePlugins = plugins.filter(p => p.enabled);
+          
+          if (activePlugins.length > 0) {
+            // 禁用所有插件
+            message.loading({ content: '正在禁用 MCP 插件...', key: 'disable_mcp' });
+            await Promise.all(activePlugins.map(p => mcpPluginApi.togglePlugin(p.id, false)));
+            message.success({ content: '已禁用所有 MCP 插件', key: 'disable_mcp' });
+            
+            // 显示提示弹窗
+            modal.warning({
+              title: (
+                <Space>
+                  <WarningOutlined style={{ color: '#faad14' }} />
+                  <span>API 配置已更改</span>
+                </Space>
+              ),
+              centered: true,
+              content: (
+                <div style={{ padding: '8px 0' }}>
+                  <Alert
+                    message="检测到您修改了 API 配置（提供商、地址或模型），为确保 MCP 插件正常工作，系统已自动禁用所有插件。"
+                    type="warning"
+                    showIcon
+                    style={{ marginBottom: 16 }}
+                  />
+                  <div style={{
+                    padding: 12,
+                    background: 'var(--color-info-bg)',
+                    border: '1px solid var(--color-info-border)',
+                    borderRadius: 8
+                  }}>
+                    <Text strong style={{ display: 'block', marginBottom: 8 }}>请完成以下步骤：</Text>
+                    <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13 }}>
+                      <li>前往 MCP 插件管理页面</li>
+                      <li>重新进行"模型能力检查"</li>
+                      <li>确认新模型支持 Function Calling 后再启用插件</li>
+                    </ol>
+                  </div>
+                </div>
+              ),
+              okText: '前往 MCP 页面',
+              cancelText: '稍后处理',
+              onOk: () => {
+                navigate('/mcp-plugins');
+              },
+            });
+          }
+        } catch (err) {
+          console.error('Failed to disable MCP plugins:', err);
+        }
+      }
     } catch (error) {
       message.error('保存设置失败');
     } finally {
@@ -348,10 +424,94 @@ export default function SettingsPage() {
 
   const handlePresetActivate = async (presetId: string, presetName: string) => {
     try {
+      // 获取预设配置用于比较
+      const preset = presets.find(p => p.id === presetId);
+      
       await settingsApi.activatePreset(presetId);
       message.success(`已激活预设: ${presetName}`);
       loadPresets();
       loadSettings(); // 重新加载当前配置
+      
+      // 检查是否与 MCP 缓存的配置不一致
+      if (preset) {
+        const verifiedConfigStr = localStorage.getItem('mcp_verified_config');
+        let configChanged = false;
+        
+        if (verifiedConfigStr) {
+          try {
+            const verifiedConfig = JSON.parse(verifiedConfigStr);
+            configChanged =
+              verifiedConfig.provider !== preset.config.api_provider ||
+              verifiedConfig.baseUrl !== preset.config.api_base_url ||
+              verifiedConfig.model !== preset.config.llm_model;
+          } catch (e) {
+            console.error('Failed to parse verified config:', e);
+            configChanged = true; // 解析失败也视为配置变化
+          }
+        } else {
+          // 没有缓存的配置，如果有启用的插件也需要处理
+          configChanged = true;
+        }
+        
+        if (configChanged) {
+          // 清除 MCP 验证缓存
+          localStorage.removeItem('mcp_verified_config');
+          
+          // 检查并禁用所有 MCP 插件
+          try {
+            const plugins = await mcpPluginApi.getPlugins();
+            const activePlugins = plugins.filter(p => p.enabled);
+            
+            if (activePlugins.length > 0) {
+              // 禁用所有插件
+              message.loading({ content: '正在禁用 MCP 插件...', key: 'disable_mcp' });
+              await Promise.all(activePlugins.map(p => mcpPluginApi.togglePlugin(p.id, false)));
+              message.success({ content: '已禁用所有 MCP 插件', key: 'disable_mcp' });
+              
+              // 显示提示弹窗
+              modal.warning({
+                title: (
+                  <Space>
+                    <WarningOutlined style={{ color: '#faad14' }} />
+                    <span>API 配置已更改</span>
+                  </Space>
+                ),
+                centered: true,
+                content: (
+                  <div style={{ padding: '8px 0' }}>
+                    <Alert
+                      message={`切换到预设「${presetName}」后，API 配置发生了变化。为确保 MCP 插件正常工作，系统已自动禁用所有插件。`}
+                      type="warning"
+                      showIcon
+                      style={{ marginBottom: 16 }}
+                    />
+                    <div style={{
+                      padding: 12,
+                      background: 'var(--color-info-bg)',
+                      border: '1px solid var(--color-info-border)',
+                      borderRadius: 8
+                    }}>
+                      <Text strong style={{ display: 'block', marginBottom: 8 }}>请完成以下步骤：</Text>
+                      <ol style={{ margin: 0, paddingLeft: 20, fontSize: 13 }}>
+                        <li>前往 MCP 插件管理页面</li>
+                        <li>重新进行"模型能力检查"</li>
+                        <li>确认新模型支持 Function Calling 后再启用插件</li>
+                      </ol>
+                    </div>
+                  </div>
+                ),
+                okText: '前往 MCP 页面',
+                cancelText: '稍后处理',
+                onOk: () => {
+                  navigate('/mcp-plugins');
+                },
+              });
+            }
+          } catch (err) {
+            console.error('Failed to disable MCP plugins:', err);
+          }
+        }
+      }
     } catch (error) {
       message.error('激活失败');
       console.error(error);

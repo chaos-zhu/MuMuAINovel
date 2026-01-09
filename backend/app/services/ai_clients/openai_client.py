@@ -86,8 +86,21 @@ class OpenAIClient(BaseAIClient):
         model: str,
         temperature: float,
         max_tokens: int,
-    ) -> AsyncGenerator[str, None]:
-        payload = self._build_payload(messages, model, temperature, max_tokens, stream=True)
+        tools: Optional[list] = None,
+        tool_choice: Optional[str] = None,
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        流式生成，支持工具调用
+        
+        Yields:
+            Dict with keys:
+            - content: str - 文本内容块
+            - tool_calls: list - 工具调用列表（如果有）
+            - done: bool - 是否结束
+        """
+        payload = self._build_payload(messages, model, temperature, max_tokens, tools, tool_choice, stream=True)
+        
+        tool_calls_buffer = {}  # 收集工具调用块
         
         try:
             async with await self._request_with_retry("POST", "/chat/completions", payload, stream=True) as response:
@@ -97,14 +110,38 @@ class OpenAIClient(BaseAIClient):
                         if line.startswith("data: "):
                             data_str = line[6:]
                             if data_str.strip() == "[DONE]":
+                                # 流结束，检查是否有工具调用需要处理
+                                if tool_calls_buffer:
+                                    yield {"tool_calls": list(tool_calls_buffer.values()), "done": True}
+                                yield {"done": True}
                                 break
                             try:
                                 data = json.loads(data_str)
                                 choices = data.get("choices", [])
                                 if choices and len(choices) > 0:
-                                    content = choices[0].get("delta", {}).get("content", "")
+                                    delta = choices[0].get("delta", {})
+                                    content = delta.get("content", "")
+                                    
+                                    # 检查工具调用
+                                    tc_list = delta.get("tool_calls")
+                                    if tc_list:
+                                        for tc in tc_list:
+                                            index = tc.get("index", 0)
+                                            if index not in tool_calls_buffer:
+                                                tool_calls_buffer[index] = tc
+                                            else:
+                                                existing = tool_calls_buffer[index]
+                                                # 合并 function.arguments
+                                                if "function" in tc and "function" in existing:
+                                                    if tc["function"].get("arguments"):
+                                                        existing["function"]["arguments"] = (
+                                                            existing["function"].get("arguments", "") +
+                                                            tc["function"]["arguments"]
+                                                        )
+                                    
                                     if content:
-                                        yield content
+                                        yield {"content": content}
+                                        
                             except json.JSONDecodeError:
                                 continue
                 except GeneratorExit:

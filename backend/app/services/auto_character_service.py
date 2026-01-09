@@ -269,25 +269,11 @@ class AutoCharacterService:
         )
         
         try:
-            # 调用AI分析（使用统一的JSON调用方法）
-            if enable_mcp and user_id:
-                result = await self.ai_service.generate_text_with_mcp(
-                    prompt=prompt,
-                    user_id=user_id,
-                    db_session=db,
-                    enable_mcp=True,
-                    max_tool_rounds=2
-                )
-                content = result.get("content", "")
-                # 使用统一的JSON清洗方法
-                cleaned = self.ai_service._clean_json_response(content)
-                analysis = json.loads(cleaned)
-            else:
-                # 非MCP调用：使用带自动重试的JSON调用
-                analysis = await self.ai_service.call_with_json_retry(
-                    prompt=prompt,
-                    max_retries=3
-                )
+            # 使用统一的JSON调用方法（支持自动MCP工具加载）
+            analysis = await self.ai_service.call_with_json_retry(
+                prompt=prompt,
+                max_retries=3,
+            )
             
             logger.info(f"  ✅ AI分析完成: needs_new_characters={analysis.get('needs_new_characters')}")
             return analysis
@@ -364,16 +350,16 @@ class AutoCharacterService:
             existing_characters=existing_chars_summary + careers_info,
             plot_context="根据剧情需要引入的新角色",
             character_specification=json.dumps(spec, ensure_ascii=False, indent=2),
-            mcp_references=""  # 暂时不使用MCP增强
+            mcp_references=""  # MCP工具通过AI服务自动加载
         )
         
-        # 调用AI生成（禁用MCP，避免累积超时导致卡死）
+        logger.info(f"🔧 角色详情生成: enable_mcp={enable_mcp}")
+        
+        # 调用AI生成
         try:
-            # 🔧 优化：角色详情生成不使用MCP，只在分析阶段使用MCP
-            # 这样可以减少大量的外部工具调用，避免超时和卡死
             character_data = await self.ai_service.call_with_json_retry(
                 prompt=prompt,
-                max_retries=2  # 减少重试次数以加快速度
+                max_retries=2,  # 减少重试次数以加快速度
             )
             
             char_name = character_data.get('name', '未知')

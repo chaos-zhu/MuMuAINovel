@@ -1,4 +1,7 @@
-"""MCP插件测试服务 - 专门处理插件测试逻辑"""
+"""MCP插件测试服务 - 专门处理插件测试逻辑
+
+重构后使用统一的MCPClientFacade门面来管理所有MCP操作。
+"""
 
 import time
 import json
@@ -10,7 +13,7 @@ from sqlalchemy import select
 
 from app.models.mcp_plugin import MCPPlugin
 from app.models.settings import Settings as UserSettings
-from app.mcp.registry import mcp_registry
+from app.mcp import mcp_client, MCPPluginConfig  # 使用新的统一门面
 from app.services.ai_service import create_user_ai_service
 from app.schemas.mcp_plugin import MCPTestResult
 from app.services.prompt_service import prompt_service
@@ -21,7 +24,32 @@ logger = get_logger(__name__)
 
 
 class MCPTestService:
-    """MCP插件测试服务（分离的测试逻辑）"""
+    """MCP插件测试服务（使用统一门面重构）"""
+    
+    async def _ensure_plugin_registered(
+        self, 
+        plugin: MCPPlugin, 
+        user_id: str
+    ) -> bool:
+        """
+        确保插件已注册到统一门面
+        
+        Args:
+            plugin: 插件配置
+            user_id: 用户ID
+            
+        Returns:
+            是否成功
+        """
+        if plugin.plugin_type in ("http", "streamable_http", "sse") and plugin.server_url:
+            return await mcp_client.ensure_registered(
+                user_id=user_id,
+                plugin_name=plugin.plugin_name,
+                url=plugin.server_url,
+                plugin_type=plugin.plugin_type,
+                headers=plugin.headers
+            )
+        return False
     
     async def test_plugin_connection(
         self,
@@ -41,19 +69,18 @@ class MCPTestService:
         start_time = time.time()
         
         try:
-            # 确保插件已加载
-            if not mcp_registry.get_client(user_id, plugin.plugin_name):
-                success = await mcp_registry.load_plugin(plugin)
-                if not success:
-                    return MCPTestResult(
-                        success=False,
-                        message="插件加载失败",
-                        error="无法创建MCP客户端",
-                        suggestions=["请检查插件配置", "请确认服务器URL正确"]
-                    )
+            # 确保插件已注册
+            registered = await self._ensure_plugin_registered(plugin, user_id)
+            if not registered:
+                return MCPTestResult(
+                    success=False,
+                    message="插件注册失败",
+                    error="无法创建MCP客户端",
+                    suggestions=["请检查插件配置", "请确认服务器URL正确"]
+                )
             
-            # 测试连接并获取工具列表
-            test_result = await mcp_registry.test_plugin(user_id, plugin.plugin_name)
+            # 使用统一门面测试连接
+            test_result = await mcp_client.test_connection(user_id, plugin.plugin_name)
             
             end_time = time.time()
             response_time = round((end_time - start_time) * 1000, 2)
@@ -70,7 +97,18 @@ class MCPTestService:
                     ]
                 )
             else:
-                return MCPTestResult(**test_result)
+                return MCPTestResult(
+                    success=False,
+                    message="❌ 连接测试失败",
+                    response_time_ms=response_time,
+                    error=test_result.get("message", "未知错误"),
+                    error_type=test_result.get("error_type"),
+                    suggestions=[
+                        "请检查服务器是否在线",
+                        "请确认配置正确",
+                        "请检查API Key是否有效"
+                    ]
+                )
                 
         except Exception as e:
             end_time = time.time()
@@ -117,8 +155,8 @@ class MCPTestService:
             if not connection_result.success:
                 return connection_result
             
-            # 2. 获取工具列表
-            tools = await mcp_registry.get_plugin_tools(user.user_id, plugin.plugin_name)
+            # 2. 使用统一门面获取工具列表
+            tools = await mcp_client.get_tools(user.user_id, plugin.plugin_name)
             
             if not tools:
                 return MCPTestResult(
@@ -162,8 +200,8 @@ class MCPTestService:
                 max_tokens=1000
             )
             
-            # 转换为OpenAI Function Calling格式
-            openai_tools = self._convert_tools_to_openai_format(tools)
+            # 使用统一门面转换为OpenAI Function Calling格式
+            openai_tools = mcp_client.format_tools_for_openai(tools, plugin.plugin_name)
             
             logger.info(f"📋 转换后的OpenAI工具数量: {len(openai_tools)}")
             logger.debug(f"📋 OpenAI工具列表: {[t['function']['name'] for t in openai_tools]}")
@@ -175,26 +213,16 @@ class MCPTestService:
                 db=db_session
             )
             
-            # 注意: generate_text_stream 返回的是异步生成器，但在 tool_choice="required" 模式下
-            # AI服务会直接返回包含 tool_calls 的完整响应，而不是流式chunks
-            # 因此这里需要特殊处理
-            accumulated_text = ""
-            tool_calls = None
-            
-            async for chunk in ai_service.generate_text_stream(
+            # 使用 generate_text 进行 Function Calling（非流式）
+            ai_response = await ai_service.generate_text(
                 prompt=prompts["user"],
                 system_prompt=prompts["system"],
                 tools=openai_tools,
-                tool_choice="required"
-            ):
-                # 在 function calling 模式下，chunk 可能是字典格式包含 tool_calls
-                if isinstance(chunk, dict):
-                    if "tool_calls" in chunk:
-                        tool_calls = chunk["tool_calls"]
-                    if "content" in chunk:
-                        accumulated_text += chunk.get("content", "")
-                else:
-                    accumulated_text += chunk
+                tool_choice="auto"
+            )
+            
+            accumulated_text = ai_response.get("content", "")
+            tool_calls = ai_response.get("tool_calls")
             
             # 5. 检查AI是否返回工具调用
             if not tool_calls:
@@ -214,7 +242,7 @@ class MCPTestService:
             # 6. 解析工具调用
             tool_call = tool_calls[0]
             function = tool_call["function"]
-            tool_name = function["name"]
+            tool_name_with_prefix = function["name"]
             test_arguments = function["arguments"]
             
             if isinstance(test_arguments, str):
@@ -231,17 +259,23 @@ class MCPTestService:
                         tools_count=len(tools)
                     )
             
+            # 解析插件名和工具名
+            try:
+                _, tool_name = mcp_client.parse_function_name(tool_name_with_prefix)
+            except ValueError:
+                tool_name = tool_name_with_prefix
+            
             logger.info(f"🤖 AI选择的工具: {tool_name}")
             logger.info(f"📝 AI生成的参数: {test_arguments}")
             
-            # 7. 调用MCP工具
+            # 7. 使用统一门面调用MCP工具
             call_start = time.time()
             try:
-                tool_result = await mcp_registry.call_tool(
-                    user.user_id,
-                    plugin.plugin_name,
-                    tool_name,
-                    test_arguments
+                tool_result = await mcp_client.call_tool(
+                    user_id=user.user_id,
+                    plugin_name=plugin.plugin_name,
+                    tool_name=tool_name,
+                    arguments=test_arguments
                 )
                 
                 call_end = time.time()
@@ -307,22 +341,6 @@ class MCPTestService:
                     "请检查API Key是否有效"
                 ]
             )
-    
-    def _convert_tools_to_openai_format(self, tools: list) -> list:
-        """将MCP工具格式转换为OpenAI Function Calling格式"""
-        openai_tools = []
-        for tool in tools:
-            openai_tool = {
-                "type": "function",
-                "function": {
-                    "name": tool["name"],
-                    "description": tool.get("description", ""),
-                }
-            }
-            if "inputSchema" in tool:
-                openai_tool["function"]["parameters"] = tool["inputSchema"]
-            openai_tools.append(openai_tool)
-        return openai_tools
 
 
 # 全局单例

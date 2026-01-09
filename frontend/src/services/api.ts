@@ -1,9 +1,4 @@
 import axios from 'axios';
-
-interface MCPPluginSimpleCreate {
-  config_json: string;
-  enabled: boolean;
-}
 import { message } from 'antd';
 import { ssePost } from '../utils/sseClient';
 import type { SSEClientOptions } from '../utils/sseClient';
@@ -50,7 +45,13 @@ import type {
   PresetCreateRequest,
   PresetUpdateRequest,
   PresetListResponse,
+  ChapterPlanItem,
 } from '../types';
+
+interface MCPPluginSimpleCreate {
+  config_json: string;
+  enabled: boolean;
+}
 
 const api = axios.create({
   baseURL: '/api',
@@ -204,6 +205,36 @@ export const settingsApi = {
       error_type?: string;
       suggestions?: string[];
     }>('/settings/test', params),
+
+  checkFunctionCalling: (params: { api_key: string; api_base_url: string; provider: string; llm_model: string }) =>
+    api.post<unknown, {
+      success: boolean;
+      supported: boolean;
+      message: string;
+      response_time_ms?: number;
+      provider?: string;
+      model?: string;
+      details?: {
+        finish_reason?: string;
+        has_tool_calls?: boolean;
+        tool_call_count?: number;
+        test_tool?: string;
+        test_prompt?: string;
+        response_type?: string;
+      };
+      tool_calls?: Array<{
+        id?: string;
+        type?: string;
+        function?: {
+          name: string;
+          arguments: string;
+        };
+      }>;
+      response_preview?: string;
+      error?: string;
+      error_type?: string;
+      suggestions?: string[];
+    }>('/settings/check-function-calling', params),
 
   // API配置预设管理
   getPresets: () =>
@@ -410,7 +441,7 @@ export const outlineApi = {
     api.post<unknown, OutlineExpansionResponse>(`/outlines/${outlineId}/expand`, data),
 
   // 根据已有规划创建章节（避免重复AI调用）
-  createChaptersFromPlans: (outlineId: string, chapterPlans: any[]) =>
+  createChaptersFromPlans: (outlineId: string, chapterPlans: ChapterPlanItem[]) =>
     api.post<unknown, {
       outline_id: string;
       outline_title: string;
@@ -707,6 +738,25 @@ export const wizardStreamApi = {
     options?: SSEClientOptions
   ) => ssePost<GenerateCharactersResponse>(
     '/api/wizard-stream/characters',
+    data,
+    options
+  ),
+
+  generateCareerSystemStream: (
+    data: {
+      project_id: string;
+      provider?: string;
+      model?: string;
+    },
+    options?: SSEClientOptions
+  ) => ssePost<{
+    project_id: string;
+    main_careers_count: number;
+    sub_careers_count: number;
+    main_careers: string[];
+    sub_careers: string[];
+  }>(
+    '/api/wizard-stream/career-system',
     data,
     options
   ),

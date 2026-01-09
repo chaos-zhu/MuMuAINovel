@@ -1,4 +1,10 @@
-"""AI服务封装 - 统一的AI接口"""
+"""AI服务封装 - 统一的AI接口
+
+重构后支持自动MCP工具加载：
+- 所有AI方法在请求前自动检查用户MCP配置
+- 如果有启用的MCP插件且有可用工具，自动发送tools
+- 通过 auto_mcp 参数控制是否启用自动工具加载
+"""
 from typing import Optional, AsyncGenerator, List, Dict, Any, Union
 
 from app.config import settings as app_settings
@@ -13,7 +19,6 @@ from app.services.ai_providers.anthropic_provider import AnthropicProvider
 from app.services.ai_providers.gemini_provider import GeminiProvider
 from app.services.ai_providers.base_provider import BaseAIProvider
 from app.services.json_helper import clean_json_response, parse_json
-from app.mcp.adapters.universal import universal_mcp_adapter
 
 # 导出清理函数
 cleanup_http_clients = cleanup_all_clients
@@ -22,7 +27,41 @@ logger = get_logger(__name__)
 
 
 class AIService:
-    """AI服务统一接口"""
+    """
+    AI服务统一接口
+    
+    MCP工具支持：
+    - 在创建服务时传入 user_id 和 db_session
+    - 根据用户MCP插件的enabled状态自动决定是否启用MCP
+    - 如果有任意一个MCP插件启用，则加载并使用工具
+    - 如果所有插件都关闭，则不使用任何MCP工具
+    - 通过 auto_mcp=False 可临时禁用自动工具加载
+    - 通过 mcp_max_rounds 控制工具调用轮数
+    - 通过 clear_mcp_cache() 可清理MCP工具缓存
+    
+    MCP启用逻辑（backend/app/api/settings.py 中的 get_user_ai_service）：
+    - 查询用户的所有MCP插件
+    - 如果有启用的插件 (enabled=True)，则 enable_mcp=True
+    - 如果所有插件都关闭或没有插件，则 enable_mcp=False
+    
+    使用示例：
+        # 创建支持MCP的AI服务（根据插件状态自动决定是否启用）
+        ai_service = create_user_ai_service_with_mcp(
+            api_provider="openai",
+            api_key="...",
+            user_id="user123",
+            db_session=db
+        )
+        
+        # 自动加载MCP工具（如果有启用的插件）
+        result = await ai_service.generate_text(prompt="...")
+        
+        # 临时禁用MCP工具
+        result = await ai_service.generate_text(prompt="...", auto_mcp=False)
+        
+        # 自定义轮数
+        result = await ai_service.generate_text(prompt="...", mcp_max_rounds=3)
+    """
 
     def __init__(
         self,
@@ -33,8 +72,11 @@ class AIService:
         default_temperature: Optional[float] = None,
         default_max_tokens: Optional[int] = None,
         default_system_prompt: Optional[str] = None,
-        enable_mcp_adapter: bool = True,
         config: Optional[AIClientConfig] = None,
+        # MCP支持参数
+        user_id: Optional[str] = None,
+        db_session: Optional[Any] = None,
+        enable_mcp: bool = True,
     ):
         self.api_provider = api_provider or app_settings.default_ai_provider
         self.default_model = default_model or app_settings.default_model
@@ -43,7 +85,12 @@ class AIService:
         self.default_system_prompt = default_system_prompt
         self.config = config or default_config
         
-        self.mcp_adapter = universal_mcp_adapter if enable_mcp_adapter else None
+        # MCP配置
+        self.user_id = user_id
+        self.db_session = db_session
+        self._enable_mcp = enable_mcp
+        self._cached_tools: Optional[List[Dict]] = None
+        self._tools_loaded = False
         
         self._openai_provider: Optional[OpenAIProvider] = None
         self._anthropic_provider: Optional[AnthropicProvider] = None
@@ -68,6 +115,36 @@ class AIService:
             client = GeminiClient(api_key, api_base_url, self.config)
             self._gemini_provider = GeminiProvider(client)
 
+    @property
+    def enable_mcp(self) -> bool:
+        """是否启用MCP工具"""
+        return self._enable_mcp
+    
+    @enable_mcp.setter
+    def enable_mcp(self, value: bool):
+        """设置MCP启用状态，如果禁用则清理缓存"""
+        if value is False and self._enable_mcp is True:
+            # 从启用变为禁用，清理缓存
+            self.clear_mcp_cache()
+        self._enable_mcp = value
+    
+    def clear_mcp_cache(self):
+        """
+        清理MCP工具缓存
+        
+        当禁用MCP时调用此方法，确保后续AI调用不会使用缓存的工具。
+        同时更新 _tools_loaded 状态，使下次调用时重新检查。
+        """
+        if self._cached_tools is not None:
+            logger.info(f"🔧 清理MCP工具缓存，移除 {len(self._cached_tools)} 个工具")
+            self._cached_tools = None
+        else:
+            logger.debug(f"🔧 MCP工具缓存已经是空，无需清理")
+        
+        # 更新加载状态，确保下次调用会重新检查
+        self._tools_loaded = False
+        logger.debug(f"🔧 MCP工具状态已重置: enable_mcp={self._enable_mcp}, _tools_loaded=False")
+    
     def _get_provider(self, provider: Optional[str] = None) -> BaseAIProvider:
         """获取对应的 Provider"""
         p = provider or self.api_provider
@@ -79,6 +156,166 @@ class AIService:
             return self._gemini_provider
         raise ValueError(f"Provider {p} 未初始化")
 
+    async def _prepare_mcp_tools(self, auto_mcp: bool = True, force_refresh: bool = False) -> Optional[List[Dict]]:
+        """
+        预处理MCP工具
+        
+        检查用户MCP配置并加载可用工具。
+        结果会被缓存，避免重复加载。
+        
+        Args:
+            auto_mcp: 是否自动加载MCP工具（来自调用方参数）
+            force_refresh: 是否强制刷新缓存
+            
+        Returns:
+            - None: 无可用工具（未配置/未启用/加载失败）
+            - List[Dict]: OpenAI格式的工具列表
+        """
+        # 前置条件检查
+        if not self._enable_mcp:
+            logger.debug(f"🔧 MCP工具未启用 (_enable_mcp=False)")
+            # 即使有缓存也清理掉，确保不使用
+            self._cached_tools = None
+            self._tools_loaded = False
+            return None
+        
+        if not auto_mcp:
+            logger.debug(f"🔧 auto_mcp=False，跳过MCP工具加载")
+            # 即使有缓存也清理掉，确保不使用
+            self._cached_tools = None
+            self._tools_loaded = False
+            return None
+        
+        if not self.user_id:
+            logger.debug(f"🔧 MCP工具加载跳过: user_id未设置")
+            return None
+        
+        if not self.db_session:
+            logger.debug(f"🔧 MCP工具加载跳过: db_session未设置")
+            return None
+        
+        # 使用缓存（只有 enable_mcp=True 时才使用缓存）
+        if self._tools_loaded and not force_refresh:
+            if self._cached_tools:
+                logger.debug(f"🔧 使用缓存的MCP工具 ({len(self._cached_tools)}个)")
+            return self._cached_tools
+        
+        try:
+            from app.services.mcp_tools_loader import mcp_tools_loader
+            
+            self._cached_tools = await mcp_tools_loader.get_user_tools(
+                user_id=self.user_id,
+                db_session=self.db_session,
+                use_cache=True,
+                force_refresh=force_refresh
+            )
+            self._tools_loaded = True
+            
+            if self._cached_tools:
+                logger.info(f"🔧 已加载 {len(self._cached_tools)} 个MCP工具")
+            else:
+                logger.debug(f"📭 用户 {self.user_id} 没有可用的MCP工具")
+            
+            return self._cached_tools
+            
+        except Exception as e:
+            logger.warning(f"⚠️ 加载MCP工具失败: {e}")
+            self._tools_loaded = True
+            self._cached_tools = None
+            return None
+
+    async def _handle_tool_calls(
+        self,
+        original_prompt: str,
+        response: Dict[str, Any],
+        max_rounds: int = 2,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        处理AI返回的工具调用
+        
+        Args:
+            original_prompt: 原始提示词
+            response: AI响应（包含tool_calls）
+            max_rounds: 最大工具调用轮数
+            **kwargs: 传递给generate_text的其他参数
+            
+        Returns:
+            最终的AI响应
+        """
+        from app.mcp import mcp_client
+        
+        tool_calls = response.get("tool_calls", [])
+        if not tool_calls or not self.user_id:
+            return response
+        
+        result = {
+            "content": response.get("content", ""),
+            "tool_calls_made": 0,
+            "tools_used": [],
+            "finish_reason": response.get("finish_reason", ""),
+            "mcp_enhanced": True
+        }
+        
+        prompt = original_prompt
+        
+        for round_num in range(max_rounds):
+            logger.info(f"🔧 工具调用 - 第{round_num+1}/{max_rounds}轮，{len(tool_calls)}个工具")
+            
+            try:
+                # 批量执行工具调用
+                tool_results = await mcp_client.batch_call_tools(
+                    user_id=self.user_id,
+                    tool_calls=tool_calls
+                )
+                
+                # 记录使用的工具
+                for tc in tool_calls:
+                    name = tc["function"]["name"]
+                    if name not in result["tools_used"]:
+                        result["tools_used"].append(name)
+                result["tool_calls_made"] += len(tool_calls)
+                
+                # 构建工具上下文
+                tool_context = mcp_client.build_tool_context(tool_results, format="markdown")
+                
+                # 更新提示词
+                if round_num == max_rounds - 1:
+                    # 最后一轮，强制要求回答
+                    prompt = f"{original_prompt}\n\n{tool_context}\n\n⚠️ 重要：请基于以上工具查询结果，给出完整详细的最终答案。不要再调用工具。"
+                    tool_choice = "none"
+                else:
+                    prompt = f"{original_prompt}\n\n{tool_context}\n\n请基于以上工具查询结果，继续完成任务。"
+                    tool_choice = kwargs.get("tool_choice", "auto")
+                
+                # 继续调用AI
+                prov = self._get_provider(kwargs.get("provider"))
+                next_response = await prov.generate(
+                    prompt=prompt,
+                    model=kwargs.get("model") or self.default_model,
+                    temperature=kwargs.get("temperature") or self.default_temperature,
+                    max_tokens=kwargs.get("max_tokens") or self.default_max_tokens,
+                    system_prompt=kwargs.get("system_prompt") or self.default_system_prompt,
+                    tools=None if tool_choice == "none" else self._cached_tools,
+                    tool_choice=tool_choice,
+                )
+                
+                tool_calls = next_response.get("tool_calls", [])
+                
+                if not tool_calls:
+                    # 没有更多工具调用，返回结果
+                    result["content"] = next_response.get("content", "")
+                    result["finish_reason"] = next_response.get("finish_reason", "stop")
+                    break
+                    
+            except Exception as e:
+                logger.error(f"❌ 工具调用失败: {e}")
+                result["content"] = response.get("content", "")
+                result["finish_reason"] = "tool_error"
+                break
+        
+        return result
+
     async def generate_text(
         self,
         prompt: str,
@@ -89,10 +326,39 @@ class AIService:
         system_prompt: Optional[str] = None,
         tools: Optional[List[Dict]] = None,
         tool_choice: Optional[str] = None,
+        auto_mcp: bool = True,
+        handle_tool_calls: bool = True,
+        mcp_max_rounds: Optional[int] = None,
     ) -> Dict[str, Any]:
-        """生成文本"""
+        """
+        生成文本（自动支持MCP工具）
+        
+        Args:
+            prompt: 用户提示词
+            provider: AI提供商
+            model: 模型名称
+            temperature: 温度
+            max_tokens: 最大令牌数
+            system_prompt: 系统提示词
+            tools: 手动指定的工具列表（优先级高于自动加载）
+            tool_choice: 工具选择策略
+            auto_mcp: 是否自动加载MCP工具（默认True）
+            handle_tool_calls: 是否自动处理工具调用（默认True）
+            mcp_max_rounds: 最大工具调用轮数（None使用默认值3）
+            
+        Returns:
+            包含生成内容的字典
+        """
+        # 使用全局配置的MCP轮数（如果未指定）
+        if mcp_max_rounds is None:
+            mcp_max_rounds = app_settings.mcp_max_rounds
+        
+        # 自动加载MCP工具
+        if auto_mcp and tools is None:
+            tools = await self._prepare_mcp_tools(auto_mcp=auto_mcp)
+        
         prov = self._get_provider(provider)
-        return await prov.generate(
+        response = await prov.generate(
             prompt=prompt,
             model=model or self.default_model,
             temperature=temperature or self.default_temperature,
@@ -101,6 +367,22 @@ class AIService:
             tools=tools,
             tool_choice=tool_choice,
         )
+        
+        # 处理工具调用
+        if handle_tool_calls and response.get("tool_calls"):
+            return await self._handle_tool_calls(
+                original_prompt=prompt,
+                response=response,
+                provider=provider,
+                model=model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                system_prompt=system_prompt,
+                tool_choice=tool_choice,
+                max_rounds=mcp_max_rounds,
+            )
+        
+        return response
 
     async def generate_text_stream(
         self,
@@ -110,15 +392,51 @@ class AIService:
         temperature: Optional[float] = None,
         max_tokens: Optional[int] = None,
         system_prompt: Optional[str] = None,
+        tool_choice: Optional[str] = None,
+        auto_mcp: bool = True,
+        mcp_max_rounds: Optional[int] = None,
     ) -> AsyncGenerator[str, None]:
-        """流式生成"""
+        """
+        流式生成文本（自动支持MCP工具）
+        
+        工具调用在 Provider 层通过流式方式处理，支持真正的流式工具调用。
+        
+        Args:
+            prompt: 用户提示词
+            provider: AI提供商
+            model: 模型名称
+            temperature: 温度
+            max_tokens: 最大令牌数
+            system_prompt: 系统提示词
+            tool_choice: 工具选择策略（"auto"/"none"/"required"）
+            auto_mcp: 是否自动加载MCP工具
+            mcp_max_rounds: 最大工具调用轮数（None使用默认值3）
+            
+        Yields:
+            生成的文本块
+        """
+        logger.debug(f"🔧 generate_text_stream: auto_mcp={auto_mcp}, tool_choice={tool_choice}")
+        
+        tools_to_use = None
+        
+        # 加载MCP工具
+        if auto_mcp:
+            tools_to_use = await self._prepare_mcp_tools(auto_mcp=auto_mcp)
+            if tools_to_use:
+                logger.info(f"🔧 已获取 {len(tools_to_use)} 个MCP工具")
+        
+        # 流式生成（Provider 层处理工具调用）
         prov = self._get_provider(provider)
+        logger.debug(f"🔧 开始流式生成，provider={provider or self.api_provider}, tools_count={len(tools_to_use) if tools_to_use else 0}")
         async for chunk in prov.generate_stream(
             prompt=prompt,
             model=model or self.default_model,
             temperature=temperature or self.default_temperature,
             max_tokens=max_tokens or self.default_max_tokens,
             system_prompt=system_prompt or self.default_system_prompt,
+            tools=tools_to_use,
+            tool_choice=tool_choice,
+            user_id=self.user_id,
         ):
             yield chunk
 
@@ -132,8 +450,25 @@ class AIService:
         provider: Optional[str] = None,
         model: Optional[str] = None,
         expected_type: Optional[str] = None,
+        auto_mcp: bool = True,
     ) -> Union[Dict, List]:
-        """带重试的 JSON 调用"""
+        """
+        带重试的 JSON 调用（自动支持MCP工具）
+        
+        Args:
+            prompt: 用户提示词
+            system_prompt: 系统提示词
+            max_retries: 最大重试次数
+            temperature: 温度
+            max_tokens: 最大令牌数
+            provider: AI提供商
+            model: 模型名称
+            expected_type: 期望的返回类型（"object"或"array"）
+            auto_mcp: 是否自动加载MCP工具
+            
+        Returns:
+            解析后的JSON数据
+        """
         last_response = ""
         
         for attempt in range(1, max_retries + 1):
@@ -146,6 +481,8 @@ class AIService:
                 temperature=temperature,
                 max_tokens=max_tokens,
                 system_prompt=system_prompt,
+                auto_mcp=auto_mcp,
+                handle_tool_calls=True,
             )
             
             last_response = result.get("content", "")
@@ -172,108 +509,6 @@ class AIService:
         """清洗 JSON 响应"""
         return clean_json_response(text)
 
-    async def generate_text_with_mcp(
-        self,
-        prompt: str,
-        user_id: str,
-        db_session,
-        enable_mcp: bool = True,
-        max_tool_rounds: int = 3,
-        tool_choice: str = "auto",
-        **kwargs
-    ) -> Dict[str, Any]:
-        """支持MCP工具的AI文本生成"""
-        from app.services.mcp_tool_service import mcp_tool_service, MCPToolServiceError
-        
-        result = {"content": "", "tool_calls_made": 0, "tools_used": [], "finish_reason": "", "mcp_enhanced": False}
-        tools = None
-        
-        if enable_mcp:
-            try:
-                tools = await mcp_tool_service.get_user_enabled_tools(user_id=user_id, db_session=db_session)
-                if tools:
-                    result["mcp_enhanced"] = True
-            except MCPToolServiceError:
-                tools = None
-        
-        original_prompt = prompt  # 保存原始提示词
-        
-        for round_num in range(max_tool_rounds):
-            logger.debug(f"🔄 MCP工具调用 - 第{round_num+1}/{max_tool_rounds}轮")
-            logger.debug(f"   prompt长度: {len(prompt)}, tools数量: {len(tools) if tools else 0}, tool_choice: {tool_choice}")
-            
-            ai_response = await self.generate_text(prompt=prompt, tools=tools, tool_choice=tool_choice, **kwargs)
-            logger.debug(f"   AI响应: finish_reason={ai_response.get('finish_reason')}, content长度={len(ai_response.get('content', ''))}")
-            
-            tool_calls = ai_response.get("tool_calls", [])
-            
-            if not tool_calls:
-                content = ai_response.get("content", "")
-                result["content"] = content
-                result["finish_reason"] = ai_response.get("finish_reason", "stop")
-                logger.debug(f"   ✅ 无工具调用，返回内容长度: {len(content)}")
-                
-                # 🔧 修复：如果内容为空且已经调用过工具，强制要求AI给出答案
-                if not content.strip() and result["tool_calls_made"] > 0:
-                    logger.warning(f"⚠️ AI在工具调用后返回空内容，尝试强制要求回答（第{round_num+1}轮）")
-                    prompt = f"{prompt}\n\n⚠️ 请注意：你必须基于以上工具查询结果，给出完整的回答。不要返回空内容。"
-                    tools = None
-                    tool_choice = "none"  # 强制不使用工具
-                    continue
-                
-                break
-            
-            logger.info(f"🔧 检测到 {len(tool_calls)} 个工具调用")
-            for idx, tc in enumerate(tool_calls):
-                logger.debug(f"   工具{idx+1}: {tc.get('function', {}).get('name')} - 参数: {tc.get('function', {}).get('arguments')}")
-            
-            try:
-                logger.debug(f"   开始执行工具调用...")
-                tool_results = await mcp_tool_service.execute_tool_calls(user_id=user_id, tool_calls=tool_calls, db_session=db_session)
-                logger.debug(f"   工具执行完成，结果数量: {len(tool_results)}")
-                
-                # 🔍 检查工具结果
-                for idx, tr in enumerate(tool_results):
-                    success = tr.get("success", False)
-                    content_preview = tr.get("content", "")[:200] if tr.get("content") else "None"
-                    logger.debug(f"   工具结果[{idx}]: success={success}, content预览={content_preview}")
-                
-                for tc in tool_calls:
-                    name = tc["function"]["name"]
-                    if name not in result["tools_used"]:
-                        result["tools_used"].append(name)
-                result["tool_calls_made"] += len(tool_calls)
-                
-                tool_context = await mcp_tool_service.build_tool_context(tool_results, format="markdown")
-                logger.debug(f"   工具上下文长度: {len(tool_context)}")
-                logger.debug(f"   工具上下文预览: {tool_context[:300] if len(tool_context) > 300 else tool_context}")
-                
-                # 🔧 改进：在最后一轮时，明确要求AI给出完整答案
-                if round_num == max_tool_rounds - 1:
-                    logger.info(f"⚠️ 最后一轮，强制要求AI给出最终答案")
-                    prompt = f"{original_prompt}\n\n{tool_context}\n\n⚠️ 重要：这是最后一轮，请基于以上工具查询的参考资料，给出完整详细的最终答案。不要再调用工具。"
-                    tool_choice = "none"
-                else:
-                    prompt = f"{original_prompt}\n\n{tool_context}\n\n请基于以上工具查询结果，继续完成任务。"
-                    logger.debug(f"   新prompt长度: {len(prompt)}")
-                
-                tools = None  # 工具调用后禁用工具列表，避免重复调用
-                logger.debug(f"   ✅ 工具调用成功，准备下一轮")
-                
-            except Exception as tool_error:
-                logger.error(f"❌ 工具调用执行失败: {tool_error}", exc_info=True)
-                logger.error(f"   错误类型: {type(tool_error).__name__}")
-                logger.error(f"   AI响应内容: {ai_response.get('content', '')[:200]}")
-                result["content"] = ai_response.get("content", "")
-                result["finish_reason"] = "tool_error"
-                break
-        
-        return result
-
-
-# 全局实例
-ai_service = AIService()
-
 
 def create_user_ai_service(
     api_provider: str,
@@ -284,7 +519,7 @@ def create_user_ai_service(
     max_tokens: int,
     system_prompt: Optional[str] = None,
 ) -> AIService:
-    """创建用户 AI 服务"""
+    """创建用户 AI 服务（不带MCP支持）"""
     return AIService(
         api_provider=api_provider,
         api_key=api_key,
@@ -293,4 +528,48 @@ def create_user_ai_service(
         default_temperature=temperature,
         default_max_tokens=max_tokens,
         default_system_prompt=system_prompt,
+    )
+
+
+def create_user_ai_service_with_mcp(
+    api_provider: str,
+    api_key: str,
+    api_base_url: str,
+    model_name: str,
+    temperature: float,
+    max_tokens: int,
+    user_id: str,
+    db_session,
+    system_prompt: Optional[str] = None,
+    enable_mcp: bool = True,
+) -> AIService:
+    """
+    创建支持MCP的用户AI服务
+    
+    Args:
+        api_provider: AI提供商
+        api_key: API密钥
+        api_base_url: API基础URL
+        model_name: 模型名称
+        temperature: 温度
+        max_tokens: 最大令牌数
+        user_id: 用户ID（用于加载MCP工具）
+        db_session: 数据库会话
+        system_prompt: 系统提示词
+        enable_mcp: 是否启用MCP工具
+        
+    Returns:
+        配置好的AIService实例
+    """
+    return AIService(
+        api_provider=api_provider,
+        api_key=api_key,
+        api_base_url=api_base_url,
+        default_model=model_name,
+        default_temperature=temperature,
+        default_max_tokens=max_tokens,
+        default_system_prompt=system_prompt,
+        user_id=user_id,
+        db_session=db_session,
+        enable_mcp=enable_mcp,
     )

@@ -130,11 +130,15 @@ def _configure_third_party_loggers():
     logging.getLogger('sqlalchemy.dialects').setLevel(logging.WARNING)
     logging.getLogger('sqlalchemy.orm').setLevel(logging.WARNING)
     
+    # aiosqlite - 异步SQLite，禁用DEBUG日志
+    logging.getLogger('aiosqlite').setLevel(logging.WARNING)
+    
     # Watchfiles - 开发时的文件监控，降低级别
     logging.getLogger('watchfiles').setLevel(logging.WARNING)
     
-    # httpx - HTTP客户端
+    # httpx/httpcore - HTTP客户端，禁用DEBUG日志
     logging.getLogger('httpx').setLevel(logging.WARNING)
+    logging.getLogger('httpcore').setLevel(logging.WARNING)
     
     # openai/anthropic - AI客户端库
     logging.getLogger('openai').setLevel(logging.WARNING)
