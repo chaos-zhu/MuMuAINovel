@@ -326,8 +326,29 @@ body {
   font-size: 22px !important;
 }
 
+/* 折叠状态下隐藏文字但保持点击区域 */
 .modern-sider.ant-layout-sider-collapsed .ant-menu-item .ant-menu-title-content {
-  display: none !important;
+  width: 0 !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+/* 确保折叠状态下的 Link 覆盖整个菜单项区域 */
+.modern-sider.ant-layout-sider-collapsed .ant-menu-item {
+  position: relative;
+}
+
+.modern-sider.ant-layout-sider-collapsed .ant-menu-item a {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* 选中项左侧指示条 */

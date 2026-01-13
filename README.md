@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-1.2.5-blue.svg)
+![Version](https://img.shields.io/badge/version-1.2.7-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109.0-green.svg)
 ![React](https://img.shields.io/badge/react-18.3.1-blue.svg)
@@ -104,6 +104,41 @@
 - [ ] **提示词工坊** - 社区驱动的 Prompt 模板分享平台，一键导入优质提示词
 
 > 💡 欢迎提交 Issue 或 Pull Request！
+
+## 💻 硬件配置要求
+
+### 最低配置（个人使用/开发环境）
+
+| 组件 | 要求 |
+|------|------|
+| **CPU** | 2 核 |
+| **内存** | 2 GB RAM |
+| **存储** | 10 GB 可用空间 |
+| **网络** | 稳定互联网连接（用于调用 AI API） |
+
+### 推荐配置（小型团队/生产环境）
+
+| 组件 | 要求 |
+|------|------|
+| **CPU** | 4 核 |
+| **内存** | 8 GB RAM |
+| **存储** | 20 GB SSD |
+| **网络** | 稳定互联网连接 |
+
+### 高并发配置（80-150 用户）
+
+| 组件 | 要求 |
+|------|------|
+| **CPU** | 8 核 |
+| **内存** | 16 GB RAM |
+| **存储** | 50 GB+ SSD |
+| **网络** | 高带宽连接 |
+
+> **📌 说明**
+> - **Embedding 模型**：约 400 MB 磁盘空间，运行时加载到内存
+> - **PostgreSQL**：默认配置使用 256 MB shared_buffers，1 GB effective_cache_size
+> - **Docker 部署**：建议预留额外 1-2 GB 内存给容器运行时
+> - 本项目主要依赖外部 AI API（OpenAI/Claude/Gemini），不需要本地 GPU
 
 ## 🚀 快速开始
 

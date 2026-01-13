@@ -5,6 +5,7 @@ import { useStore } from '../store';
 import { useChapterSync } from '../store/hooks';
 import { projectApi, writingStyleApi, chapterApi } from '../services/api';
 import type { Chapter, ChapterUpdate, ApiError, WritingStyle, AnalysisTask, ExpansionPlanData } from '../types';
+import type { TextAreaRef } from 'antd/es/input/TextArea';
 import ChapterAnalysis from '../components/ChapterAnalysis';
 import ExpansionPlanEditor from '../components/ExpansionPlanEditor';
 import { SSELoadingOverlay } from '../components/SSELoadingOverlay';
@@ -54,7 +55,7 @@ export default function Chapters() {
   const [form] = Form.useForm();
   const [editorForm] = Form.useForm();
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
-  const contentTextAreaRef = useRef<any>(null);
+  const contentTextAreaRef = useRef<TextAreaRef>(null);
   const [writingStyles, setWritingStyles] = useState<WritingStyle[]>([]);
   const [selectedStyleId, setSelectedStyleId] = useState<number | undefined>();
   const [targetWordCount, setTargetWordCount] = useState<number>(getCachedWordCount);
@@ -124,12 +125,14 @@ export default function Chapters() {
 
   // 清理轮询定时器
   useEffect(() => {
+    const pollingIntervals = pollingIntervalsRef.current;
+    const batchPollingInterval = batchPollingIntervalRef.current;
     return () => {
-      Object.values(pollingIntervalsRef.current).forEach(interval => {
+      Object.values(pollingIntervals).forEach(interval => {
         clearInterval(interval);
       });
-      if (batchPollingIntervalRef.current) {
-        clearInterval(batchPollingIntervalRef.current);
+      if (batchPollingInterval) {
+        clearInterval(batchPollingInterval);
       }
     };
   }, []);
@@ -156,7 +159,7 @@ export default function Chapters() {
               startPollingTask(chapter.id);
             }
           }
-        } catch (error) {
+        } catch {
           // 404或其他错误表示没有分析任务，忽略
           console.debug(`章节 ${chapter.id} 暂无分析任务`);
         }
@@ -252,7 +255,7 @@ export default function Chapters() {
                 return settings.llm_model; // 返回模型名称
               }
             }
-          } catch (error) {
+          } catch {
             console.log('获取模型列表失败，将使用默认模型');
           }
         }
@@ -338,6 +341,38 @@ export default function Chapters() {
       });
     }
   };
+
+  // 按章节号排序并按大纲分组章节 (必须在早返回之前调用，避免违反 Hooks 规则)
+  const { sortedChapters, groupedChapters } = useMemo(() => {
+    const sorted = [...chapters].sort((a, b) => a.chapter_number - b.chapter_number);
+    
+    const groups: Record<string, {
+      outlineId: string | null;
+      outlineTitle: string;
+      outlineOrder: number;
+      chapters: Chapter[];
+    }> = {};
+
+    sorted.forEach(chapter => {
+      const key = chapter.outline_id || 'uncategorized';
+
+      if (!groups[key]) {
+        groups[key] = {
+          outlineId: chapter.outline_id || null,
+          outlineTitle: chapter.outline_title || '未分类章节',
+          outlineOrder: chapter.outline_order ?? 999,
+          chapters: []
+        };
+      }
+
+      groups[key].chapters.push(chapter);
+    });
+
+    // 转换为数组并按大纲顺序排序
+    const grouped = Object.values(groups).sort((a, b) => a.outlineOrder - b.outlineOrder);
+    
+    return { sortedChapters: sorted, groupedChapters: grouped };
+  }, [chapters]);
 
   if (!currentProject) return null;
 
@@ -633,7 +668,7 @@ export default function Chapters() {
           }
           await handleGenerate();
           instance.destroy();
-        } catch (error) {
+        } catch {
           instance.update({
             okButtonProps: { danger: true, loading: false },
             cancelButtonProps: { disabled: false },
@@ -669,36 +704,6 @@ export default function Chapters() {
     };
     return texts[status] || status;
   };
-
-  const sortedChapters = [...chapters].sort((a, b) => a.chapter_number - b.chapter_number);
-
-  // 按大纲分组章节
-  const groupedChapters = useMemo(() => {
-    const groups: Record<string, {
-      outlineId: string | null;
-      outlineTitle: string;
-      outlineOrder: number;
-      chapters: Chapter[];
-    }> = {};
-
-    sortedChapters.forEach(chapter => {
-      const key = chapter.outline_id || 'uncategorized';
-
-      if (!groups[key]) {
-        groups[key] = {
-          outlineId: chapter.outline_id || null,
-          outlineTitle: chapter.outline_title || '未分类章节',
-          outlineOrder: chapter.outline_order ?? 999,
-          chapters: []
-        };
-      }
-
-      groups[key].chapters.push(chapter);
-    });
-
-    // 转换为数组并按大纲顺序排序
-    return Object.values(groups).sort((a, b) => a.outlineOrder - b.outlineOrder);
-  }, [sortedChapters]);
 
   const handleExport = () => {
     if (chapters.length === 0) {
@@ -761,7 +766,14 @@ export default function Chapters() {
       setBatchGenerating(true);
       setBatchGenerateVisible(false); // 关闭配置对话框，避免遮挡进度弹窗
 
-      const requestBody: any = {
+      const requestBody: {
+        start_chapter_number: number;
+        count: number;
+        enable_analysis: boolean;
+        style_id: number;
+        target_word_count: number;
+        model?: string;
+      } = {
         start_chapter_number: values.startChapterNumber,
         count: values.count,
         enable_analysis: true,
@@ -814,8 +826,9 @@ export default function Chapters() {
       // 开始轮询任务状态
       startBatchPolling(result.batch_id);
 
-    } catch (error: any) {
-      message.error('创建批量生成任务失败：' + (error.message || '未知错误'));
+    } catch (error: unknown) {
+      const err = error as Error;
+      message.error('创建批量生成任务失败：' + (err.message || '未知错误'));
       setBatchGenerating(false);
       setBatchGenerateVisible(false);
     }
@@ -936,8 +949,9 @@ export default function Chapters() {
         const updatedProject = await projectApi.getProject(currentProject.id);
         setCurrentProject(updatedProject);
       }
-    } catch (error: any) {
-      message.error('取消失败：' + (error.message || '未知错误'));
+    } catch (error: unknown) {
+      const err = error as Error;
+      message.error('取消失败：' + (err.message || '未知错误'));
     }
   };
 
@@ -1129,8 +1143,9 @@ export default function Chapters() {
                 setCurrentProject(updatedProject);
 
                 manualCreateForm.resetFields();
-              } catch (error: any) {
-                message.error('操作失败：' + (error.message || '未知错误'));
+              } catch (error: unknown) {
+                const err = error as Error;
+                message.error('操作失败：' + (err.message || '未知错误'));
                 throw error;
               }
             }
@@ -1154,8 +1169,9 @@ export default function Chapters() {
           setCurrentProject(updatedProject);
 
           manualCreateForm.resetFields();
-        } catch (error: any) {
-          message.error('创建失败：' + (error.message || '未知错误'));
+        } catch (error: unknown) {
+          const err = error as Error;
+          message.error('创建失败：' + (err.message || '未知错误'));
           throw error;
         }
       }
@@ -1440,8 +1456,9 @@ export default function Chapters() {
       }
 
       message.success('章节删除成功');
-    } catch (error: any) {
-      message.error('删除章节失败：' + (error.message || '未知错误'));
+    } catch (error: unknown) {
+      const err = error as Error;
+      message.error('删除章节失败：' + (err.message || '未知错误'));
     }
   };
 
@@ -1478,8 +1495,9 @@ export default function Chapters() {
       // 关闭编辑器
       setPlanEditorVisible(false);
       setEditingPlanChapter(null);
-    } catch (error: any) {
-      message.error('保存规划失败：' + (error.message || '未知错误'));
+    } catch (error: unknown) {
+      const err = error as Error;
+      message.error('保存规划失败：' + (err.message || '未知错误'));
       throw error;
     }
   };
@@ -2193,7 +2211,7 @@ export default function Chapters() {
                 disabled={isGenerating}
                 style={{ width: '100%' }}
                 formatter={(value) => `${value} 字`}
-                parser={(value) => value?.replace(' 字', '') as any}
+                parser={(value) => parseInt(value?.replace(' 字', '') || '0', 10) as unknown as 500}
               />
             </Form.Item>
 
@@ -2357,11 +2375,27 @@ export default function Chapters() {
             setBatchGenerateVisible(false);
           }
         }}
-        footer={null}
-        width={600}
+        footer={!batchGenerating ? (
+          <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+            <Button onClick={() => setBatchGenerateVisible(false)}>
+              取消
+            </Button>
+            <Button type="primary" icon={<RocketOutlined />} onClick={() => batchForm.submit()}>
+              开始批量生成
+            </Button>
+          </Space>
+        ) : null}
+        width={700}
         centered
         closable={!batchGenerating}
         maskClosable={!batchGenerating}
+        styles={{
+          body: {
+            maxHeight: 'calc(100vh - 260px)',
+            overflowY: 'auto',
+            overflowX: 'hidden'
+          }
+        }}
       >
         {!batchGenerating ? (
           <Form
@@ -2371,95 +2405,85 @@ export default function Chapters() {
             initialValues={{
               startChapterNumber: sortedChapters.find(ch => !ch.content || ch.content.trim() === '')?.chapter_number || 1,
               count: 5,
-              enableAnalysis: true,  // 强制启用同步分析
+              enableAnalysis: true,
               styleId: selectedStyleId,
               targetWordCount: getCachedWordCount(),
               model: selectedModel,
             }}
           >
             <Alert
-              message="批量生成说明"
-              description={
-                <ul style={{ margin: '8px 0 0 0', paddingLeft: 20 }}>
-                  <li>严格按章节序号顺序生成，不可跳过</li>
-                  <li>所有章节使用相同的写作风格和目标字数</li>
-                  <li>任一章节失败则终止后续生成</li>
-                </ul>
-              }
+              message="批量生成说明：严格按序生成 | 统一风格字数 | 任一失败则终止"
               type="info"
               showIcon
               style={{ marginBottom: 16 }}
             />
 
-            <Form.Item
-              label="起始章节"
-              name="startChapterNumber"
-              rules={[{ required: true, message: '请选择起始章节' }]}
-            >
-              <Select placeholder="选择起始章节" size="large">
-                {sortedChapters
-                  .filter(ch => !ch.content || ch.content.trim() === '')
-                  .filter(ch => canGenerateChapter(ch))
-                  .map(ch => (
-                    <Select.Option key={ch.id} value={ch.chapter_number}>
-                      第{ch.chapter_number}章：{ch.title}
+            {/* 第一行：起始章节 + 生成数量 */}
+            <div style={{ display: 'flex', gap: 16 }}>
+              <Form.Item
+                label="起始章节"
+                name="startChapterNumber"
+                rules={[{ required: true, message: '请选择' }]}
+                style={{ flex: 1, marginBottom: 12 }}
+              >
+                <Select placeholder="选择起始章节">
+                  {sortedChapters
+                    .filter(ch => !ch.content || ch.content.trim() === '')
+                    .filter(ch => canGenerateChapter(ch))
+                    .map(ch => (
+                      <Select.Option key={ch.id} value={ch.chapter_number}>
+                        第{ch.chapter_number}章：{ch.title}
+                      </Select.Option>
+                    ))}
+                </Select>
+              </Form.Item>
+
+              <Form.Item
+                label="生成数量"
+                name="count"
+                rules={[{ required: true, message: '请选择' }]}
+                style={{ marginBottom: 12 }}
+              >
+                <Radio.Group buttonStyle="solid">
+                  <Radio.Button value={5}>5章</Radio.Button>
+                  <Radio.Button value={10}>10章</Radio.Button>
+                  <Radio.Button value={15}>15章</Radio.Button>
+                  <Radio.Button value={20}>20章</Radio.Button>
+                </Radio.Group>
+              </Form.Item>
+            </div>
+
+            {/* 第二行：写作风格 + 目标字数 */}
+            <div style={{ display: 'flex', gap: 16 }}>
+              <Form.Item
+                label="写作风格"
+                name="styleId"
+                rules={[{ required: true, message: '请选择' }]}
+                style={{ flex: 1, marginBottom: 12 }}
+              >
+                <Select placeholder="请选择写作风格" showSearch optionFilterProp="children">
+                  {writingStyles.map(style => (
+                    <Select.Option key={style.id} value={style.id}>
+                      {style.name}{style.is_default && ' (默认)'}
                     </Select.Option>
                   ))}
-              </Select>
-            </Form.Item>
+                </Select>
+              </Form.Item>
 
-            <Form.Item
-              label="生成数量"
-              name="count"
-              rules={[{ required: true, message: '请选择生成数量' }]}
-            >
-              <Radio.Group buttonStyle="solid" size="large">
-                <Radio.Button value={5}>5章</Radio.Button>
-                <Radio.Button value={10}>10章</Radio.Button>
-                <Radio.Button value={15}>15章</Radio.Button>
-                <Radio.Button value={20}>20章</Radio.Button>
-              </Radio.Group>
-            </Form.Item>
-
-            <Form.Item
-              label="写作风格"
-              name="styleId"
-              rules={[{ required: true, message: '请选择写作风格' }]}
-              tooltip="批量生成时所有章节使用相同的写作风格"
-            >
-              <Select
-                placeholder="请选择写作风格"
-                size="large"
-                showSearch
-                optionFilterProp="children"
-              >
-                {writingStyles.map(style => (
-                  <Select.Option key={style.id} value={style.id}>
-                    {style.name}
-                    {style.is_default && ' (默认)'}
-                    {style.description && ` - ${style.description}`}
-                  </Select.Option>
-                ))}
-              </Select>
-            </Form.Item>
-
-            <Form.Item
-              label="目标字数"
-              tooltip="AI生成章节时的目标字数，实际生成字数可能略有偏差（修改后会自动记住）"
-            >
               <Form.Item
+                label="目标字数"
                 name="targetWordCount"
-                rules={[{ required: true, message: '请设置目标字数' }]}
-                noStyle
+                rules={[{ required: true, message: '请设置' }]}
+                tooltip="修改后自动记住"
+                style={{ flex: 1, marginBottom: 12 }}
               >
                 <InputNumber
                   min={500}
                   max={10000}
                   step={100}
-                  size="large"
                   style={{ width: '100%' }}
                   formatter={(value) => `${value} 字`}
-                  parser={(value) => value?.replace(' 字', '') as any}
+                  parser={(value) => parseInt(value?.replace(' 字', '') || '0', 10) as unknown as 500}
                   onChange={(value) => {
                     if (value) {
                       setCachedWordCount(value);
@@ -2467,68 +2491,44 @@ export default function Chapters() {
                   }}
                 />
               </Form.Item>
-              <div style={{ color: '#666', fontSize: 12, marginTop: 4 }}>
-                建议范围：500-10000字（修改后自动记住）
-              </div>
-            </Form.Item>
+            </div>
 
-            <Form.Item
-              label="AI模型"
-              tooltip="批量生成时所有章节使用相同模型，不选择则使用默认模型"
-            >
-              <Select
-                placeholder={batchSelectedModel ? `默认: ${availableModels.find(m => m.value === batchSelectedModel)?.label || batchSelectedModel}` : "使用默认模型"}
-                value={batchSelectedModel}
-                onChange={setBatchSelectedModel}
-                size="large"
-                allowClear
-                showSearch
-                optionFilterProp="label"
+            {/* 第三行：AI模型 + 同步分析 */}
+            <div style={{ display: 'flex', gap: 16 }}>
+              <Form.Item
+                label="AI模型"
+                tooltip="不选则使用默认模型"
+                style={{ flex: 1, marginBottom: 12 }}
               >
-                {availableModels.map(model => (
-                  <Select.Option key={model.value} value={model.value} label={model.label}>
-                    {model.label}
-                    {model.value === batchSelectedModel && ' (默认)'}
-                  </Select.Option>
-                ))}
-              </Select>
-              <div style={{ color: '#666', fontSize: 12, marginTop: 4 }}>
-                {batchSelectedModel ? `当前默认模型: ${availableModels.find(m => m.value === batchSelectedModel)?.label || batchSelectedModel}` : '加载模型列表中...'}
-              </div>
-            </Form.Item>
+                <Select
+                  placeholder={batchSelectedModel ? `默认: ${availableModels.find(m => m.value === batchSelectedModel)?.label || batchSelectedModel}` : "使用默认模型"}
+                  value={batchSelectedModel}
+                  onChange={setBatchSelectedModel}
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                >
+                  {availableModels.map(model => (
+                    <Select.Option key={model.value} value={model.value} label={model.label}>
+                      {model.label}
+                    </Select.Option>
+                  ))}
+                </Select>
+              </Form.Item>
 
-            <Form.Item
-              label="同步分析"
-              name="enableAnalysis"
-              tooltip="批量生成必须开启同步分析，确保角色职业信息和剧情状态的连贯性"
-            >
-              <Radio.Group disabled>
-                <Radio value={true}>
-                  <Space direction="vertical" size={0}>
-                    <span style={{ fontSize: 12, color: '#52c41a' }}>
-                      ✓ 确保职业信息自动更新
-                    </span>
-                    <span style={{ fontSize: 12, color: '#52c41a' }}>
-                      ✓ 保证剧情状态连贯
-                    </span>
-                    <span style={{ fontSize: 12, color: '#ff9800' }}>
-                      ⏱ 增加约50%耗时
-                    </span>
-                  </Space>
-                </Radio>
-              </Radio.Group>
-            </Form.Item>
-
-            <Form.Item>
-              <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
-                <Button onClick={() => setBatchGenerateVisible(false)}>
-                  取消
-                </Button>
-                <Button type="primary" htmlType="submit" icon={<RocketOutlined />}>
-                  开始批量生成
-                </Button>
-              </Space>
-            </Form.Item>
+              <Form.Item
+                label="同步分析"
+                name="enableAnalysis"
+                tooltip="必须开启，确保剧情连贯"
+                style={{ marginBottom: 12 }}
+              >
+                <Radio.Group disabled>
+                  <Radio value={true}>
+                    <span style={{ fontSize: 12, color: '#52c41a' }}>✓ 自动更新角色状态</span>
+                  </Radio>
+                </Radio.Group>
+              </Form.Item>
+            </div>
           </Form>
         ) : (
           <div>

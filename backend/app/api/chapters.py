@@ -10,6 +10,7 @@ from datetime import datetime
 from asyncio import Queue, Lock
 
 from app.database import get_db
+from app.api.common import verify_project_access
 from app.services.chapter_context_service import ChapterContextBuilder, FocusedMemoryRetriever
 from app.models.chapter import Chapter
 from app.models.project import Project
@@ -52,39 +53,6 @@ logger = get_logger(__name__)
 
 # 全局数据库写入锁（每个用户一个锁，用于保护SQLite写入操作）
 db_write_locks: dict[str, Lock] = {}
-
-
-async def verify_project_access(project_id: str, user_id: str, db: AsyncSession) -> Project:
-    """
-    验证用户是否有权访问指定项目
-    
-    Args:
-        project_id: 项目ID
-        user_id: 用户ID
-        db: 数据库会话
-        
-    Returns:
-        Project: 项目对象
-        
-    Raises:
-        HTTPException: 401 未登录，404 项目不存在或无权访问
-    """
-    if not user_id:
-        raise HTTPException(status_code=401, detail="未登录")
-    
-    result = await db.execute(
-        select(Project).where(
-            Project.id == project_id,
-            Project.user_id == user_id
-        )
-    )
-    project = result.scalar_one_or_none()
-    
-    if not project:
-        logger.warning(f"项目访问被拒绝: project_id={project_id}, user_id={user_id}")
-        raise HTTPException(status_code=404, detail="项目不存在或无权访问")
-    
-    return project
 
 
 async def get_db_write_lock(user_id: str) -> Lock:

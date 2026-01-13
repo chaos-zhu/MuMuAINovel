@@ -7,7 +7,7 @@ import { cardStyles } from '../components/CardStyles';
 import { SSEPostClient } from '../utils/sseClient';
 import { SSEProgressModal } from '../components/SSEProgressModal';
 import { outlineApi, chapterApi, projectApi } from '../services/api';
-import type { OutlineExpansionResponse, BatchOutlineExpansionResponse } from '../types';
+import type { OutlineExpansionResponse, BatchOutlineExpansionResponse, ChapterPlanItem, ApiError } from '../types';
 
 // 角色预测数据类型
 interface PredictedCharacter {
@@ -64,6 +64,42 @@ interface OrganizationConfirmationData {
   chapter_range: string;
 }
 
+// 大纲生成请求数据类型
+interface OutlineGenerateRequestData {
+  project_id: string;
+  genre: string;
+  theme: string;
+  chapter_count: number;
+  narrative_perspective: string;
+  target_words: number;
+  requirements?: string;
+  mode: 'auto' | 'new' | 'continue';
+  story_direction?: string;
+  plot_stage: 'development' | 'climax' | 'ending';
+  enable_auto_characters: boolean;
+  require_character_confirmation: boolean;
+  enable_auto_organizations: boolean;
+  require_organization_confirmation: boolean;
+  model?: string;
+  provider?: string;
+  confirmed_characters?: PredictedCharacter[];
+  confirmed_organizations?: PredictedOrganization[];
+}
+
+// 跳过的大纲信息类型
+interface SkippedOutlineInfo {
+  outline_id: string;
+  outline_title: string;
+  reason: string;
+}
+
+// 场景类型
+interface SceneInfo {
+  location: string;
+  characters: string[];
+  purpose: string;
+}
+
 const { TextArea } = Input;
 
 export default function Outline() {
@@ -84,7 +120,7 @@ export default function Outline() {
   // 角色确认相关状态
   const [characterConfirmData, setCharacterConfirmData] = useState<CharacterConfirmationData | null>(null);
   const [characterConfirmVisible, setCharacterConfirmVisible] = useState(false);
-  const [pendingGenerateData, setPendingGenerateData] = useState<any>(null);
+  const [pendingGenerateData, setPendingGenerateData] = useState<OutlineGenerateRequestData | null>(null);
   const [selectedCharacterIndices, setSelectedCharacterIndices] = useState<number[]>([]);
 
   // 组织确认相关状态
@@ -274,7 +310,7 @@ export default function Outline() {
       setSSEModalVisible(true);
 
       // 准备请求数据
-      const requestData: any = {
+      const requestData: OutlineGenerateRequestData = {
         project_id: currentProject.id,
         genre: currentProject.genre || '通用',
         theme: values.theme || currentProject.theme || '',
@@ -315,10 +351,10 @@ export default function Outline() {
           setSSEMessage(msg);
           setSSEProgress(progress);
         },
-        onResult: (data: any) => {
+        onResult: (data: unknown) => {
           console.log('生成完成，结果:', data);
         },
-        onCharacterConfirmation: (data: any) => {
+        onCharacterConfirmation: (data: CharacterConfirmationData) => {
           // ✨ 新增：处理角色确认事件
           console.log('收到角色确认请求:', data);
           // 关闭SSE进度Modal
@@ -332,7 +368,7 @@ export default function Outline() {
           setCharacterConfirmData(data);
           setCharacterConfirmVisible(true);
         },
-        onOrganizationConfirmation: (data: any) => {
+        onOrganizationConfirmation: (data: OrganizationConfirmationData) => {
           // ✨ 新增：处理组织确认事件
           console.log('收到组织确认请求:', data);
           // 关闭SSE进度Modal
@@ -396,7 +432,7 @@ export default function Outline() {
             defaultModel = settings.llm_model;
           }
         }
-      } catch (error) {
+      } catch {
         console.log('获取模型列表失败，将使用默认模型');
       }
     }
@@ -756,12 +792,13 @@ export default function Outline() {
           message.success('大纲创建成功');
           await refreshOutlines();
           manualCreateForm.resetFields();
-        } catch (error: any) {
-          if (error.message === '序号重复') {
+        } catch (error: unknown) {
+          const err = error as Error;
+          if (err.message === '序号重复') {
             // 序号重复错误已经显示了Modal，不需要再显示message
             throw error;
           }
-          message.error('创建失败：' + (error.message || '未知错误'));
+          message.error('创建失败：' + (err.message || '未知错误'));
           throw error;
         }
       }
@@ -970,8 +1007,9 @@ export default function Outline() {
         const updatedProject = await projectApi.getProject(currentProject.id);
         setCurrentProject(updatedProject);
       }
-    } catch (error: any) {
-      message.error(error.response?.data?.detail || '删除章节失败');
+    } catch (error: unknown) {
+      const apiError = error as ApiError;
+      message.error(apiError.response?.data?.detail || '删除章节失败');
     }
   };
 
@@ -1003,12 +1041,11 @@ export default function Outline() {
       title: (
         <Space style={{ flexWrap: 'wrap' }}>
           <CheckCircleOutlined style={{ color: 'var(--color-success)' }} />
-          <span>已存在的展开章节</span>
+          <span>《{outlineTitle}》展开信息</span>
         </Space>
       ),
       width: isMobile ? '95%' : 900,
       centered: true,
-      okText: '关闭',
       style: isMobile ? {
         top: 20,
         maxWidth: 'calc(100vw - 16px)',
@@ -1016,11 +1053,12 @@ export default function Outline() {
       } : undefined,
       styles: {
         body: {
-          maxHeight: isMobile ? 'calc(100vh - 150px)' : 'calc(80vh - 110px)',
-          overflowY: 'auto'
+          maxHeight: isMobile ? 'calc(100vh - 200px)' : 'calc(80vh - 60px)',
+          overflowY: 'auto',
+          overflowX: 'hidden'
         }
       },
-      footer: (_: any, { OkBtn }: any) => (
+      footer: (
         <Space wrap style={{ width: '100%', justifyContent: isMobile ? 'center' : 'flex-end' }}>
           <Button
             danger
@@ -1053,7 +1091,9 @@ export default function Outline() {
           >
             删除所有展开的章节 ({data.chapter_count}章)
           </Button>
-          <OkBtn />
+          <Button onClick={() => Modal.destroyAll()}>
+            关闭
+          </Button>
         </Space>
       ),
       content: (
@@ -1335,7 +1375,7 @@ export default function Outline() {
   // 确认创建章节 - 使用缓存的规划数据，避免重复AI调用
   const handleConfirmCreateChapters = async (
     outlineId: string,
-    cachedPlans: any[]
+    cachedPlans: ChapterPlanItem[]
   ) => {
     try {
       setIsExpanding(true);
@@ -1449,7 +1489,7 @@ export default function Outline() {
               setSSEMessage(msg);
               setSSEProgress(progress);
             },
-            onResult: (data: any) => {
+            onResult: (data: BatchOutlineExpansionResponse) => {
               console.log('批量展开完成，结果:', data);
               // 缓存AI生成的规划数据
               setCachedBatchExpansionResponse(data);
@@ -1515,7 +1555,7 @@ export default function Outline() {
               ⚠️ 以下大纲已展开过，已自动跳过：
             </div>
             <Space direction="vertical" size="small" style={{ width: '100%' }}>
-              {batchPreviewData.skipped_outlines.map((skipped: any, idx: number) => (
+              {batchPreviewData.skipped_outlines.map((skipped: SkippedOutlineInfo, idx: number) => (
                 <div key={idx} style={{ fontSize: 13, color: '#666' }}>
                   • {skipped.outline_title} <Tag color="default" style={{ fontSize: 11 }}>{skipped.reason}</Tag>
                 </div>
@@ -1581,7 +1621,7 @@ export default function Outline() {
               <List
                 size="small"
                 dataSource={batchPreviewData.expansion_results[selectedOutlineIdx].chapter_plans}
-                renderItem={(plan: any, idx: number) => (
+                renderItem={(plan: ChapterPlanItem, idx: number) => (
                   <List.Item
                     key={idx}
                     onClick={() => setSelectedChapterIdx(idx)}
@@ -1625,7 +1665,7 @@ export default function Outline() {
 
                 <Card size="small" title="关键事件" bordered={false}>
                   <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                    {batchPreviewData.expansion_results[selectedOutlineIdx].chapter_plans[selectedChapterIdx].key_events.map((event: string, eventIdx: number) => (
+                    {(batchPreviewData.expansion_results[selectedOutlineIdx].chapter_plans[selectedChapterIdx].key_events as string[]).map((event: string, eventIdx: number) => (
                       <div key={eventIdx}>• {event}</div>
                     ))}
                   </Space>
@@ -1633,7 +1673,7 @@ export default function Outline() {
 
                 <Card size="small" title="涉及角色" bordered={false}>
                   <Space wrap>
-                    {batchPreviewData.expansion_results[selectedOutlineIdx].chapter_plans[selectedChapterIdx].character_focus.map((char: string, charIdx: number) => (
+                    {(batchPreviewData.expansion_results[selectedOutlineIdx].chapter_plans[selectedChapterIdx].character_focus as string[]).map((char: string, charIdx: number) => (
                       <Tag key={charIdx} color="purple">{char}</Tag>
                     ))}
                   </Space>
@@ -1642,7 +1682,7 @@ export default function Outline() {
                 {batchPreviewData.expansion_results[selectedOutlineIdx].chapter_plans[selectedChapterIdx].scenes && batchPreviewData.expansion_results[selectedOutlineIdx].chapter_plans[selectedChapterIdx].scenes!.length > 0 && (
                   <Card size="small" title="场景" bordered={false}>
                     <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                      {batchPreviewData.expansion_results[selectedOutlineIdx].chapter_plans[selectedChapterIdx].scenes!.map((scene: any, sceneIdx: number) => (
+                      {batchPreviewData.expansion_results[selectedOutlineIdx].chapter_plans[selectedChapterIdx].scenes!.map((scene: SceneInfo, sceneIdx: number) => (
                         <Card key={sceneIdx} size="small" style={{ backgroundColor: '#fafafa' }}>
                           <div><strong>地点：</strong>{scene.location}</div>
                           <div><strong>角色：</strong>{scene.characters.join('、')}</div>
@@ -1700,8 +1740,10 @@ export default function Outline() {
             result.chapter_plans
           );
           totalCreated += response.chapters_created;
-        } catch (error: any) {
-          const errorMsg = error.response?.data?.detail || error.message || '未知错误';
+        } catch (error: unknown) {
+          const apiError = error as ApiError;
+          const err = error as Error;
+          const errorMsg = apiError.response?.data?.detail || err.message || '未知错误';
           errors.push(`${result.outline_title}: ${errorMsg}`);
           console.error(`创建大纲 ${result.outline_title} 的章节失败:`, error);
         }
@@ -1766,7 +1808,7 @@ export default function Outline() {
           setSSEMessage(msg);
           setSSEProgress(progress);
         },
-        onResult: (data: any) => {
+        onResult: (data: unknown) => {
           console.log('生成完成，结果:', data);
         },
         onError: (error: string) => {
@@ -1784,7 +1826,7 @@ export default function Outline() {
           // 刷新大纲列表
           refreshOutlines();
         },
-        onOrganizationConfirmation: (data: any) => {
+        onOrganizationConfirmation: (data: OrganizationConfirmationData) => {
           // 处理可能的后续组织确认
           console.log('收到组织确认请求:', data);
           setSSEModalVisible(false);
@@ -1836,10 +1878,10 @@ export default function Outline() {
           setSSEMessage(msg);
           setSSEProgress(progress);
         },
-        onResult: (data: any) => {
+        onResult: (data: unknown) => {
           console.log('生成完成，结果:', data);
         },
-        onOrganizationConfirmation: (data: any) => {
+        onOrganizationConfirmation: (data: OrganizationConfirmationData) => {
           // 处理可能的后续组织确认
           console.log('收到组织确认请求:', data);
           setSSEModalVisible(false);
@@ -1893,7 +1935,8 @@ export default function Outline() {
 
       // 准备请求数据，添加确认的组织
       // ⚠️ 移除 confirmed_characters，避免重复创建角色
-      const { confirmed_characters, ...baseData } = pendingGenerateData;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { confirmed_characters: _unusedChars, ...baseData } = pendingGenerateData;
       const requestData = {
         ...baseData,
         confirmed_organizations: selectedOrganizations
@@ -1908,7 +1951,7 @@ export default function Outline() {
           setSSEMessage(msg);
           setSSEProgress(progress);
         },
-        onResult: (data: any) => {
+        onResult: (data: unknown) => {
           console.log('生成完成，结果:', data);
         },
         onError: (error: string) => {
@@ -1955,7 +1998,8 @@ export default function Outline() {
       setSSEModalVisible(true);
 
       // 准备请求数据，禁用自动组织引入
-      const { confirmed_characters, ...baseData } = pendingGenerateData;
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { confirmed_characters: _unusedChars, ...baseData } = pendingGenerateData;
       const requestData = {
         ...baseData,
         enable_auto_organizations: false  // 禁用自动组织引入
@@ -1970,7 +2014,7 @@ export default function Outline() {
           setSSEMessage(msg);
           setSSEProgress(progress);
         },
-        onResult: (data: any) => {
+        onResult: (data: unknown) => {
           console.log('生成完成，结果:', data);
         },
         onError: (error: string) => {

@@ -108,6 +108,9 @@ launcher.py
 launcher.spec
 mumuainovel.md
 logo.ico
+.embed_cache
+dist_embed/
+embed_build.py
 
 
 data/
