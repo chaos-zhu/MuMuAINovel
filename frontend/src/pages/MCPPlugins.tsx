@@ -37,8 +37,17 @@ const { Paragraph, Text, Title } = Typography;
 const { TextArea } = Input;
 
 export default function MCPPluginsPage() {
-  const isMobile = window.innerWidth <= 768;
+  const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
   const [form] = Form.useForm();
+  
+  // 响应式监听窗口大小变化
+  useEffect(() => {
+    const handleResize = () => {
+      setIsMobile(window.innerWidth <= 768);
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   const [modal, contextHolder] = Modal.useModal();
   const [loading, setLoading] = useState(false);
   const [plugins, setPlugins] = useState<MCPPlugin[]>([]);
@@ -591,10 +600,9 @@ export default function MCPPluginsPage() {
       <div style={{
         minHeight: '90vh',
         background: 'linear-gradient(180deg, var(--color-bg-base) 0%, #EEF2F3 100%)',
-        padding: isMobile ? '20px 16px' : '24px 24px',
+        padding: isMobile ? '20px 16px 70px' : '24px 24px 70px',
         display: 'flex',
         flexDirection: 'column',
-        marginBottom: '55px',
       }}>
         <div style={{
           maxWidth: 1400,
@@ -657,7 +665,7 @@ export default function MCPPluginsPage() {
               </Col>
             </Row>
 
-            <div style={{ marginTop: isMobile ? 16 : 24, display: 'flex', gap: 16, flexDirection: isMobile ? 'column' : 'row' }}>
+            <div style={{ marginTop: isMobile ? 16 : 24, display: 'flex', gap: isMobile ? 12 : 16, flexDirection: isMobile ? 'column' : 'row' }}>
               <Card
                 variant="borderless"
                 style={{
@@ -668,27 +676,36 @@ export default function MCPPluginsPage() {
                   backdropFilter: 'blur(10px)',
                   boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)'
                 }}
-                styles={{ body: { padding: 20 } }}
+                styles={{ body: { padding: isMobile ? 14 : 20 } }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Space align="start">
+                <div style={{
+                  display: 'flex',
+                  flexDirection: isMobile ? 'column' : 'row',
+                  justifyContent: 'space-between',
+                  alignItems: isMobile ? 'stretch' : 'center',
+                  gap: isMobile ? 12 : 0
+                }}>
+                  <Space align="start" style={{ flex: 1 }}>
                     <div style={{
-                      width: 40, height: 40, borderRadius: '50%',
+                      width: isMobile ? 36 : 40,
+                      height: isMobile ? 36 : 40,
+                      borderRadius: '50%',
                       background: modelSupportStatus === 'supported' ? 'var(--color-success-bg)' : modelSupportStatus === 'unsupported' ? 'var(--color-error-bg)' : 'var(--color-info-bg)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      border: `1px solid ${modelSupportStatus === 'supported' ? 'var(--color-success-border)' : modelSupportStatus === 'unsupported' ? 'var(--color-error-border)' : 'var(--color-info-border)'}`
+                      border: `1px solid ${modelSupportStatus === 'supported' ? 'var(--color-success-border)' : modelSupportStatus === 'unsupported' ? 'var(--color-error-border)' : 'var(--color-info-border)'}`,
+                      flexShrink: 0
                     }}>
                       {modelSupportStatus === 'supported' ? (
-                        <CheckCircleOutlined style={{ fontSize: 20, color: 'var(--color-success)' }} />
+                        <CheckCircleOutlined style={{ fontSize: isMobile ? 18 : 20, color: 'var(--color-success)' }} />
                       ) : modelSupportStatus === 'unsupported' ? (
-                        <CloseCircleOutlined style={{ fontSize: 20, color: 'var(--color-error)' }} />
+                        <CloseCircleOutlined style={{ fontSize: isMobile ? 18 : 20, color: 'var(--color-error)' }} />
                       ) : (
-                        <QuestionCircleOutlined style={{ fontSize: 20, color: 'var(--color-info)' }} />
+                        <QuestionCircleOutlined style={{ fontSize: isMobile ? 18 : 20, color: 'var(--color-info)' }} />
                       )}
                     </div>
-                    <div>
-                      <Text strong style={{ fontSize: 16, display: 'block', color: 'var(--color-text-primary)' }}>模型能力检查</Text>
-                      <Text type="secondary" style={{ fontSize: 13 }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <Text strong style={{ fontSize: isMobile ? 14 : 16, display: 'block', color: 'var(--color-text-primary)' }}>模型能力检查</Text>
+                      <Text type="secondary" style={{ fontSize: isMobile ? 12 : 13, display: 'block', lineHeight: 1.5 }}>
                         {modelSupportStatus === 'supported'
                           ? '当前模型支持 Function Calling，可正常使用 MCP 插件'
                           : modelSupportStatus === 'unsupported'
@@ -702,7 +719,8 @@ export default function MCPPluginsPage() {
                     icon={<ApiOutlined />}
                     onClick={handleCheckFunctionCalling}
                     loading={checkingFunctionCalling}
-                    style={{ borderRadius: 8 }}
+                    style={{ borderRadius: 8, width: isMobile ? '100%' : 'auto' }}
+                    size={isMobile ? 'middle' : 'middle'}
                   >
                     {modelSupportStatus === 'unknown' ? '开始检测' : '重新检测'}
                   </Button>
@@ -719,13 +737,13 @@ export default function MCPPluginsPage() {
                   backdropFilter: 'blur(10px)',
                   boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)'
                 }}
-                styles={{ body: { padding: 20 } }}
+                styles={{ body: { padding: isMobile ? 14 : 20 } }}
               >
                 <Space align="start">
-                  <InfoCircleOutlined style={{ fontSize: 20, color: 'var(--color-primary)', marginTop: 4 }} />
-                  <div>
-                    <Text strong style={{ fontSize: 16, display: 'block', color: 'var(--color-text-primary)', marginBottom: 4 }}>什么是 MCP 插件？</Text>
-                    <Text style={{ fontSize: 13, display: 'block', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
+                  <InfoCircleOutlined style={{ fontSize: isMobile ? 18 : 20, color: 'var(--color-primary)', marginTop: 2, flexShrink: 0 }} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <Text strong style={{ fontSize: isMobile ? 14 : 16, display: 'block', color: 'var(--color-text-primary)', marginBottom: 4 }}>什么是 MCP 插件？</Text>
+                    <Text style={{ fontSize: isMobile ? 12 : 13, display: 'block', color: 'var(--color-text-secondary)', lineHeight: 1.6 }}>
                       MCP (Model Context Protocol) 协议允许 AI 调用外部工具获取数据。通过添加插件，AI 可以访问搜索引擎、数据库、API 等服务，大幅增强创作能力。
                     </Text>
                   </div>
@@ -769,7 +787,7 @@ export default function MCPPluginsPage() {
                   </Button>
                 </Empty>
               ) : (
-                <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+                <Space direction="vertical" size={isMobile ? 'small' : 'middle'} style={{ width: '100%' }}>
                   {plugins.map((plugin) => (
                     <Card
                       key={plugin.id}
@@ -778,30 +796,62 @@ export default function MCPPluginsPage() {
                         borderRadius: 8,
                         border: '1px solid #f0f0f0',
                       }}
+                      styles={{ body: { padding: isMobile ? 12 : 16 } }}
                     >
                       <div
                         style={{
                           display: 'flex',
-                          justifyContent: 'space-between',
-                          alignItems: 'flex-start',
-                          gap: '16px',
-                          flexWrap: isMobile ? 'wrap' : 'nowrap',
+                          flexDirection: 'column',
+                          gap: isMobile ? 12 : 16,
                         }}
                       >
+                        {/* 插件信息区域 */}
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                              <Text strong style={{ fontSize: isMobile ? '14px' : '16px' }}>
-                                {plugin.display_name || plugin.plugin_name}
-                              </Text>
-                              {getStatusTag(plugin)}
-                              <Tag color={plugin.plugin_type === 'http' || plugin.plugin_type === 'streamable_http' || plugin.plugin_type === 'sse' ? 'blue' : 'cyan'}>
+                            {/* 标题和状态标签 */}
+                            <div style={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '6px',
+                              flexWrap: 'wrap',
+                              justifyContent: 'space-between'
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', flex: 1 }}>
+                                <Text strong style={{ fontSize: isMobile ? '14px' : '16px' }}>
+                                  {plugin.display_name || plugin.plugin_name}
+                                </Text>
+                                {getStatusTag(plugin)}
+                              </div>
+                              {/* 移动端：开关放在标题行右侧 */}
+                              {isMobile && (
+                                <Switch
+                                  title={modelSupportStatus !== 'supported' ? '请先完成模型能力检查' : (plugin.enabled ? '禁用插件' : '启用插件')}
+                                  checked={plugin.enabled}
+                                  onChange={(checked) => handleToggle(plugin, checked)}
+                                  disabled={modelSupportStatus !== 'supported'}
+                                  size="small"
+                                  checkedChildren="开"
+                                  unCheckedChildren="关"
+                                  style={{
+                                    flexShrink: 0,
+                                    height: 16,
+                                    minHeight: 16,
+                                    lineHeight: '16px'
+                                  }}
+                                />
+                              )}
+                            </div>
+                            
+                            {/* 类型和分类标签 */}
+                            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                              <Tag color={plugin.plugin_type === 'http' || plugin.plugin_type === 'streamable_http' || plugin.plugin_type === 'sse' ? 'blue' : 'cyan'} style={{ fontSize: isMobile ? 11 : 12 }}>
                                 {plugin.plugin_type?.toUpperCase() || 'UNKNOWN'}
                               </Tag>
                               {plugin.category && plugin.category !== 'general' && (
-                                <Tag color="purple">{plugin.category}</Tag>
+                                <Tag color="purple" style={{ fontSize: isMobile ? 11 : 12 }}>{plugin.category}</Tag>
                               )}
                             </div>
+                            
                             {plugin.description && (
                               <Paragraph
                                 type="secondary"
@@ -817,8 +867,13 @@ export default function MCPPluginsPage() {
 
                             {/* 只显示有值的URL或命令，脱敏处理敏感信息 */}
                             {(plugin.plugin_type === 'http' || plugin.plugin_type === 'streamable_http' || plugin.plugin_type === 'sse') && plugin.server_url && (
-                              <div style={{ fontSize: isMobile ? '11px' : '12px' }}>
-                                <Text type="secondary" code>
+                              <div style={{
+                                fontSize: isMobile ? '11px' : '12px',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                <Text type="secondary" code style={{ fontSize: 'inherit' }}>
                                   {(() => {
                                     // 脱敏处理：隐藏URL中的API Key
                                     const url = plugin.server_url;
@@ -849,8 +904,13 @@ export default function MCPPluginsPage() {
                             )}
 
                             {plugin.plugin_type === 'stdio' && plugin.command && (
-                              <div style={{ fontSize: isMobile ? '11px' : '12px' }}>
-                                <Text type="secondary" code>
+                              <div style={{
+                                fontSize: isMobile ? '11px' : '12px',
+                                overflow: 'hidden',
+                                textOverflow: 'ellipsis',
+                                whiteSpace: 'nowrap'
+                              }}>
+                                <Text type="secondary" code style={{ fontSize: 'inherit' }}>
                                   {plugin.command} {plugin.args?.join(' ')}
                                 </Text>
                               </div>
@@ -865,20 +925,27 @@ export default function MCPPluginsPage() {
                           </Space>
                         </div>
 
-                        <Space size="small" wrap>
-                          <Switch
-                            title={modelSupportStatus !== 'supported' ? '请先完成模型能力检查' : (plugin.enabled ? '禁用插件' : '启用插件')}
-                            checked={plugin.enabled}
-                            onChange={(checked) => handleToggle(plugin, checked)}
-                            disabled={modelSupportStatus !== 'supported'}
-                            size={isMobile ? 'small' : 'default'}
-                            style={{
-                              flexShrink: 0,
-                              height: isMobile ? 16 : 22,
-                              minHeight: isMobile ? 16 : 22,
-                              lineHeight: isMobile ? '16px' : '22px'
-                            }}
-                          />
+                        {/* 操作按钮区域 */}
+                        <div style={{
+                          display: 'flex',
+                          justifyContent: isMobile ? 'flex-end' : 'flex-start',
+                          alignItems: 'center',
+                          gap: isMobile ? 8 : 8,
+                          flexWrap: 'wrap',
+                          borderTop: isMobile ? '1px solid #f0f0f0' : 'none',
+                          paddingTop: isMobile ? 12 : 0
+                        }}>
+                          {/* 桌面端显示开关 */}
+                          {!isMobile && (
+                            <Switch
+                              title={modelSupportStatus !== 'supported' ? '请先完成模型能力检查' : (plugin.enabled ? '禁用插件' : '启用插件')}
+                              checked={plugin.enabled}
+                              onChange={(checked) => handleToggle(plugin, checked)}
+                              disabled={modelSupportStatus !== 'supported'}
+                              checkedChildren="开"
+                              unCheckedChildren="关"
+                            />
+                          )}
                           <Button
                             title={modelSupportStatus !== 'supported' ? '请先完成模型能力检查' : '测试连接'}
                             icon={<ThunderboltOutlined />}
@@ -886,21 +953,27 @@ export default function MCPPluginsPage() {
                             loading={testingPluginId === plugin.id}
                             disabled={modelSupportStatus !== 'supported'}
                             size={isMobile ? 'small' : 'middle'}
-                          />
+                          >
+                            {!isMobile && '测试'}
+                          </Button>
                           <Button
                             title={modelSupportStatus !== 'supported' ? '请先完成模型能力检查' : '查看工具'}
                             icon={<ToolOutlined />}
                             onClick={() => handleViewTools(plugin.id)}
                             disabled={modelSupportStatus !== 'supported' || !plugin.enabled || plugin.status !== 'active'}
                             size={isMobile ? 'small' : 'middle'}
-                          />
+                          >
+                            {!isMobile && '工具'}
+                          </Button>
                           <Button
                             title={modelSupportStatus !== 'supported' ? '请先完成模型能力检查' : '编辑'}
                             icon={<EditOutlined />}
                             onClick={() => handleEdit(plugin)}
                             disabled={modelSupportStatus !== 'supported'}
                             size={isMobile ? 'small' : 'middle'}
-                          />
+                          >
+                            {!isMobile && '编辑'}
+                          </Button>
                           <Button
                             title={modelSupportStatus !== 'supported' ? '请先完成模型能力检查' : '删除'}
                             danger
@@ -908,8 +981,10 @@ export default function MCPPluginsPage() {
                             onClick={() => handleDelete(plugin)}
                             disabled={modelSupportStatus !== 'supported'}
                             size={isMobile ? 'small' : 'middle'}
-                          />
-                        </Space>
+                          >
+                            {!isMobile && '删除'}
+                          </Button>
+                        </div>
                       </div>
                     </Card>
                   ))}
@@ -942,7 +1017,7 @@ export default function MCPPluginsPage() {
               extra="粘贴标准MCP配置，系统自动提取插件名称。支持HTTP和Stdio类型"
             >
               <TextArea
-                rows={16}
+                rows={isMobile ? 12 : 16}
                 placeholder={`示例：
 {
   "mcpServers": {

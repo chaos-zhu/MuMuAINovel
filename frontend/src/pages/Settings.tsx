@@ -794,10 +794,9 @@ export default function SettingsPage() {
       <div style={{
         minHeight: '90vh',
         background: 'linear-gradient(180deg, var(--color-bg-base) 0%, #EEF2F3 100%)',
-        padding: isMobile ? '20px 16px' : '24px 24px',
+        padding: isMobile ? '20px 16px 70px' : '24px 24px 70px',
         display: 'flex',
         flexDirection: 'column',
-        marginBottom: '55px',
       }}>
         <div style={{
           maxWidth: 1400,

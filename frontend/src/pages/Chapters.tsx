@@ -1230,16 +1230,16 @@ export default function Chapters() {
             <span style={{ wordBreak: 'break-word' }}>第{chapter.chapter_number}章展开规划</span>
           </Space>
         ),
-        width: isMobile ? '95%' : 800,
+        width: isMobile ? 'calc(100vw - 32px)' : 800,
         centered: true,
         style: isMobile ? {
-          top: 20,
-          maxWidth: 'calc(100vw - 16px)',
-          margin: '0 8px'
+          maxWidth: 'calc(100vw - 32px)',
+          margin: '0 auto',
+          padding: '0 16px'
         } : undefined,
         styles: {
           body: {
-            maxHeight: isMobile ? 'calc(100vh - 150px)' : 'calc(80vh - 110px)',
+            maxHeight: isMobile ? 'calc(100vh - 200px)' : 'calc(80vh - 110px)',
             overflowY: 'auto'
           }
         },
@@ -2006,17 +2006,16 @@ export default function Chapters() {
         open={isModalOpen}
         onCancel={() => setIsModalOpen(false)}
         footer={null}
-        centered={!isMobile}
-        width={isMobile ? 'calc(100% - 32px)' : 520}
+        centered
+        width={isMobile ? 'calc(100vw - 32px)' : 520}
         style={isMobile ? {
-          top: 20,
-          paddingBottom: 0,
           maxWidth: 'calc(100vw - 32px)',
-          margin: '0 16px'
+          margin: '0 auto',
+          padding: '0 16px'
         } : undefined}
         styles={{
           body: {
-            maxHeight: isMobile ? 'calc(100vh - 150px)' : 'calc(80vh - 110px)',
+            maxHeight: isMobile ? 'calc(100vh - 200px)' : 'calc(80vh - 110px)',
             overflowY: 'auto'
           }
         }}
@@ -2082,17 +2081,16 @@ export default function Chapters() {
         closable={!isGenerating}
         maskClosable={!isGenerating}
         keyboard={!isGenerating}
-        width={isMobile ? 'calc(100% - 32px)' : '85%'}
-        centered={!isMobile}
+        width={isMobile ? 'calc(100vw - 32px)' : '85%'}
+        centered
         style={isMobile ? {
-          top: 20,
-          paddingBottom: 0,
           maxWidth: 'calc(100vw - 32px)',
-          margin: '0 16px'
+          margin: '0 auto',
+          padding: '0 16px'
         } : undefined}
         styles={{
           body: {
-            maxHeight: isMobile ? 'calc(100vh - 150px)' : 'calc(100vh - 110px)',
+            maxHeight: isMobile ? 'calc(100vh - 200px)' : 'calc(100vh - 110px)',
             overflowY: 'auto',
             padding: isMobile ? '16px 12px' : '8px'
           }
@@ -2366,6 +2364,7 @@ export default function Chapters() {
               content: '批量生成正在进行中，确定要取消吗？',
               okText: '确定取消',
               cancelText: '继续生成',
+              centered: true,
               onOk: () => {
                 handleCancelBatchGenerate();
                 setBatchGenerateVisible(false);
@@ -2376,7 +2375,7 @@ export default function Chapters() {
           }
         }}
         footer={!batchGenerating ? (
-          <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+          <Space style={{ width: '100%', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
             <Button onClick={() => setBatchGenerateVisible(false)}>
               取消
             </Button>
@@ -2385,13 +2384,18 @@ export default function Chapters() {
             </Button>
           </Space>
         ) : null}
-        width={700}
+        width={isMobile ? 'calc(100vw - 32px)' : 700}
         centered
         closable={!batchGenerating}
         maskClosable={!batchGenerating}
+        style={isMobile ? {
+          maxWidth: 'calc(100vw - 32px)',
+          margin: '0 auto',
+          padding: '0 16px'
+        } : undefined}
         styles={{
           body: {
-            maxHeight: 'calc(100vh - 260px)',
+            maxHeight: isMobile ? 'calc(100vh - 200px)' : 'calc(100vh - 260px)',
             overflowY: 'auto',
             overflowX: 'hidden'
           }
@@ -2419,7 +2423,7 @@ export default function Chapters() {
             />
 
             {/* 第一行：起始章节 + 生成数量 */}
-            <div style={{ display: 'flex', gap: 16 }}>
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 0 : 16 }}>
               <Form.Item
                 label="起始章节"
                 name="startChapterNumber"
@@ -2444,7 +2448,7 @@ export default function Chapters() {
                 rules={[{ required: true, message: '请选择' }]}
                 style={{ marginBottom: 12 }}
               >
-                <Radio.Group buttonStyle="solid">
+                <Radio.Group buttonStyle="solid" size={isMobile ? 'small' : 'middle'}>
                   <Radio.Button value={5}>5章</Radio.Button>
                   <Radio.Button value={10}>10章</Radio.Button>
                   <Radio.Button value={15}>15章</Radio.Button>
@@ -2454,7 +2458,7 @@ export default function Chapters() {
             </div>
 
             {/* 第二行：写作风格 + 目标字数 */}
-            <div style={{ display: 'flex', gap: 16 }}>
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 0 : 16 }}>
               <Form.Item
                 label="写作风格"
                 name="styleId"
@@ -2494,7 +2498,7 @@ export default function Chapters() {
             </div>
 
             {/* 第三行：AI模型 + 同步分析 */}
-            <div style={{ display: 'flex', gap: 16 }}>
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 0 : 16 }}>
               <Form.Item
                 label="AI模型"
                 tooltip="不选则使用默认模型"

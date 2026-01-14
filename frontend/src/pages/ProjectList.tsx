@@ -16,6 +16,26 @@ import PromptTemplates from './PromptTemplates';
 
 const { Title, Text, Paragraph } = Typography;
 
+/**
+ * 格式化字数显示
+ * @param count 字数
+ * @returns 格式化后的字符串，如 "1.2K", "3.5W", "1.2M"
+ */
+const formatWordCount = (count: number): string => {
+  if (count < 1000) {
+    return count.toString();
+  } else if (count < 10000) {
+    // 1K - 9.9K
+    return (count / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+  } else if (count < 1000000) {
+    // 1W - 99.9W (万)
+    return (count / 10000).toFixed(1).replace(/\.0$/, '') + 'W';
+  } else {
+    // 1M+ (百万)
+    return (count / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  }
+};
+
 export default function ProjectList() {
   const navigate = useNavigate();
   const { projects, loading } = useStore();
@@ -33,7 +53,10 @@ export default function ProjectList() {
   const [selectedProjectIds, setSelectedProjectIds] = useState<string[]>([]);
   const [exportOptions, setExportOptions] = useState({
     includeWritingStyles: true,
-    includeGenerationHistory: true,
+    includeGenerationHistory: false,
+    includeCareers: true,
+    includeMemories: false,
+    includePlotAnalysis: false,
   });
   const { refreshProjects, deleteProject } = useProjectSync();
 
@@ -250,7 +273,10 @@ export default function ProjectList() {
         const project = projects.find(p => p.id === projectId);
         await projectApi.exportProjectData(projectId, {
           include_generation_history: exportOptions.includeGenerationHistory,
-          include_writing_styles: exportOptions.includeWritingStyles
+          include_writing_styles: exportOptions.includeWritingStyles,
+          include_careers: exportOptions.includeCareers,
+          include_memories: exportOptions.includeMemories,
+          include_plot_analysis: exportOptions.includePlotAnalysis
         });
         message.success(`项目 "${project?.title}" 导出成功`);
       } else {
@@ -260,7 +286,10 @@ export default function ProjectList() {
           try {
             await projectApi.exportProjectData(projectId, {
               include_generation_history: exportOptions.includeGenerationHistory,
-              include_writing_styles: exportOptions.includeWritingStyles
+              include_writing_styles: exportOptions.includeWritingStyles,
+              include_careers: exportOptions.includeCareers,
+              include_memories: exportOptions.includeMemories,
+              include_plot_analysis: exportOptions.includePlotAnalysis
             });
             successCount++;
             await new Promise(resolve => setTimeout(resolve, 500));
@@ -696,7 +725,7 @@ export default function ProjectList() {
                             {item.label}
                           </span>
                           <span style={{ fontSize: '15px', fontWeight: '600', color: '#fff', lineHeight: 1, fontFamily: 'Monaco, monospace' }}>
-                            {item.value > 10000 ? (item.value / 10000).toFixed(1) + 'w' : item.value}
+                            {item.label === '总字数' ? formatWordCount(item.value) : item.value}
                             {item.unit && <span style={{ fontSize: '10px', marginLeft: '2px', opacity: 0.8 }}>{item.unit}</span>}
                           </span>
                         </div>
@@ -763,10 +792,10 @@ export default function ProjectList() {
             <Spin spinning={loading}>
               <div style={{
                 ...cardStyles.bookshelf,
-                // 移动端显示两列
+                // 移动端显示一列
                 ...(isMobile && {
-                  gridTemplateColumns: 'repeat(2, 1fr)',
-                  gap: '12px',
+                  gridTemplateColumns: '1fr',
+                  gap: '16px',
                   padding: '16px 0',
                 })
               }}>
@@ -988,9 +1017,7 @@ export default function ProjectList() {
                                    lineHeight: 1.2,
                                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial'
                                }}>
-                                 {project.current_words >= 1000
-                                   ? (project.current_words / 1000).toFixed(1) + 'K'
-                                   : (project.current_words || 0)}
+                                 {formatWordCount(project.current_words || 0)}
                                </div>
                                <div style={{
                                  fontSize: isMobile ? 10 : 11,
@@ -1013,9 +1040,7 @@ export default function ProjectList() {
                                    lineHeight: 1.2,
                                    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial'
                                }}>
-                                 {(project.target_words || 0) >= 1000
-                                   ? ((project.target_words || 0) / 1000).toFixed(1) + 'K'
-                                   : (project.target_words || 0)}
+                                 {formatWordCount(project.target_words || 0)}
                                </div>
                                <div style={{
                                  fontSize: isMobile ? 10 : 11,
@@ -1120,10 +1145,29 @@ export default function ProjectList() {
                 )}
                 {validationResult.statistics && (
                    <div style={{ marginTop: 8 }}>
-                      <Space size={[8, 8]} wrap>
+                      <Text type="secondary" style={{ fontSize: 12, display: 'block', marginBottom: 6 }}>数据统计：</Text>
+                      <Space size={[6, 6]} wrap>
                         {validationResult.statistics.chapters > 0 && <Tag color="blue">章节: {validationResult.statistics.chapters}</Tag>}
                         {validationResult.statistics.characters > 0 && <Tag color="green">角色: {validationResult.statistics.characters}</Tag>}
+                        {validationResult.statistics.outlines > 0 && <Tag color="cyan">大纲: {validationResult.statistics.outlines}</Tag>}
+                        {validationResult.statistics.relationships > 0 && <Tag color="purple">关系: {validationResult.statistics.relationships}</Tag>}
+                        {validationResult.statistics.organizations > 0 && <Tag color="orange">组织: {validationResult.statistics.organizations}</Tag>}
+                        {validationResult.statistics.careers > 0 && <Tag color="magenta">职业: {validationResult.statistics.careers}</Tag>}
+                        {validationResult.statistics.character_careers > 0 && <Tag color="geekblue">职业关联: {validationResult.statistics.character_careers}</Tag>}
+                        {validationResult.statistics.writing_styles > 0 && <Tag color="lime">写作风格: {validationResult.statistics.writing_styles}</Tag>}
+                        {validationResult.statistics.story_memories > 0 && <Tag color="gold">故事记忆: {validationResult.statistics.story_memories}</Tag>}
+                        {validationResult.statistics.plot_analysis > 0 && <Tag color="volcano">剧情分析: {validationResult.statistics.plot_analysis}</Tag>}
+                        {validationResult.statistics.generation_history > 0 && <Tag>生成历史: {validationResult.statistics.generation_history}</Tag>}
+                        {validationResult.statistics.has_default_style && <Tag color="success">含默认风格</Tag>}
                       </Space>
+                   </div>
+                )}
+                {validationResult.warnings?.length > 0 && (
+                   <div style={{ marginTop: 8 }}>
+                     <Text type="warning" strong style={{ fontSize: 12 }}>提示：</Text>
+                     <ul style={{ margin: '4px 0 0 0', paddingLeft: 20, color: '#faad14', fontSize: 12 }}>
+                       {validationResult.warnings.map((w: string, i: number) => <li key={i}>{w}</li>)}
+                     </ul>
                    </div>
                 )}
                 {validationResult.errors?.length > 0 && (
@@ -1155,12 +1199,21 @@ export default function ProjectList() {
       >
          <Space direction="vertical" size={16} style={{ width: '100%' }}>
             <Card size="small" style={{ background: '#f5f5f5' }}>
-              <Space direction="vertical" size={12}>
+              <Space direction="vertical" size={12} style={{ width: '100%' }}>
                 <Text strong>导出选项</Text>
-                <Space size={24}>
-                  <Checkbox checked={exportOptions.includeWritingStyles} onChange={e => setExportOptions(prev => ({...prev, includeWritingStyles: e.target.checked}))}>包含写作风格</Checkbox>
-                  <Checkbox checked={exportOptions.includeGenerationHistory} onChange={e => setExportOptions(prev => ({...prev, includeGenerationHistory: e.target.checked}))}>包含生成历史</Checkbox>
-                </Space>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 24px' }}>
+                  <Checkbox checked={exportOptions.includeWritingStyles} onChange={e => setExportOptions(prev => ({...prev, includeWritingStyles: e.target.checked}))}>写作风格</Checkbox>
+                  <Checkbox checked={exportOptions.includeCareers} onChange={e => setExportOptions(prev => ({...prev, includeCareers: e.target.checked}))}>职业系统</Checkbox>
+                  <Tooltip title="包含生成历史记录，文件可能较大">
+                    <Checkbox checked={exportOptions.includeGenerationHistory} onChange={e => setExportOptions(prev => ({...prev, includeGenerationHistory: e.target.checked}))}>生成历史</Checkbox>
+                  </Tooltip>
+                  <Tooltip title="包含故事记忆数据，文件可能较大">
+                    <Checkbox checked={exportOptions.includeMemories} onChange={e => setExportOptions(prev => ({...prev, includeMemories: e.target.checked}))}>故事记忆</Checkbox>
+                  </Tooltip>
+                  <Tooltip title="包含AI剧情分析数据">
+                    <Checkbox checked={exportOptions.includePlotAnalysis} onChange={e => setExportOptions(prev => ({...prev, includePlotAnalysis: e.target.checked}))}>剧情分析</Checkbox>
+                  </Tooltip>
+                </div>
               </Space>
             </Card>
 
@@ -1194,7 +1247,7 @@ export default function ProjectList() {
                         <Checkbox checked={selectedProjectIds.includes(p.id)} />
                         <div style={{ flex: 1 }}>
                            <div>{p.title}</div>
-                           <div style={{ fontSize: 12, color: '#999' }}>{p.current_words || 0} 字 · {getStatusTag(getDisplayStatus(p.status, getProgress(p.current_words || 0, p.target_words || 0)))}</div>
+                           <div style={{ fontSize: 12, color: '#999' }}>{formatWordCount(p.current_words || 0)} 字 · {getStatusTag(getDisplayStatus(p.status, getProgress(p.current_words || 0, p.target_words || 0)))}</div>
                         </div>
                       </div>
                     ))}

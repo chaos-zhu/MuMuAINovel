@@ -289,7 +289,13 @@ export const projectApi = {
   },
 
   // 导出项目数据为JSON
-  exportProjectData: async (id: string, options: { include_generation_history?: boolean; include_writing_styles?: boolean }) => {
+  exportProjectData: async (id: string, options: {
+    include_generation_history?: boolean;
+    include_writing_styles?: boolean;
+    include_careers?: boolean;
+    include_memories?: boolean;
+    include_plot_analysis?: boolean;
+  }) => {
     const response = await axios.post(
       `/api/projects/${id}/export-data`,
       options,
