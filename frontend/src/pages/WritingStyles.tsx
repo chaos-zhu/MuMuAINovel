@@ -53,6 +53,7 @@ export default function WritingStyles() {
   // 加载风格列表 - 如果有项目则加载项目风格（包含默认标记），否则加载用户风格
   useEffect(() => {
     loadStyles();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProject?.id]);
 
   const loadStyles = async () => {

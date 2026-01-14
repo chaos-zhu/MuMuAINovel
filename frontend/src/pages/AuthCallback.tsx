@@ -10,7 +10,13 @@ export default function AuthCallback() {
   const [errorMessage, setErrorMessage] = useState('');
   const [showAnnouncement, setShowAnnouncement] = useState(false);
   const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [passwordStatus, setPasswordStatus] = useState<any>(null);
+  interface PasswordStatus {
+    has_password: boolean;
+    has_custom_password: boolean;
+    username: string;
+    default_password: string;
+  }
+  const [passwordStatus, setPasswordStatus] = useState<PasswordStatus | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [settingPassword, setSettingPassword] = useState(false);
@@ -187,7 +193,7 @@ export default function AuthCallback() {
           setShowAnnouncement(true);
         }, 500);
       }
-    } catch (error) {
+    } catch {
       message.error('密码设置失败，请重试');
     } finally {
       setSettingPassword(false);

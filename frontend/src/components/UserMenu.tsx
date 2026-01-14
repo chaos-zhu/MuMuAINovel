@@ -8,7 +8,12 @@ import { useNavigate } from 'react-router-dom';
 
 const { Text } = Typography;
 
-export default function UserMenu() {
+interface UserMenuProps {
+  /** 是否总是显示完整信息（用于移动端侧边栏） */
+  showFullInfo?: boolean;
+}
+
+export default function UserMenu({ showFullInfo = false }: UserMenuProps) {
   const navigate = useNavigate();
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [showChangePassword, setShowChangePassword] = useState(false);
@@ -54,9 +59,10 @@ export default function UserMenu() {
       message.success('密码修改成功');
       setShowChangePassword(false);
       changePasswordForm.resetFields();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('修改密码失败:', error);
-      message.error(error.response?.data?.detail || '修改密码失败');
+      const err = error as { response?: { data?: { detail?: string } } };
+      message.error(err.response?.data?.detail || '修改密码失败');
     } finally {
       setChangingPassword(false);
     }
@@ -171,7 +177,7 @@ export default function UserMenu() {
               </div>
             )}
           </div>
-          <Space direction="vertical" size={0} style={{ display: window.innerWidth <= 768 ? 'none' : 'flex' }}>
+          <Space direction="vertical" size={0} style={{ display: (window.innerWidth <= 768 && !showFullInfo) ? 'none' : 'flex' }}>
             <Text strong style={{
               color: 'var(--color-text-primary)',
               fontSize: 14,

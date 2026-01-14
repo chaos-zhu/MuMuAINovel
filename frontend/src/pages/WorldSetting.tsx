@@ -58,7 +58,7 @@ export default function WorldSetting() {
                 // 可以在这里显示生成的内容片段（可选）
                 console.log('生成片段:', chunk);
               },
-              onResult: (result: any) => {
+              onResult: (result: { time_period: string; location: string; atmosphere: string; rules: string }) => {
                 // 保存新生成的数据
                 const newData = {
                   time_period: result.time_period,

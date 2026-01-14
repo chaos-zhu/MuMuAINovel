@@ -40,8 +40,8 @@ function App() {
           <Route path="/login" element={<><Login /><AppFooter /></>} />
           <Route path="/auth/callback" element={<AuthCallback />} />
 
-          <Route path="/" element={<ProtectedRoute><><ProjectList /><AppFooter /></></ProtectedRoute>} />
-          <Route path="/projects" element={<ProtectedRoute><><ProjectList /><AppFooter /></></ProtectedRoute>} />
+          <Route path="/" element={<ProtectedRoute><><ProjectList /><AppFooter sidebarWidth={220} /></></ProtectedRoute>} />
+          <Route path="/projects" element={<ProtectedRoute><><ProjectList /><AppFooter sidebarWidth={220} /></></ProtectedRoute>} />
           <Route path="/wizard" element={<ProtectedRoute><ProjectWizardNew /></ProtectedRoute>} />
           <Route path="/inspiration" element={<ProtectedRoute><Inspiration /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />

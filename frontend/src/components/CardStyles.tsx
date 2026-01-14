@@ -11,6 +11,7 @@ export const cardStyles = {
   // 悬浮效果
   hoverable: {
     cursor: 'pointer',
+    position: 'relative' as const,
   } as CSSProperties,
 
   // 角色卡片样式
@@ -32,15 +33,52 @@ export const cardStyles = {
     borderRadius: 12,
   } as CSSProperties,
 
-  // 项目卡片样式 - 现代化设计
+  // 项目卡片样式 - 书籍风格 (Book Style)
   project: {
     height: '100%',
-    borderRadius: 20,
+    borderRadius: '6px 16px 16px 6px', // 左侧稍直(书脊)，右侧圆润
     overflow: 'hidden',
-    background: 'var(--color-bg-container)',
-    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04)',
-    transition: 'all 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
-    border: '1px solid rgba(0, 0, 0, 0.04)',
+    background: '#fff',
+    // 基础阴影 + 书籍厚度阴影
+    boxShadow: `
+      0 2px 8px rgba(0, 0, 0, 0.04),
+      4px 0 8px rgba(0, 0, 0, 0.02)
+    `,
+    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+    border: '1px solid rgba(0,0,0,0.02)',
+    borderLeft: '6px solid var(--color-primary)', // 书脊效果
+    display: 'flex',
+    flexDirection: 'column',
+    position: 'relative',
+  } as CSSProperties,
+
+  // 新建项目卡片样式 - 统一书籍风格
+  newProjectBook: {
+    height: '100%',
+    borderRadius: '6px 16px 16px 6px',
+    overflow: 'hidden',
+    background: '#fff',
+    // 基础阴影 + 书籍厚度阴影 (与普通项目一致)
+    boxShadow: `
+      0 2px 8px rgba(0, 0, 0, 0.04),
+      4px 0 8px rgba(0, 0, 0, 0.02)
+    `,
+    border: '1px solid rgba(0,0,0,0.02)',
+    borderLeft: '6px solid var(--color-primary)', // 与普通项目一致的书脊颜色
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+    position: 'relative',
+  } as CSSProperties,
+
+  // 书架风格容器
+  bookshelf: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+    gap: '24px',
+    padding: '24px 0',
   } as CSSProperties,
 
   // 卡片内容区域样式
@@ -74,17 +112,28 @@ export const cardStyles = {
   } as CSSProperties),
 };
 
-// 卡片悬浮动画 - 增强版
+// 卡片悬浮动画 - 增强版 (Subtle Lift)
 export const cardHoverHandlers = {
   onMouseEnter: (e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
-    target.style.transform = 'translateY(-10px) scale(1.01)';
-    target.style.boxShadow = '0 20px 40px rgba(77, 128, 136, 0.2), 0 8px 16px rgba(0, 0, 0, 0.08)';
+    target.style.transform = 'translateY(-6px) rotateY(-2deg)'; // 悬浮时轻微翻起
+    
+    // 统一书本悬浮态
+    target.style.boxShadow = `
+      -2px 0 4px rgba(0, 0, 0, 0.1), // 书脊阴影加深
+      8px 12px 24px rgba(0, 0, 0, 0.12)
+    `;
+
   },
   onMouseLeave: (e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.currentTarget;
-    target.style.transform = 'translateY(0) scale(1)';
-    target.style.boxShadow = '0 4px 20px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04)';
+    target.style.transform = 'translateY(0) rotateY(0)';
+    
+    // 统一恢复基础阴影
+    target.style.boxShadow = `
+      0 2px 8px rgba(0, 0, 0, 0.04),
+      4px 0 8px rgba(0, 0, 0, 0.02)
+    `;
   },
 };
 

@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   Card,
   Tabs,
@@ -25,7 +24,6 @@ import {
   UploadOutlined,
   CheckCircleOutlined,
   FileSearchOutlined,
-  ArrowLeftOutlined,
   InfoCircleOutlined
 } from '@ant-design/icons';
 import axios from 'axios';
@@ -56,7 +54,6 @@ interface CategoryGroup {
 }
 
 export default function PromptTemplates() {
-  const navigate = useNavigate();
   const [modal, contextHolder] = Modal.useModal();
   const [categories, setCategories] = useState<CategoryGroup[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('0');
@@ -72,8 +69,9 @@ export default function PromptTemplates() {
       setLoading(true);
       const response = await axios.get<CategoryGroup[]>('/api/prompt-templates/categories');
       setCategories(response.data);
-    } catch (error: any) {
-      message.error(error.response?.data?.detail || '加载失败');
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } };
+      message.error(err.response?.data?.detail || '加载失败');
     } finally {
       setLoading(false);
     }
@@ -116,8 +114,9 @@ export default function PromptTemplates() {
       message.success('保存成功');
       setEditorVisible(false);
       loadTemplates();
-    } catch (error: any) {
-      message.error(error.response?.data?.detail || '保存失败');
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } };
+      message.error(err.response?.data?.detail || '保存失败');
     } finally {
       setLoading(false);
     }
@@ -137,8 +136,9 @@ export default function PromptTemplates() {
           await axios.post(`/api/prompt-templates/${templateKey}/reset`);
           message.success('已重置为系统默认');
           loadTemplates();
-        } catch (error: any) {
-          message.error(error.response?.data?.detail || '重置失败');
+        } catch (error: unknown) {
+          const err = error as { response?: { data?: { detail?: string } } };
+          message.error(err.response?.data?.detail || '重置失败');
         } finally {
           setLoading(false);
         }
@@ -153,8 +153,9 @@ export default function PromptTemplates() {
         is_active: checked
       });
       loadTemplates();
-    } catch (error: any) {
-      message.error(error.response?.data?.detail || '操作失败');
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } };
+      message.error(err.response?.data?.detail || '操作失败');
     }
   };
 
@@ -180,8 +181,9 @@ export default function PromptTemplates() {
       } else {
         message.success('导出成功');
       }
-    } catch (error: any) {
-      message.error(error.response?.data?.detail || '导出失败');
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } };
+      message.error(err.response?.data?.detail || '导出失败');
     }
   };
 
@@ -219,7 +221,7 @@ export default function PromptTemplates() {
                 <div>
                   <p style={{ fontWeight: 'bold', marginBottom: 8 }}>以下模板内容与系统默认不一致，已转为自定义：</p>
                   <ul style={{ marginLeft: 20 }}>
-                    {result.converted_templates.map((t: any) => (
+                    {result.converted_templates.map((t: { template_key: string; template_name: string }) => (
                       <li key={t.template_key}>
                         {t.template_name} ({t.template_key})
                       </li>
@@ -236,8 +238,9 @@ export default function PromptTemplates() {
       }
       
       loadTemplates();
-    } catch (error: any) {
-      message.error(error.response?.data?.detail || '导入失败');
+    } catch (error: unknown) {
+      const err = error as { response?: { data?: { detail?: string } } };
+      message.error(err.response?.data?.detail || '导入失败');
     }
     return false; // 阻止默认上传行为
   };
@@ -248,11 +251,12 @@ export default function PromptTemplates() {
     <>
       {contextHolder}
       <div style={{
-      minHeight: '100vh',
+      minHeight: '90vh',
       background: 'linear-gradient(180deg, var(--color-bg-base) 0%, #EEF2F3 100%)',
-      padding: isMobile ? '20px 16px' : '40px 24px',
+      padding: isMobile ? '20px 16px' : '24px 24px',
       display: 'flex',
       flexDirection: 'column',
+      marginBottom: '55px',
     }}>
       <div style={{
         maxWidth: 1400,
@@ -294,29 +298,6 @@ export default function PromptTemplates() {
             </Col>
             <Col xs={24} sm={12} md={10}>
               <Space wrap style={{ justifyContent: isMobile ? 'flex-start' : 'flex-end', width: '100%' }}>
-                <Button
-                  icon={<ArrowLeftOutlined />}
-                  onClick={() => navigate('/projects')}
-                  style={{
-                    borderRadius: 12,
-                    background: 'rgba(255, 255, 255, 0.15)',
-                    border: '1px solid rgba(255, 255, 255, 0.3)',
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-                    color: '#fff',
-                    backdropFilter: 'blur(10px)',
-                    transition: 'all 0.3s ease'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.25)';
-                    e.currentTarget.style.transform = 'translateY(-1px)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
-                    e.currentTarget.style.transform = 'none';
-                  }}
-                >
-                  返回项目
-                </Button>
                 <Button
                   icon={<DownloadOutlined />}
                   onClick={handleExport}

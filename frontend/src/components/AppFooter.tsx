@@ -1,13 +1,19 @@
 import { useState, useEffect } from 'react';
-import { Typography, Space, Divider, Badge, Button } from 'antd';
+import { Typography, Space, Divider, Badge, Button, Grid } from 'antd';
 import { GithubOutlined, CopyrightOutlined, HeartFilled, ClockCircleOutlined, GiftOutlined } from '@ant-design/icons';
 import { VERSION_INFO, getVersionString } from '../config/version';
 import { checkLatestVersion } from '../services/versionService';
 
 const { Text, Link } = Typography;
+const { useBreakpoint } = Grid;
 
-export default function AppFooter() {
-  const isMobile = window.innerWidth <= 768;
+interface AppFooterProps {
+  sidebarWidth?: number;
+}
+
+export default function AppFooter({ sidebarWidth = 0 }: AppFooterProps) {
+  const screens = useBreakpoint();
+  const isMobile = !screens.md;
   const [hasUpdate, setHasUpdate] = useState(false);
   const [latestVersion, setLatestVersion] = useState('');
   const [releaseUrl, setReleaseUrl] = useState('');
@@ -20,7 +26,7 @@ export default function AppFooter() {
         setHasUpdate(result.hasUpdate);
         setLatestVersion(result.latestVersion);
         setReleaseUrl(result.releaseUrl);
-      } catch (error) {
+      } catch {
         // 静默失败
       }
     };
@@ -37,12 +43,15 @@ export default function AppFooter() {
     }
   };
 
+  // 计算左边距：桌面端有侧边栏时需要偏移
+  const leftOffset = isMobile ? 0 : sidebarWidth;
+
   return (
     <div
       style={{
         position: 'fixed',
         bottom: 0,
-        left: 0,
+        left: leftOffset,
         right: 0,
         backdropFilter: 'blur(20px) saturate(180%)',
         WebkitBackdropFilter: 'blur(20px) saturate(180%)',
@@ -51,6 +60,7 @@ export default function AppFooter() {
         zIndex: 100,
         boxShadow: 'var(--shadow-card)',
         backgroundColor: 'rgba(255, 255, 255, 0.8)', // 半透明背景以支持 backdrop-filter
+        transition: 'left 0.3s ease', // 平滑过渡
       }}
     >
       <div

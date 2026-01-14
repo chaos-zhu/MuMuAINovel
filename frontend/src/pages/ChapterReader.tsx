@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Spin, Alert, Button, Space, Switch, Drawer, message, Progress } from 'antd';
 import {
@@ -75,13 +75,7 @@ const ChapterReader: React.FC = () => {
   const [analysisProgress, setAnalysisProgress] = useState(0);
   const [navigation, setNavigation] = useState<NavigationData | null>(null);
 
-  useEffect(() => {
-    if (chapterId) {
-      loadChapterData();
-    }
-  }, [chapterId]);
-
-  const loadChapterData = async () => {
+  const loadChapterData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -130,13 +124,20 @@ const ChapterReader: React.FC = () => {
       } else {
         setAnnotationsData(null);
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('加载章节数据失败:', err);
-      setError(err.response?.data?.detail || err.message || '加载失败');
+      const error = err as { response?: { data?: { detail?: string } }; message?: string };
+      setError(error.response?.data?.detail || error.message || '加载失败');
     } finally {
       setLoading(false);
     }
-  };
+  }, [chapterId]);
+
+  useEffect(() => {
+    if (chapterId) {
+      loadChapterData();
+    }
+  }, [chapterId, loadChapterData]);
 
   const handleAnnotationClick = (annotation: MemoryAnnotation) => {
     setActiveAnnotationId(annotation.id);
@@ -211,10 +212,11 @@ const ChapterReader: React.FC = () => {
         }
       }, 30000);
 
-    } catch (err: any) {
+    } catch (err: unknown) {
       setAnalyzing(false);
+      const error = err as { response?: { data?: { detail?: string } } };
       message.error({
-        content: err.response?.data?.detail || '触发分析失败',
+        content: error.response?.data?.detail || '触发分析失败',
         key: 'analyze'
       });
     }

@@ -55,6 +55,7 @@ export default function ChapterAnalysis({ chapterId, visible, onClose }: Chapter
       window.removeEventListener('resize', handleResize);
       // 清除可能存在的轮询
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, chapterId]);
 
   // 🔧 新增：独立的章节信息加载函数

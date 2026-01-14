@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 export interface SSEMessage {
   type: 'progress' | 'chunk' | 'result' | 'error' | 'done';
   message?: string;
@@ -61,7 +62,7 @@ export class SSEClient {
     });
   }
 
-  private handleMessage(message: SSEMessage, resolve: Function, reject: Function) {
+  private handleMessage(message: SSEMessage, resolve: (value: any) => void, reject: (reason?: any) => void) {
     switch (message.type) {
       case 'progress':
         if (this.options.onProgress && message.progress !== undefined) {
@@ -129,6 +130,7 @@ export class SSEPostClient {
   private options: SSEClientOptions;
   private abortController: AbortController | null = null;
   private accumulatedContent: string = '';
+  private resultData: any = null;
 
   constructor(url: string, data: any, options: SSEClientOptions = {}) {
     this.url = url;
@@ -137,7 +139,12 @@ export class SSEPostClient {
   }
 
   async connect(): Promise<any> {
-    return new Promise(async (resolve, reject) => {
+    return new Promise((resolve, reject) => {
+      this.connectInternal(resolve, reject);
+    });
+  }
+
+  private async connectInternal(resolve: (value: any) => void, reject: (reason?: any) => void) {
       try {
         this.abortController = new AbortController();
 
@@ -232,10 +239,9 @@ export class SSEPostClient {
           reject(error);
         }
       }
-    });
   }
 
-  private async handleMessage(message: SSEMessage, resolve: Function, reject: Function) {
+  private async handleMessage(message: SSEMessage, resolve: (value: any) => void, reject: (reason?: any) => void) {
     switch (message.type) {
       case 'progress':
         if (this.options.onProgress && message.progress !== undefined) {
@@ -261,7 +267,7 @@ export class SSEPostClient {
         if (this.options.onResult && message.data) {
           this.options.onResult(message.data);
         }
-        (this as any).resultData = message.data;
+        this.resultData = message.data;
         break;
 
       case 'error':
@@ -275,8 +281,8 @@ export class SSEPostClient {
         if (this.options.onComplete) {
           this.options.onComplete();
         }
-        if ((this as any).resultData) {
-          resolve((this as any).resultData);
+        if (this.resultData) {
+          resolve(this.resultData);
         } else if (this.accumulatedContent) {
           resolve({ content: this.accumulatedContent });
         } else {

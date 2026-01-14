@@ -78,8 +78,9 @@ const ChapterContentComparison: React.FC<ChapterContentComparisonProps> = ({
       }, 500);
 
       onClose();
-    } catch (error: any) {
-      message.error(error.message || '应用失败');
+    } catch (error: unknown) {
+      const err = error as Error;
+      message.error(err.message || '应用失败');
     } finally {
       setApplying(false);
     }

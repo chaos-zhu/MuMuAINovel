@@ -83,6 +83,7 @@ export default function Organizations() {
     } finally {
       setLoading(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
   const loadCharacters = useCallback(async () => {

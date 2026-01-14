@@ -90,7 +90,16 @@ export default function UserManagement() {
   }, []);
 
   // 添加用户
-  const handleCreate = async (values: any) => {
+  interface CreateUserValues {
+    username: string;
+    display_name: string;
+    password?: string;
+    avatar_url?: string;
+    trust_level?: number;
+    is_admin?: boolean;
+  }
+
+  const handleCreate = async (values: CreateUserValues) => {
     try {
       const res = await adminApi.createUser(values);
       message.success('用户创建成功');
@@ -134,7 +143,14 @@ export default function UserManagement() {
     setEditModalVisible(true);
   };
 
-  const handleUpdate = async (values: any) => {
+  interface UpdateUserValues {
+    display_name: string;
+    avatar_url?: string;
+    trust_level?: number;
+    is_admin?: boolean;
+  }
+
+  const handleUpdate = async (values: UpdateUserValues) => {
     if (!currentUser) return;
 
     try {
@@ -290,7 +306,7 @@ export default function UserManagement() {
       key: 'action',
       width: isMobile ? 80 : 300,
       fixed: 'right' as const,
-      render: (_: any, record: UserWithStatus) => {
+      render: (_: unknown, record: UserWithStatus) => {
         const isActive = record.is_active !== false;
 
         // 移动端：使用下拉菜单

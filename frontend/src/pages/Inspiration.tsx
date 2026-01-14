@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Input, Button, Space, Typography, message, Spin, Modal } from 'antd';
 import { SendOutlined, ArrowLeftOutlined, ReloadOutlined } from '@ant-design/icons';
@@ -102,8 +102,18 @@ const Inspiration: React.FC = () => {
 
   // ==================== 缓存管理函数 ====================
 
+  // 清除缓存
+  const clearCache = useCallback(() => {
+    try {
+      localStorage.removeItem(CACHE_KEY);
+      console.log('🗑️ 缓存已清除');
+    } catch (error) {
+      console.error('清除缓存失败:', error);
+    }
+  }, []);
+
   // 保存到缓存
-  const saveToCache = () => {
+  const saveToCache = useCallback(() => {
     try {
       // 只在对话阶段保存，生成阶段不保存
       if (currentStep === 'generating' || currentStep === 'complete') {
@@ -130,10 +140,10 @@ const Inspiration: React.FC = () => {
     } catch (error) {
       console.error('保存缓存失败:', error);
     }
-  };
+  }, [currentStep, messages, wizardData, initialIdea, selectedOptions, lastFailedRequest]);
 
   // 从缓存恢复
-  const restoreFromCache = (): boolean => {
+  const restoreFromCache = useCallback((): boolean => {
     try {
       const cached = localStorage.getItem(CACHE_KEY);
       if (!cached) {
@@ -174,17 +184,7 @@ const Inspiration: React.FC = () => {
       clearCache();
       return false;
     }
-  };
-
-  // 清除缓存
-  const clearCache = () => {
-    try {
-      localStorage.removeItem(CACHE_KEY);
-      console.log('🗑️ 缓存已清除');
-    } catch (error) {
-      console.error('清除缓存失败:', error);
-    }
-  };
+  }, [clearCache]);
 
   // ==================== 组件挂载时恢复缓存 ====================
 
@@ -193,7 +193,7 @@ const Inspiration: React.FC = () => {
       restoreFromCache();
       setCacheLoaded(true);
     }
-  }, []);
+  }, [cacheLoaded, restoreFromCache]);
 
   // ==================== 自动保存：状态变化时保存 ====================
 
@@ -206,7 +206,7 @@ const Inspiration: React.FC = () => {
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [messages, currentStep, wizardData, initialIdea, selectedOptions, lastFailedRequest, cacheLoaded]);
+  }, [messages, currentStep, wizardData, initialIdea, selectedOptions, lastFailedRequest, cacheLoaded, saveToCache]);
 
   // 自动滚动到底部
   const scrollToBottom = () => {
@@ -259,7 +259,7 @@ const Inspiration: React.FC = () => {
       };
       setMessages(prev => [...prev, aiMessage]);
       setLastFailedRequest(null);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('重试失败:', error);
       message.error('重试失败，请稍后再试');
     } finally {
@@ -307,7 +307,7 @@ const Inspiration: React.FC = () => {
       const step = targetMessage.step as 'title' | 'description' | 'theme' | 'genre';
       
       // 构建上下文
-      const context: any = {
+      const context: Partial<WizardData> & { initial_idea?: string } = {
         initial_idea: initialIdea,
         title: wizardData.title,
         description: wizardData.description,
@@ -339,9 +339,11 @@ const Inspiration: React.FC = () => {
       setMessages(prev => [...prev, aiMessage]);
 
       message.success('已根据您的反馈重新生成选项');
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('优化选项失败:', error);
-      message.error(error.response?.data?.detail || '优化失败，请重试');
+      const errMsg = error instanceof Error ? error.message : '优化失败，请重试';
+      const axiosError = error as { response?: { data?: { detail?: string } } };
+      message.error(axiosError.response?.data?.detail || errMsg);
     } finally {
       setRefining(false);
     }
@@ -406,9 +408,11 @@ const Inspiration: React.FC = () => {
       } else {
         await handleCustomInput(userInput);
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('发送消息失败:', error);
-      message.error(error.response?.data?.detail || '生成失败，请重试');
+      const errMsg = error instanceof Error ? error.message : '生成失败，请重试';
+      const axiosError = error as { response?: { data?: { detail?: string } } };
+      message.error(axiosError.response?.data?.detail || errMsg);
     } finally {
       setLoading(false);
     }
@@ -575,9 +579,11 @@ const Inspiration: React.FC = () => {
       setWizardData(updatedData);
 
       await generateNextStep(updatedData);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('选择选项失败:', error);
-      message.error(error.response?.data?.detail || '生成失败，请重试');
+      const errMsg = error instanceof Error ? error.message : '生成失败，请重试';
+      const axiosError = error as { response?: { data?: { detail?: string } } };
+      message.error(axiosError.response?.data?.detail || errMsg);
     } finally {
       setLoading(false);
     }
@@ -625,9 +631,11 @@ const Inspiration: React.FC = () => {
 
       setWizardData(updatedData);
       await generateNextStep(updatedData);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('处理自定义输入失败:', error);
-      message.error(error.response?.data?.detail || '处理失败，请重试');
+      const errMsg = error instanceof Error ? error.message : '处理失败，请重试';
+      const axiosError = error as { response?: { data?: { detail?: string } } };
+      message.error(axiosError.response?.data?.detail || errMsg);
     } finally {
       setLoading(false);
     }
@@ -1050,7 +1058,7 @@ const Inspiration: React.FC = () => {
 
   return (
     <div style={{
-      minHeight: '100vh',
+      minHeight: '100dvh',
       background: 'var(--color-bg-base)',
     }}>
       {contextHolder}
@@ -1118,7 +1126,7 @@ const Inspiration: React.FC = () => {
               color: '#fff',
             }}
           >
-            {isMobile ? '返回' : '返回项目列表'}
+            {isMobile ? '返回' : '返回首页'}
           </Button>
 
           <div style={{ textAlign: 'center' }}>
@@ -1133,12 +1141,6 @@ const Inspiration: React.FC = () => {
             >
               ✨ 灵感模式
             </Title>
-            <Text style={{
-              color: 'rgba(255,255,255,0.85)',
-              fontSize: isMobile ? 12 : 14,
-            }}>
-              通过对话快速创建你的小说项目
-            </Text>
           </div>
 
           {/* 重新开始按钮 - 只在对话进行中显示 */}

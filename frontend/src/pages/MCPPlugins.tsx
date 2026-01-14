@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
 import {
   Card,
   Button,
@@ -27,7 +26,6 @@ import {
   ThunderboltOutlined,
   InfoCircleOutlined,
   ToolOutlined,
-  ArrowLeftOutlined,
   ApiOutlined,
   QuestionCircleOutlined,
   WarningOutlined,
@@ -39,7 +37,6 @@ const { Paragraph, Text, Title } = Typography;
 const { TextArea } = Input;
 
 export default function MCPPluginsPage() {
-  const navigate = useNavigate();
   const isMobile = window.innerWidth <= 768;
   const [form] = Form.useForm();
   const [modal, contextHolder] = Modal.useModal();
@@ -592,11 +589,12 @@ export default function MCPPluginsPage() {
     <>
       {contextHolder}
       <div style={{
-        minHeight: '100vh',
+        minHeight: '90vh',
         background: 'linear-gradient(180deg, var(--color-bg-base) 0%, #EEF2F3 100%)',
-        padding: isMobile ? '20px 16px' : '40px 24px',
+        padding: isMobile ? '20px 16px' : '24px 24px',
         display: 'flex',
         flexDirection: 'column',
+        marginBottom: '55px',
       }}>
         <div style={{
           maxWidth: 1400,
@@ -641,29 +639,6 @@ export default function MCPPluginsPage() {
               <Col xs={24} sm={12}>
                 <Space size={12} style={{ display: 'flex', justifyContent: isMobile ? 'flex-start' : 'flex-end', width: '100%' }}>
                   <Button
-                    icon={<ArrowLeftOutlined />}
-                    onClick={() => navigate('/')}
-                    style={{
-                      borderRadius: 12,
-                      background: 'rgba(255, 255, 255, 0.15)',
-                      border: '1px solid rgba(255, 255, 255, 0.3)',
-                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
-                      color: '#fff',
-                      backdropFilter: 'blur(10px)',
-                      transition: 'all 0.3s ease'
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.25)';
-                      e.currentTarget.style.transform = 'translateY(-1px)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.15)';
-                      e.currentTarget.style.transform = 'none';
-                    }}
-                  >
-                    返回主页
-                  </Button>
-                  <Button
                     type="primary"
                     icon={<PlusOutlined />}
                     onClick={handleCreate}
@@ -693,7 +668,7 @@ export default function MCPPluginsPage() {
                   backdropFilter: 'blur(10px)',
                   boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)'
                 }}
-                bodyStyle={{ padding: 20 }}
+                styles={{ body: { padding: 20 } }}
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Space align="start">
@@ -744,7 +719,7 @@ export default function MCPPluginsPage() {
                   backdropFilter: 'blur(10px)',
                   boxShadow: '0 4px 12px rgba(0, 0, 0, 0.03)'
                 }}
-                bodyStyle={{ padding: 20 }}
+                styles={{ body: { padding: 20 } }}
               >
                 <Space align="start">
                   <InfoCircleOutlined style={{ fontSize: 20, color: 'var(--color-primary)', marginTop: 4 }} />

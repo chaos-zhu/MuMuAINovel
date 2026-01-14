@@ -73,17 +73,17 @@ export default function AnnouncementModal({ visible, onClose, onDoNotShowToday, 
           </Button>
         </Space>
       }
-      width={800}
+      width={700}
       centered
       styles={{
         body: {
-          padding: '24px',
+          padding: '20px',
           background: 'var(--color-bg-container)',
         },
         header: {
           background: 'linear-gradient(135deg, rgba(77, 128, 136, 0.08) 0%, rgba(248, 246, 241, 0.95) 100%)',
           borderBottom: '1px solid var(--color-border-secondary)',
-          padding: '20px 24px',
+          padding: '16px 24px',
         },
         footer: {
           background: 'var(--color-bg-container)',
@@ -94,25 +94,24 @@ export default function AnnouncementModal({ visible, onClose, onDoNotShowToday, 
     >
       <div style={{ textAlign: 'center' }}>
         <div style={{
-          marginBottom: '16px',
-          fontSize: '16px',
+          marginBottom: '12px',
+          fontSize: '15px',
           color: 'var(--color-text-secondary)',
-          lineHeight: '1.6',
+          lineHeight: '1.5',
         }}>
-          <p>👋 欢迎加入我们的交流群！</p>
-          <p>在这里你可以：</p>
+          <p style={{ marginBottom: '8px' }}>👋 欢迎加入我们的交流群！在这里你可以：</p>
           <ul style={{
             textAlign: 'left',
             marginLeft: '40px',
-            marginTop: '12px',
-            marginBottom: '20px',
+            marginTop: '0',
+            marginBottom: '12px',
           }}>
             <li>💬 与其他创作者交流心得</li>
             <li>💡 获取最新功能更新和使用技巧</li>
             <li>🐛 反馈问题和建议</li>
             <li>📚 分享创作经验和灵感</li>
           </ul>
-          <p style={{ fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '16px' }}>
+          <p style={{ fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '12px' }}>
             扫描下方二维码加入交流群：
           </p>
         </div>
@@ -122,7 +121,7 @@ export default function AnnouncementModal({ visible, onClose, onDoNotShowToday, 
           justifyContent: 'center',
           alignItems: 'flex-start',
           gap: '24px',
-          padding: '20px',
+          padding: '16px',
           background: 'var(--color-bg-layout)',
           borderRadius: '8px',
           flexWrap: 'wrap',
@@ -132,9 +131,9 @@ export default function AnnouncementModal({ visible, onClose, onDoNotShowToday, 
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            minWidth: '280px',
+            minWidth: '200px',
           }}>
-            <p style={{ fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '12px', fontSize: '15px' }}>
+            <p style={{ fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '8px', fontSize: '14px' }}>
               QQ交流群
             </p>
             {!qqImageError ? (
@@ -144,15 +143,15 @@ export default function AnnouncementModal({ visible, onClose, onDoNotShowToday, 
                 alignItems: 'center',
                 background: 'var(--color-bg-container)',
                 borderRadius: '8px',
-                padding: '8px',
+                padding: '6px',
                 boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
               }}>
                 <img
                   src="/qq.jpg"
                   alt="QQ交流群二维码"
                   style={{
-                    maxWidth: '280px',
-                    maxHeight: '280px',
+                    maxWidth: '180px',
+                    maxHeight: '180px',
                     width: 'auto',
                     height: 'auto',
                     display: 'block',
@@ -163,8 +162,8 @@ export default function AnnouncementModal({ visible, onClose, onDoNotShowToday, 
               </div>
             ) : (
               <div style={{
-                width: '280px',
-                height: '280px',
+                width: '180px',
+                height: '180px',
                 display: 'flex',
                 justifyContent: 'center',
                 alignItems: 'center',
@@ -182,9 +181,9 @@ export default function AnnouncementModal({ visible, onClose, onDoNotShowToday, 
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'center',
-            minWidth: '280px',
+            minWidth: '200px',
           }}>
-            <p style={{ fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '12px', fontSize: '15px' }}>
+            <p style={{ fontWeight: 600, color: 'var(--color-text-primary)', marginBottom: '8px', fontSize: '14px' }}>
               微信交流群
             </p>
             {!wxImageError ? (
@@ -194,15 +193,15 @@ export default function AnnouncementModal({ visible, onClose, onDoNotShowToday, 
                 alignItems: 'center',
                 background: 'var(--color-bg-container)',
                 borderRadius: '8px',
-                padding: '8px',
+                padding: '6px',
                 boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
               }}>
                 <img
                   src="/WX.png"
                   alt="微信交流群二维码"
                   style={{
-                    maxWidth: '280px',
-                    maxHeight: '280px',
+                    maxWidth: '180px',
+                    maxHeight: '180px',
                     width: 'auto',
                     height: 'auto',
                     display: 'block',
@@ -213,8 +212,8 @@ export default function AnnouncementModal({ visible, onClose, onDoNotShowToday, 
               </div>
             ) : (
               <div style={{
-                width: '280px',
-                height: '280px',
+                width: '180px',
+                height: '180px',
                 display: 'flex',
                 justifyContent: 'center',
                 alignItems: 'center',
@@ -229,12 +228,12 @@ export default function AnnouncementModal({ visible, onClose, onDoNotShowToday, 
         </div>
 
         <div style={{
-          marginTop: '20px',
-          padding: '12px',
+          marginTop: '16px',
+          padding: '10px',
           background: 'var(--color-warning-bg)',
           borderRadius: '8px',
           border: '1px solid var(--color-warning-border)',
-          fontSize: '14px',
+          fontSize: '13px',
           color: 'var(--color-warning)',
         }}>
           💡 提示：选择"今日内不再展示"当天不再显示，选择"永不再展示"将永久隐藏此公告

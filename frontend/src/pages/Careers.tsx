@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Button, Modal, Form, Input, Select, message, Row, Col, Empty, Tabs, Card, Tag, Space, Divider, Typography, InputNumber } from 'antd';
 import { ThunderboltOutlined, PlusOutlined, EditOutlined, DeleteOutlined, TrophyOutlined } from '@ant-design/icons';
 import { useParams } from 'react-router-dom';
@@ -46,26 +46,26 @@ export default function Careers() {
     const [aiProgress, setAiProgress] = useState(0);
     const [aiMessage, setAiMessage] = useState('');
 
-    useEffect(() => {
-        if (projectId) {
-            fetchCareers();
-        }
-    }, [projectId]);
-
-    const fetchCareers = async () => {
+    const fetchCareers = useCallback(async () => {
         try {
             setLoading(true);
-            const response: any = await api.get('/careers', {
+            const response = await api.get('/careers', {
                 params: { project_id: projectId }
-            });
+            }) as { main_careers?: Career[]; sub_careers?: Career[] };
             setMainCareers(response.main_careers || []);
             setSubCareers(response.sub_careers || []);
-        } catch (error: any) {
+        } catch (error: unknown) {
             console.error('获取职业列表失败:', error);
         } finally {
             setLoading(false);
         }
-    };
+    }, [projectId]);
+
+    useEffect(() => {
+        if (projectId) {
+            fetchCareers();
+        }
+    }, [projectId, fetchCareers]);
 
     const handleOpenModal = (career?: Career) => {
         if (career) {
@@ -81,7 +81,18 @@ export default function Careers() {
         setIsModalOpen(true);
     };
 
-    const handleSubmit = async (values: any) => {
+    interface CareerFormValues {
+        name: string;
+        type: 'main' | 'sub';
+        description?: string;
+        category?: string;
+        stages?: string;
+        requirements?: string;
+        special_abilities?: string;
+        worldview_rules?: string;
+    }
+
+    const handleSubmit = async (values: CareerFormValues) => {
         try {
             // 解析阶段数据
             const stagesText = values.stages || '';
@@ -124,8 +135,9 @@ export default function Careers() {
             setIsModalOpen(false);
             form.resetFields();
             fetchCareers();
-        } catch (error: any) {
-            message.error(error.response?.data?.detail || '操作失败');
+        } catch (error: unknown) {
+            const axiosError = error as { response?: { data?: { detail?: string } } };
+            message.error(axiosError.response?.data?.detail || '操作失败');
         }
     };
 
@@ -139,14 +151,15 @@ export default function Careers() {
                     await api.delete(`/careers/${id}`);
                     message.success('职业删除成功');
                     fetchCareers();
-                } catch (error: any) {
-                    message.error(error.response?.data?.detail || '删除失败');
+                } catch (error: unknown) {
+                    const axiosError = error as { response?: { data?: { detail?: string } } };
+                    message.error(axiosError.response?.data?.detail || '删除失败');
                 }
             }
         });
     };
 
-    const handleAIGenerate = async (values: any) => {
+    const handleAIGenerate = async (values: { main_career_count: number; sub_career_count: number }) => {
         setIsAIModalOpen(false);
         setAiGenerating(true);
         setAiProgress(0);
@@ -193,9 +206,10 @@ export default function Careers() {
                 setAiGenerating(false);
                 message.error('连接中断，生成失败');
             };
-        } catch (err: any) {
+        } catch (err: unknown) {
             setAiGenerating(false);
-            message.error(err.message || '启动生成失败');
+            const error = err as Error;
+            message.error(error.message || '启动生成失败');
         }
     };
 
