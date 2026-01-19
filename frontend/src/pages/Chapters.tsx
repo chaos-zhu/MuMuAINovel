@@ -1630,7 +1630,7 @@ export default function Chapters() {
                     icon={<EditOutlined />}
                     onClick={() => handleOpenEditor(item.id)}
                   >
-                    编辑内容
+                    编辑
                   </Button>,
                   (() => {
                     const task = analysisTasksMap[item.id];
@@ -1650,7 +1650,7 @@ export default function Chapters() {
                               ''
                         }
                       >
-                        {isAnalyzing ? '分析中' : '查看分析'}
+                        {isAnalyzing ? '分析中' : '分析'}
                       </Button>
                     );
                   })(),
@@ -1659,7 +1659,7 @@ export default function Chapters() {
                     icon={<SettingOutlined />}
                     onClick={() => handleOpenModal(item.id)}
                   >
-                    修改信息
+                    修改
                   </Button>,
                 ]}
               >
@@ -1716,7 +1716,7 @@ export default function Chapters() {
                         icon={<EditOutlined />}
                         onClick={() => handleOpenEditor(item.id)}
                         size="small"
-                        title="编辑内容"
+                        title="编辑"
                       />
                       {(() => {
                         const task = analysisTasksMap[item.id];
@@ -1734,7 +1734,7 @@ export default function Chapters() {
                             title={
                               !hasContent ? '请先生成章节内容' :
                                 isAnalyzing ? '分析中' :
-                                  '查看分析'
+                                  '分析'
                             }
                           />
                         );
@@ -1744,7 +1744,7 @@ export default function Chapters() {
                         icon={<SettingOutlined />}
                         onClick={() => handleOpenModal(item.id)}
                         size="small"
-                        title="修改信息"
+                        title="修改"
                       />
                     </Space>
                   )}
@@ -1815,7 +1815,7 @@ export default function Chapters() {
                           icon={<EditOutlined />}
                           onClick={() => handleOpenEditor(item.id)}
                         >
-                          编辑内容
+                          编辑
                         </Button>,
                         (() => {
                           const task = analysisTasksMap[item.id];
@@ -1835,7 +1835,7 @@ export default function Chapters() {
                                     ''
                               }
                             >
-                              {isAnalyzing ? '分析中' : '查看分析'}
+                              {isAnalyzing ? '分析中' : '分析'}
                             </Button>
                           );
                         })(),
@@ -1844,7 +1844,7 @@ export default function Chapters() {
                           icon={<SettingOutlined />}
                           onClick={() => handleOpenModal(item.id)}
                         >
-                          修改信息
+                          修改
                         </Button>,
                         // 只在 one-to-many 模式下显示删除按钮
                         ...(currentProject.outline_mode === 'one-to-many' ? [
@@ -1940,7 +1940,7 @@ export default function Chapters() {
                               icon={<EditOutlined />}
                               onClick={() => handleOpenEditor(item.id)}
                               size="small"
-                              title="编辑内容"
+                              title="编辑"
                             />
                             {(() => {
                               const task = analysisTasksMap[item.id];
@@ -1958,7 +1958,7 @@ export default function Chapters() {
                                   title={
                                     !hasContent ? '请先生成章节内容' :
                                       isAnalyzing ? '分析中' :
-                                        '查看分析'
+                                        '分析'
                                   }
                                 />
                               );
@@ -1968,7 +1968,7 @@ export default function Chapters() {
                               icon={<SettingOutlined />}
                               onClick={() => handleOpenModal(item.id)}
                               size="small"
-                              title="修改信息"
+                              title="修改"
                             />
                             {/* 只在 one-to-many 模式下显示删除按钮 */}
                             {currentProject.outline_mode === 'one-to-many' && (

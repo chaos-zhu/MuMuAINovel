@@ -163,7 +163,7 @@ class PlotExpansionService:
         batch_size: int,
         progress_callback: Optional[callable]
     ) -> List[Dict[str, Any]]:
-        """分批生成章节规划"""
+        """分批生成章节规划（增强差异化版本）"""
         # 计算批次数
         total_batches = (target_chapter_count + batch_size - 1) // batch_size
         logger.info(f"分批生成计划: 总共{target_chapter_count}章，分{total_batches}批，每批{batch_size}章")
@@ -184,6 +184,9 @@ class PlotExpansionService:
         
         all_chapter_plans = []
         
+        # 🔧 收集所有已使用的关键事件，用于防止重复
+        used_key_events = set()
+        
         for batch_num in range(total_batches):
             # 计算当前批次的章节数
             remaining_chapters = target_chapter_count - len(all_chapter_plans)
@@ -196,20 +199,41 @@ class PlotExpansionService:
             if progress_callback:
                 await progress_callback(batch_num + 1, total_batches, current_start_index, current_batch_size)
             
-            # 构建当前批次的提示词（包含已生成章节的上下文）
+            # 🔧 增强的上下文构建（包含完整的差异化信息）
             previous_context = ""
             if all_chapter_plans:
+                # 构建完整的已生成章节摘要（包含关键事件）
                 previous_summaries = []
-                for ch in all_chapter_plans[-3:]:  # 只显示最近3章
+                for ch in all_chapter_plans:  # 显示所有已生成章节
+                    key_events_str = "、".join(ch.get('key_events', [])[:3]) if ch.get('key_events') else "无"
                     previous_summaries.append(
-                        f"第{ch['sub_index']}节《{ch['title']}》: {ch['plot_summary'][:100]}..."
+                        f"第{ch['sub_index']}节《{ch['title']}》:\n"
+                        f"  - 剧情：{ch.get('plot_summary', '')[:150]}\n"
+                        f"  - 关键事件：{key_events_str}\n"
+                        f"  - 结尾方式：{ch.get('ending_type', '未知')}"
                     )
+                
+                # 提取所有已使用的关键事件
+                all_used_events = []
+                for ch in all_chapter_plans:
+                    all_used_events.extend(ch.get('key_events', []))
+                used_events_str = "、".join(all_used_events[-20:]) if all_used_events else "暂无"
+                
                 previous_context = f"""
-    【已生成章节概要】（接续生成，注意衔接）
-    {chr(10).join(previous_summaries)}
-    
-    ⚠️ 当前是第{current_start_index}-{current_start_index + current_batch_size - 1}节（共{target_chapter_count}节中的一部分）
-    """
+【🔴 已生成章节完整信息（必须参考以确保差异化）】
+{chr(10).join(previous_summaries)}
+
+【🔴 已使用的关键事件（本批次不可重复使用）】
+{used_events_str}
+
+【🔴 差异化强制要求】
+⚠️ 当前是第{current_start_index}-{current_start_index + current_batch_size - 1}节（共{target_chapter_count}节中的第{batch_num + 1}批）
+⚠️ 每个新章节必须有完全不同的：
+   1. 开场场景（不同地点/时间/人物状态）
+   2. 核心事件（不与已生成章节的关键事件重复）
+   3. 结尾悬念（不同类型的钩子）
+⚠️ 新章节的key_events不得与上面【已使用的关键事件】中的任何事件相同或相似
+"""
             # 获取自定义提示词模板
             template = await PromptService.get_template("OUTLINE_EXPAND_MULTI", project.user_id, db)
             # 格式化提示词
@@ -501,7 +525,7 @@ class PlotExpansionService:
         ai_response: str,
         outline_id: str
     ) -> List[Dict[str, Any]]:
-        """解析AI的展开响应（使用统一的JSON清洗方法）"""
+        """解析AI的展开响应（使用统一的JSON清洗方法，增强差异化字段）"""
         try:
             # 使用统一的JSON清洗方法
             cleaned_text = self.ai_service._clean_json_response(ai_response)
@@ -513,11 +537,30 @@ class PlotExpansionService:
             if not isinstance(chapter_plans, list):
                 chapter_plans = [chapter_plans]
             
-            # 为每个章节规划添加outline_id
-            for plan in chapter_plans:
+            # 为每个章节规划添加outline_id和差异化标识
+            for idx, plan in enumerate(chapter_plans):
                 plan["outline_id"] = outline_id
+                
+                # 🔧 确保有 ending_type 字段（用于差异化追踪）
+                if "ending_type" not in plan:
+                    # 根据叙事目标推断结尾类型
+                    narrative_goal = plan.get("narrative_goal", "")
+                    if "悬念" in narrative_goal or "疑问" in narrative_goal:
+                        plan["ending_type"] = "悬念"
+                    elif "冲突" in narrative_goal or "对抗" in narrative_goal:
+                        plan["ending_type"] = "冲突升级"
+                    elif "转折" in narrative_goal:
+                        plan["ending_type"] = "情节转折"
+                    elif "情感" in narrative_goal or "情绪" in narrative_goal:
+                        plan["ending_type"] = "情感收尾"
+                    else:
+                        plan["ending_type"] = f"自然过渡-{idx + 1}"
+                
+                # 🔧 确保 key_events 是列表且非空
+                if not plan.get("key_events"):
+                    plan["key_events"] = [f"章节{idx + 1}核心事件"]
             
-            logger.info(f"✅ 成功解析 {len(chapter_plans)} 个章节规划")
+            logger.info(f"✅ 成功解析 {len(chapter_plans)} 个章节规划（含差异化标识）")
             return chapter_plans
             
         except json.JSONDecodeError as e:
@@ -533,6 +576,7 @@ class PlotExpansionService:
                 "emotional_tone": "未知",
                 "narrative_goal": "需要重新生成",
                 "conflict_type": "未知",
+                "ending_type": "未知",
                 "estimated_words": 3000
             }]
         except Exception as e:
@@ -547,6 +591,7 @@ class PlotExpansionService:
                 "emotional_tone": "未知",
                 "narrative_goal": "需要重新生成",
                 "conflict_type": "未知",
+                "ending_type": "未知",
                 "estimated_words": 3000
             }]
 

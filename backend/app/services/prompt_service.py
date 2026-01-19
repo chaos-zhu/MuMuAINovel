@@ -561,13 +561,25 @@ class PromptService:
 上一章结尾：
 「{continuation_point}」
 
-⚠️ 要求：从此处自然续写，不得重复上述内容
+【🔴 上一章已完成剧情（禁止重复！）】
+{previous_chapter_summary}
+
+⚠️ 严重警告：
+1. 上述"已完成剧情"和"衔接锚点"是**已经写过的**内容
+2. 本章必须推进到**新的情节点**，绝对不能重新叙述已经发生的事件
+3. 如果锚点是对话结束，请描写对话后的动作或场景转换，不要重复对话
+4. 如果锚点是场景描写，请直接开始人物行动，不要重复描写环境
 </continuation>
 
 <characters priority="P1">
 【本章角色】
 {characters_info}
 </characters>
+
+<foreshadow_reminders priority="P1">
+【🎯 伏笔提醒 - 需关注】
+{foreshadow_reminders}
+</foreshadow_reminders>
 
 <memory priority="P2">
 【相关记忆 - 参考】
@@ -585,13 +597,20 @@ class PromptService:
 ✅ 自然承接上一章结尾，不重复已发生事件
 ✅ 保持角色性格、说话方式一致
 ✅ 字数控制在目标范围内
+✅ 如有伏笔提醒，请在本章中适当埋入或回收相应伏笔
+
+【🔴 反重复特别指令】
+✅ 检查本章开篇是否与"衔接锚点"内容重复
+✅ 检查本章情节是否与"上一章已完成剧情"重复
+✅ 确保本章推进到了大纲中规划的新事件
 
 【禁止事项】
 ❌ 输出章节标题、序号等元信息
 ❌ 使用"总之"、"综上所述"等AI常见总结语
 ❌ 在结尾处使用开放式反问
 ❌ 添加作者注释或创作说明
-❌ 重复叙述上一章已发生的事件
+❌ 重复叙述上一章已发生的事件（包括环境描写、心理活动）
+❌ 在开篇使用"接上回"、"书接上文"等套话
 </constraints>
 
 <output>
@@ -783,7 +802,7 @@ class PromptService:
 ❌ 空泛的描述
 </constraints>"""
 
-    # 情节分析提示词 V2（RTCO框架）
+    # 情节分析提示词 V2（RTCO框架 + 伏笔ID追踪）
     PLOT_ANALYSIS = """<system>
 你是专业的小说编辑和剧情分析师，擅长深度剖析章节内容。
 </system>
@@ -791,6 +810,12 @@ class PromptService:
 <task>
 【分析任务】
 全面分析第{chapter_number}章《{title}》的剧情要素、钩子、伏笔、冲突和角色发展。
+
+【🔴 伏笔追踪任务（重要）】
+系统已提供【已埋入伏笔列表】，当你识别到章节中有回收伏笔时：
+1. 必须从列表中找出对应的伏笔ID
+2. 在 foreshadows 数组中使用 reference_foreshadow_id 字段关联
+3. 如果无法确定是哪个伏笔，reference_foreshadow_id 填 null
 </task>
 
 <chapter priority="P0">
@@ -802,6 +827,13 @@ class PromptService:
 【章节内容】
 {content}
 </chapter>
+
+<existing_foreshadows priority="P1">
+【已埋入伏笔列表 - 用于回收匹配】
+以下是本项目中已埋入但尚未回收的伏笔，分析时如发现章节内容回收了某个伏笔，请使用对应的ID：
+
+{existing_foreshadows}
+</existing_foreshadows>
 
 <analysis_framework priority="P0">
 【分析维度】
@@ -820,11 +852,25 @@ class PromptService:
 - 出现位置(开头/中段/结尾)
 - **关键词**：【必填】从原文逐字复制8-25字的文本片段，用于精确定位
 
-**2. 伏笔分析 (Foreshadowing)**
+**2. 伏笔分析 (Foreshadowing) - 🔴 支持ID追踪**
 - 埋下的新伏笔：内容、预期作用、隐藏程度(1-10)
-- 回收的旧伏笔：呼应哪一章、回收效果
+- 回收的旧伏笔：【必须】从已埋入伏笔列表中匹配ID
 - 伏笔质量：巧妙性和合理性
 - **关键词**：【必填】从原文逐字复制8-25字
+
+每个伏笔需要：
+- **title**：简洁标题（10-20字，概括伏笔核心）
+- **content**：详细描述伏笔内容和预期作用
+- **type**：planted（埋下）或 resolved（回收）
+- **strength**：强度1-10（对读者的吸引力）
+- **subtlety**：隐藏度1-10（越高越隐蔽）
+- **reference_chapter**：回收时引用的原埋入章节号，埋下时为null
+- **reference_foreshadow_id**：【回收时必填】被回收伏笔的ID（从已埋入伏笔列表中选择），埋下时为null
+- **keyword**：【必填】从原文逐字复制8-25字的定位文本
+- **category**：分类（identity=身世/mystery=悬念/item=物品/relationship=关系/event=事件/ability=能力/prophecy=预言）
+- **is_long_term**：是否长线伏笔（跨10章以上回收为true）
+- **related_characters**：涉及的角色名列表
+- **estimated_resolve_chapter**：预估回收章节号（埋下时预估，回收时为当前章节）
 
 **3. 冲突分析 (Conflict)**
 - 冲突类型：人与人/人与己/人与环境/人与社会
@@ -921,12 +967,32 @@ class PromptService:
   ],
   "foreshadows": [
     {{
-      "content": "伏笔内容",
+      "title": "伏笔简洁标题",
+      "content": "伏笔详细内容和预期作用",
       "type": "planted",
       "strength": 7,
       "subtlety": 8,
       "reference_chapter": null,
-      "keyword": "从原文逐字复制的8-25字文本"
+      "reference_foreshadow_id": null,
+      "keyword": "从原文逐字复制的8-25字文本",
+      "category": "mystery",
+      "is_long_term": false,
+      "related_characters": ["角色A", "角色B"],
+      "estimated_resolve_chapter": 15
+    }},
+    {{
+      "title": "回收的伏笔标题",
+      "content": "伏笔如何被回收的描述",
+      "type": "resolved",
+      "strength": 8,
+      "subtlety": 6,
+      "reference_chapter": 5,
+      "reference_foreshadow_id": "abc123-已埋入伏笔的ID",
+      "keyword": "从原文逐字复制的8-25字文本",
+      "category": "mystery",
+      "is_long_term": false,
+      "related_characters": ["角色A"],
+      "estimated_resolve_chapter": 10
     }}
   ],
   "conflict": {{
@@ -998,6 +1064,7 @@ class PromptService:
 ✅ 逐字复制：keyword必须从原文复制，长度8-25字
 ✅ 精确定位：keyword能在原文中精确找到
 ✅ 职业变化可选：仅当章节明确描述时填写
+✅ 【伏笔ID追踪】回收伏笔时，必须从【已埋入伏笔列表】中查找匹配的ID填入 reference_foreshadow_id
 
 【评分约束 - 严格执行】
 ✅ 严格按评分标准打分，支持小数（如6.5、7.2、8.3）
@@ -2336,7 +2403,7 @@ class PromptService:
                 "description": "基于前置章节内容创作新章节（用于第2章及以后）",
                 "parameters": ["project_title", "genre", "chapter_number", "chapter_title", "chapter_outline",
                              "target_word_count", "narrative_perspective", "characters_info", "continuation_point",
-                             "relevant_memories", "story_skeleton"]
+                             "foreshadow_reminders", "relevant_memories", "story_skeleton", "previous_chapter_summary"]
             },
             "CHAPTER_REGENERATION_SYSTEM": {
                 "name": "章节重写系统提示",

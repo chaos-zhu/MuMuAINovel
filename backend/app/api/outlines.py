@@ -35,6 +35,8 @@ from app.services.ai_service import AIService
 from app.services.prompt_service import prompt_service, PromptService
 from app.services.memory_service import memory_service
 from app.services.plot_expansion_service import PlotExpansionService
+from app.services.foreshadow_service import foreshadow_service
+from app.services.memory_service import memory_service
 from app.logger import get_logger
 from app.api.settings import get_user_ai_service
 from app.utils.sse_response import SSEResponse, create_sse_response, WizardProgressTracker
@@ -261,7 +263,7 @@ async def delete_outline(
     request: Request,
     db: AsyncSession = Depends(get_db)
 ):
-    """删除大纲，同时删除该大纲对应的所有章节"""
+    """删除大纲，同时删除该大纲对应的所有章节和相关的伏笔数据"""
     result = await db.execute(
         select(Outline).where(Outline.id == outline_id)
     )
@@ -279,6 +281,7 @@ async def delete_outline(
     
     # 获取要删除的章节并计算总字数
     deleted_word_count = 0
+    deleted_foreshadow_count = 0
     if project.outline_mode == 'one-to-one':
         # one-to-one模式：通过chapter_number获取对应章节
         chapters_result = await db.execute(
@@ -290,6 +293,33 @@ async def delete_outline(
         chapters_to_delete = chapters_result.scalars().all()
         deleted_word_count = sum(ch.word_count or 0 for ch in chapters_to_delete)
         
+        # 🔮 清理章节相关的伏笔数据和向量记忆
+        for chapter in chapters_to_delete:
+            try:
+                # 清理向量数据库中的记忆数据
+                await memory_service.delete_chapter_memories(
+                    user_id=user_id,
+                    project_id=project_id,
+                    chapter_id=chapter.id
+                )
+                logger.info(f"✅ 已清理章节 {chapter.id[:8]} 的向量记忆数据")
+            except Exception as e:
+                logger.warning(f"⚠️ 清理章节 {chapter.id[:8]} 向量记忆失败: {str(e)}")
+            
+            try:
+                # 清理伏笔数据（分析来源的伏笔）
+                foreshadow_result = await foreshadow_service.delete_chapter_foreshadows(
+                    db=db,
+                    project_id=project_id,
+                    chapter_id=chapter.id,
+                    only_analysis_source=True
+                )
+                deleted_foreshadow_count += foreshadow_result.get('deleted_count', 0)
+                if foreshadow_result.get('deleted_count', 0) > 0:
+                    logger.info(f"🔮 已清理章节 {chapter.id[:8]} 的 {foreshadow_result['deleted_count']} 个伏笔数据")
+            except Exception as e:
+                logger.warning(f"⚠️ 清理章节 {chapter.id[:8]} 伏笔数据失败: {str(e)}")
+        
         # 删除章节
         delete_result = await db.execute(
             delete(Chapter).where(
@@ -298,7 +328,7 @@ async def delete_outline(
             )
         )
         deleted_chapters_count = delete_result.rowcount
-        logger.info(f"一对一模式：删除大纲 {outline_id}（序号{outline.order_index}），同时删除了第{outline.order_index}章（{deleted_chapters_count}个章节，{deleted_word_count}字）")
+        logger.info(f"一对一模式：删除大纲 {outline_id}（序号{outline.order_index}），同时删除了第{outline.order_index}章（{deleted_chapters_count}个章节，{deleted_word_count}字，{deleted_foreshadow_count}个伏笔）")
     else:
         # one-to-many模式：通过outline_id获取关联章节
         chapters_result = await db.execute(
@@ -307,12 +337,39 @@ async def delete_outline(
         chapters_to_delete = chapters_result.scalars().all()
         deleted_word_count = sum(ch.word_count or 0 for ch in chapters_to_delete)
         
+        # 🔮 清理章节相关的伏笔数据和向量记忆
+        for chapter in chapters_to_delete:
+            try:
+                # 清理向量数据库中的记忆数据
+                await memory_service.delete_chapter_memories(
+                    user_id=user_id,
+                    project_id=project_id,
+                    chapter_id=chapter.id
+                )
+                logger.info(f"✅ 已清理章节 {chapter.id[:8]} 的向量记忆数据")
+            except Exception as e:
+                logger.warning(f"⚠️ 清理章节 {chapter.id[:8]} 向量记忆失败: {str(e)}")
+            
+            try:
+                # 清理伏笔数据（分析来源的伏笔）
+                foreshadow_result = await foreshadow_service.delete_chapter_foreshadows(
+                    db=db,
+                    project_id=project_id,
+                    chapter_id=chapter.id,
+                    only_analysis_source=True
+                )
+                deleted_foreshadow_count += foreshadow_result.get('deleted_count', 0)
+                if foreshadow_result.get('deleted_count', 0) > 0:
+                    logger.info(f"🔮 已清理章节 {chapter.id[:8]} 的 {foreshadow_result['deleted_count']} 个伏笔数据")
+            except Exception as e:
+                logger.warning(f"⚠️ 清理章节 {chapter.id[:8]} 伏笔数据失败: {str(e)}")
+        
         # 删除章节
         delete_result = await db.execute(
             delete(Chapter).where(Chapter.outline_id == outline_id)
         )
         deleted_chapters_count = delete_result.rowcount
-        logger.info(f"一对多模式：删除大纲 {outline_id}，同时删除了 {deleted_chapters_count} 个关联章节（{deleted_word_count}字）")
+        logger.info(f"一对多模式：删除大纲 {outline_id}，同时删除了 {deleted_chapters_count} 个关联章节（{deleted_word_count}字，{deleted_foreshadow_count}个伏笔）")
     
     # 更新项目字数
     if deleted_word_count > 0:
@@ -353,7 +410,8 @@ async def delete_outline(
     
     return {
         "message": "大纲删除成功",
-        "deleted_chapters": deleted_chapters_count
+        "deleted_chapters": deleted_chapters_count,
+        "deleted_foreshadows": deleted_foreshadow_count
     }
 
 
@@ -614,6 +672,12 @@ async def _generate_new_outline(
     # 全新生成模式：删除旧大纲和关联的所有章节
     logger.info(f"全新生成：删除项目 {project.id} 的旧大纲和章节（outline_mode: {project.outline_mode}）")
     
+    # 清理伏笔数据
+    try:
+        await foreshadow_service.clear_project_foreshadows_for_reset(db, project.id)
+    except Exception as e:
+        logger.warning(f"清理伏笔数据失败（不影响主流程）: {str(e)}")
+
     from sqlalchemy import delete as sql_delete
     
     # 先获取所有旧章节并计算总字数
@@ -1601,9 +1665,15 @@ async def new_outline_generator(
                 logger.info(f"🔄 重试生成完成，累计{len(ai_content)}字符")
         
         # 全新生成模式：删除旧大纲和关联的所有章节
-        yield await tracker.saving("清理旧大纲和章节...", 0.2)
+        yield await tracker.saving("清理旧大纲、章节和伏笔...", 0.2)
         logger.info(f"全新生成：删除项目 {project_id} 的旧大纲和章节（outline_mode: {project.outline_mode}）")
         
+        # 清理伏笔数据
+        try:
+            await foreshadow_service.clear_project_foreshadows_for_reset(db, project_id)
+        except Exception as e:
+            logger.warning(f"清理伏笔数据失败（不影响主流程）: {str(e)}")
+
         from sqlalchemy import delete as sql_delete
         
         # 先获取所有旧章节并计算总字数

@@ -12,6 +12,7 @@ from app.models.outline import Outline
 from app.models.character import Character
 from app.models.career import Career, CharacterCareer
 from app.models.memory import StoryMemory
+from app.models.foreshadow import Foreshadow
 from app.logger import get_logger
 
 logger = get_logger(__name__)
@@ -25,12 +26,14 @@ class ChapterContext:
     采用RTCO框架的分层设计：
     - P0-核心（必须）：大纲、衔接点、字数要求
     - P1-重要（按需）：角色、情感基调、风格
-    - P2-参考（条件触发）：记忆、故事骨架、MCP资料
+    - P2-参考（条件触发）：记忆、故事骨架、MCP资料、伏笔提醒
     """
     
     # === P0-核心信息（必须包含）===
     chapter_outline: str = ""           # 本章大纲
-    continuation_point: Optional[str] = None  # 衔接锚点（上一章结尾）
+    continuation_point: Optional[str] = None  # 衔接锚点（增强版：含上一章摘要和结尾）
+    previous_chapter_summary: Optional[str] = None  # 🔧 新增：上一章剧情摘要
+    previous_chapter_events: Optional[List[str]] = None  # 🔧 新增：上一章关键事件
     target_word_count: int = 3000       # 目标字数
     min_word_count: int = 2500          # 最小字数
     max_word_count: int = 4000          # 最大字数
@@ -54,6 +57,7 @@ class ChapterContext:
     relevant_memories: Optional[str] = None   # 相关记忆（精简版）
     story_skeleton: Optional[str] = None      # 故事骨架（50章+启用）
     mcp_references: Optional[str] = None      # MCP参考资料
+    foreshadow_reminders: Optional[str] = None  # 伏笔提醒（新增）
     
     # === 元信息 ===
     context_stats: Dict[str, Any] = field(default_factory=dict)  # 统计信息
@@ -62,7 +66,8 @@ class ChapterContext:
         """计算总上下文长度"""
         total = 0
         for field_name in ['chapter_outline', 'continuation_point', 'chapter_characters',
-                          'relevant_memories', 'story_skeleton', 'style_instruction']:
+                          'relevant_memories', 'story_skeleton', 'style_instruction',
+                          'foreshadow_reminders', 'previous_chapter_summary']:
             value = getattr(self, field_name, None)
             if value:
                 total += len(value)
@@ -91,14 +96,16 @@ class ChapterContextBuilder:
     STYLE_MAX_LENGTH = 200       # 风格描述最大长度
     MAX_CONTEXT_LENGTH = 3000    # 总上下文最大字符数
     
-    def __init__(self, memory_service=None):
+    def __init__(self, memory_service=None, foreshadow_service=None):
         """
         初始化构建器
         
         Args:
             memory_service: 记忆服务实例（可选，用于检索相关记忆）
+            foreshadow_service: 伏笔服务实例（可选，用于获取伏笔提醒）
         """
         self.memory_service = memory_service
+        self.foreshadow_service = foreshadow_service
     
     async def build(
         self,
@@ -155,20 +162,28 @@ class ChapterContextBuilder:
             chapter, outline, project.outline_mode
         )
         
-        # === 衔接锚点（根据章节调整长度）===
+        # === 衔接锚点（根据章节调整长度，增强版含摘要和事件）===
         if chapter_number == 1:
             context.continuation_point = None
+            context.previous_chapter_summary = None
+            context.previous_chapter_events = None
             logger.info("  ✅ 第1章无需衔接锚点")
         elif chapter_number <= 10:
-            context.continuation_point = await self._get_last_ending(
+            ending_info = await self._get_last_ending_enhanced(
                 chapter, db, self.ENDING_LENGTH_SHORT
             )
-            logger.info(f"  ✅ 衔接锚点（短）: {len(context.continuation_point or '')}字符")
+            context.continuation_point = ending_info.get('ending_text')
+            context.previous_chapter_summary = ending_info.get('summary')
+            context.previous_chapter_events = ending_info.get('key_events')
+            logger.info(f"  ✅ 衔接锚点（短）: {len(context.continuation_point or '')}字符, 摘要: {len(context.previous_chapter_summary or '')}字符")
         else:
-            context.continuation_point = await self._get_last_ending(
+            ending_info = await self._get_last_ending_enhanced(
                 chapter, db, self.ENDING_LENGTH_NORMAL
             )
-            logger.info(f"  ✅ 衔接锚点（标准）: {len(context.continuation_point or '')}字符")
+            context.continuation_point = ending_info.get('ending_text')
+            context.previous_chapter_summary = ending_info.get('summary')
+            context.previous_chapter_events = ending_info.get('key_events')
+            logger.info(f"  ✅ 衔接锚点（标准）: {len(context.continuation_point or '')}字符, 摘要: {len(context.previous_chapter_summary or '')}字符")
         
         # === P1-重要信息 ===
         context.chapter_characters = await self._build_chapter_characters(
@@ -200,6 +215,14 @@ class ChapterContextBuilder:
             )
             logger.info(f"  ✅ 故事骨架: {len(context.story_skeleton or '')}字符")
         
+        # === P2-伏笔提醒（新增）===
+        if self.foreshadow_service:
+            context.foreshadow_reminders = await self._get_foreshadow_reminders(
+                project.id, chapter_number, db
+            )
+            if context.foreshadow_reminders:
+                logger.info(f"  ✅ 伏笔提醒: {len(context.foreshadow_reminders)}字符")
+        
         # === 统计信息 ===
         context.context_stats = {
             "chapter_number": chapter_number,
@@ -208,6 +231,7 @@ class ChapterContextBuilder:
             "characters_length": len(context.chapter_characters),
             "memories_length": len(context.relevant_memories or ""),
             "skeleton_length": len(context.story_skeleton or ""),
+            "foreshadow_length": len(context.foreshadow_reminders or ""),
             "total_length": context.get_total_context_length()
         }
         
@@ -263,7 +287,7 @@ class ChapterContextBuilder:
         max_length: int
     ) -> Optional[str]:
         """
-        获取上一章结尾内容作为衔接锚点
+        获取上一章结尾内容作为衔接锚点（旧版本，保留兼容性）
         
         Args:
             chapter: 当前章节
@@ -293,6 +317,105 @@ class ChapterContextBuilder:
             return content
         
         return content[-max_length:]
+    
+    async def _get_last_ending_enhanced(
+        self,
+        chapter: Chapter,
+        db: AsyncSession,
+        max_length: int
+    ) -> Dict[str, Any]:
+        """
+        获取增强版衔接锚点（含上一章摘要和关键事件）
+        
+        🔧 新增功能：
+        1. 提取上一章结尾文本
+        2. 获取上一章剧情摘要（从记忆或expansion_plan）
+        3. 提取上一章关键事件
+        
+        Args:
+            chapter: 当前章节
+            db: 数据库会话
+            max_length: 最大长度
+        
+        Returns:
+            包含 ending_text, summary, key_events 的字典
+        """
+        result_info = {
+            'ending_text': None,
+            'summary': None,
+            'key_events': []
+        }
+        
+        if chapter.chapter_number <= 1:
+            return result_info
+        
+        # 查询上一章
+        result = await db.execute(
+            select(Chapter)
+            .where(Chapter.project_id == chapter.project_id)
+            .where(Chapter.chapter_number == chapter.chapter_number - 1)
+        )
+        prev_chapter = result.scalar_one_or_none()
+        
+        if not prev_chapter:
+            return result_info
+        
+        # 1. 提取结尾内容
+        if prev_chapter.content:
+            content = prev_chapter.content.strip()
+            if len(content) <= max_length:
+                result_info['ending_text'] = content
+            else:
+                result_info['ending_text'] = content[-max_length:]
+        
+        # 2. 获取上一章摘要
+        # 优先从记忆中获取 chapter_summary
+        summary_result = await db.execute(
+            select(StoryMemory.content)
+            .where(StoryMemory.project_id == chapter.project_id)
+            .where(StoryMemory.chapter_id == prev_chapter.id)
+            .where(StoryMemory.memory_type == 'chapter_summary')
+            .limit(1)
+        )
+        summary_mem = summary_result.scalar_one_or_none()
+        
+        if summary_mem:
+            result_info['summary'] = summary_mem[:300]  # 限制长度
+        elif prev_chapter.summary:
+            # 回退到章节的summary字段
+            result_info['summary'] = prev_chapter.summary[:300]
+        elif prev_chapter.expansion_plan:
+            # 再回退到expansion_plan中的plot_summary
+            try:
+                plan = json.loads(prev_chapter.expansion_plan)
+                result_info['summary'] = plan.get('plot_summary', '')[:300]
+            except json.JSONDecodeError:
+                pass
+        
+        # 3. 提取上一章关键事件
+        if prev_chapter.expansion_plan:
+            try:
+                plan = json.loads(prev_chapter.expansion_plan)
+                key_events = plan.get('key_events', [])
+                if key_events:
+                    result_info['key_events'] = key_events[:5]  # 最多5个事件
+            except json.JSONDecodeError:
+                pass
+        
+        # 如果没有从expansion_plan获取到，尝试从记忆中获取
+        if not result_info['key_events']:
+            events_result = await db.execute(
+                select(StoryMemory.content)
+                .where(StoryMemory.project_id == chapter.project_id)
+                .where(StoryMemory.chapter_id == prev_chapter.id)
+                .where(StoryMemory.memory_type == 'plot_point')
+                .limit(5)
+            )
+            event_mems = events_result.scalars().all()
+            if event_mems:
+                result_info['key_events'] = [e[:100] for e in event_mems]
+        
+        return result_info
     
     async def _build_chapter_characters(
         self,
@@ -563,6 +686,48 @@ class ChapterContextBuilder:
                 current_length += len(text)
         
         return "\n".join(lines) if lines else None
+    
+    async def _get_foreshadow_reminders(
+        self,
+        project_id: str,
+        chapter_number: int,
+        db: AsyncSession
+    ) -> Optional[str]:
+        """
+        获取伏笔提醒信息用于章节生成
+        
+        策略：
+        1. 获取计划在本章或之前回收但未回收的伏笔（超期提醒）
+        2. 获取已埋入且接近需要回收的伏笔（提前提醒）
+        3. 获取本章计划埋入的伏笔（埋入提醒）
+        
+        Args:
+            project_id: 项目ID
+            chapter_number: 当前章节号
+            db: 数据库会话
+        
+        Returns:
+            格式化的伏笔提醒文本
+        """
+        if not self.foreshadow_service:
+            return None
+        
+        try:
+            context_result = await self.foreshadow_service.build_chapter_context(
+                db=db,
+                project_id=project_id,
+                chapter_number=chapter_number,
+                include_pending=True,
+                include_overdue=True,
+                lookahead=5
+            )
+            
+            context_text = context_result.get("context_text", "")
+            return context_text if context_text else None
+            
+        except Exception as e:
+            logger.error(f"❌ 获取伏笔提醒失败: {str(e)}")
+            return None
     
     async def _build_story_skeleton(
         self,

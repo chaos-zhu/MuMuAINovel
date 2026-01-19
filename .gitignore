@@ -36,6 +36,7 @@ env/
 *.swo
 *~
 .DS_Store
+.kilocode/
 
 # Environment variables
 .env

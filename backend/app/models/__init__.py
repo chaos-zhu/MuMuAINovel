@@ -16,6 +16,7 @@ from app.models.user import User, UserPassword
 from app.models.regeneration_task import RegenerationTask
 from app.models.career import Career, CharacterCareer
 from app.models.prompt_template import PromptTemplate
+from app.models.foreshadow import Foreshadow
 
 __all__ = [
     "Project",
@@ -40,5 +41,6 @@ __all__ = [
     "RegenerationTask",
     "Career",
     "CharacterCareer",
-    "PromptTemplate"
+    "PromptTemplate",
+    "Foreshadow"
 ]

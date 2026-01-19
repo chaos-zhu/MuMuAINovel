@@ -122,7 +122,7 @@ export default function ProjectWizardNew() {
           narrative_perspective: '第三人称',
           character_count: 5,
           target_words: 100000,
-          outline_mode: 'one-to-many', // 默认为细化模式
+          outline_mode: 'one-to-one', // 默认为传统模式（1-1）
         }}
       >
         <Form.Item
