@@ -10,6 +10,9 @@ COPY frontend/package*.json ./
 # 使用国内npm镜像加速
 RUN npm config set registry https://registry.npmmirror.com
 
+# 删除 package-lock.json 以SC避免因镜像源不一致导致的 404 错误
+RUN rm -f package-lock.json
+
 # 安装依赖
 RUN npm install
 
