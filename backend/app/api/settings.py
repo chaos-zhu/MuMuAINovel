@@ -152,6 +152,9 @@ async def save_settings(
     创建或更新当前用户的设置（Upsert）
     如果设置已存在则更新，否则创建新设置
     仅保存到数据库
+    
+    注意：手动保存配置后会自动取消之前激活的预设状态，
+    因为手动修改的配置可能与预设不一致
     """
     # 查找现有设置
     result = await db.execute(
@@ -166,6 +169,36 @@ async def save_settings(
         # 更新现有设置
         for key, value in settings_dict.items():
             setattr(settings, key, value)
+        
+        # 检查并取消预设激活状态
+        # 因为用户手动修改了配置，可能与之前激活的预设不一致
+        try:
+            prefs = json.loads(settings.preferences or '{}')
+            api_presets = prefs.get('api_presets', {'presets': [], 'version': '1.0'})
+            presets = api_presets.get('presets', [])
+            
+            # 找到激活的预设并检查是否与当前保存的配置一致
+            active_preset = next((p for p in presets if p.get('is_active')), None)
+            if active_preset:
+                preset_config = active_preset.get('config', {})
+                # 检查配置是否发生变化
+                config_changed = (
+                    preset_config.get('api_provider') != settings_dict.get('api_provider', settings.api_provider) or
+                    preset_config.get('api_key') != settings_dict.get('api_key', settings.api_key) or
+                    preset_config.get('api_base_url') != settings_dict.get('api_base_url', settings.api_base_url) or
+                    preset_config.get('llm_model') != settings_dict.get('llm_model', settings.llm_model) or
+                    preset_config.get('temperature') != settings_dict.get('temperature', settings.temperature) or
+                    preset_config.get('max_tokens') != settings_dict.get('max_tokens', settings.max_tokens)
+                )
+                
+                if config_changed:
+                    # 取消激活状态
+                    active_preset['is_active'] = False
+                    prefs['api_presets'] = api_presets
+                    settings.preferences = json.dumps(prefs, ensure_ascii=False)
+                    logger.info(f"用户 {user.user_id} 手动修改配置，已取消预设 {active_preset.get('name')} 的激活状态")
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.warning(f"解析用户 {user.user_id} 的preferences失败: {e}")
         
         await db.commit()
         await db.refresh(settings)
@@ -1019,12 +1052,15 @@ async def test_preset(
         raise HTTPException(status_code=404, detail="预设不存在")
     
     # 使用现有的test_api_connection逻辑
+    # 确保传递完整参数，与当前配置测试保持一致
     config = target_preset['config']
     test_request = ApiTestRequest(
         api_key=config['api_key'],
         api_base_url=config.get('api_base_url', ''),
         provider=config['api_provider'],
-        llm_model=config['llm_model']
+        llm_model=config['llm_model'],
+        temperature=config.get('temperature'),   # 使用预设中的温度参数
+        max_tokens=config.get('max_tokens')      # 使用预设中的最大tokens参数
     )
     
     logger.info(f"用户 {user.user_id} 测试预设: {target_preset['name']}")

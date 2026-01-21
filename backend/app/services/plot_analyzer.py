@@ -1,5 +1,5 @@
 """剧情分析服务 - 自动分析章节的钩子、伏笔、冲突等元素"""
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Callable, Awaitable
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.ai_service import AIService
 from app.services.prompt_service import prompt_service, PromptService
@@ -9,6 +9,10 @@ import re
 import asyncio
 
 logger = get_logger(__name__)
+
+# 重试回调类型定义
+OnRetryCallback = Callable[[int, int, int, str], Awaitable[None]]
+# 参数: (当前重试次数, 最大重试次数, 等待时间秒数, 错误原因)
 
 
 class PlotAnalyzer:
@@ -33,7 +37,8 @@ class PlotAnalyzer:
         user_id: str = None,
         db: AsyncSession = None,
         max_retries: int = 3,
-        existing_foreshadows: Optional[List[Dict[str, Any]]] = None
+        existing_foreshadows: Optional[List[Dict[str, Any]]] = None,
+        on_retry: Optional[OnRetryCallback] = None
     ) -> Optional[Dict[str, Any]]:
         """
         分析单章内容（带重试机制）
@@ -47,6 +52,7 @@ class PlotAnalyzer:
             db: 数据库会话（用于查询自定义提示词）
             max_retries: 最大重试次数，默认3次
             existing_foreshadows: 已埋入的伏笔列表（用于回收匹配）
+            on_retry: 重试时的回调函数，参数为 (当前重试次数, 最大重试次数, 等待秒数, 错误原因)
         
         Returns:
             分析结果字典,失败返回None
@@ -111,6 +117,12 @@ class PlotAnalyzer:
                     if attempt < max_retries:
                         wait_time = min(2 ** attempt, 10)
                         logger.info(f"  ⏳ 等待 {wait_time} 秒后重试...")
+                        # 调用重试回调，通知调用方正在重试
+                        if on_retry:
+                            try:
+                                await on_retry(attempt, max_retries, wait_time, last_error)
+                            except Exception as callback_error:
+                                logger.warning(f"⚠️ 重试回调执行失败: {callback_error}")
                         await asyncio.sleep(wait_time)
                         continue
                     else:
@@ -138,6 +150,12 @@ class PlotAnalyzer:
                     if attempt < max_retries:
                         wait_time = min(2 ** attempt, 10)
                         logger.info(f"  ⏳ 等待 {wait_time} 秒后重试...")
+                        # 调用重试回调，通知调用方正在重试
+                        if on_retry:
+                            try:
+                                await on_retry(attempt, max_retries, wait_time, last_error)
+                            except Exception as callback_error:
+                                logger.warning(f"⚠️ 重试回调执行失败: {callback_error}")
                         await asyncio.sleep(wait_time)
                         continue
                     else:
@@ -151,6 +169,12 @@ class PlotAnalyzer:
                 if attempt < max_retries:
                     wait_time = min(2 ** attempt, 10)
                     logger.info(f"  ⏳ 等待 {wait_time} 秒后重试...")
+                    # 调用重试回调，通知调用方正在重试
+                    if on_retry:
+                        try:
+                            await on_retry(attempt, max_retries, wait_time, last_error)
+                        except Exception as callback_error:
+                            logger.warning(f"⚠️ 重试回调执行失败: {callback_error}")
                     await asyncio.sleep(wait_time)
                     continue
                 else:

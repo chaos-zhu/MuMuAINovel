@@ -43,6 +43,11 @@ export default function SettingsPage() {
   const [isPresetModalVisible, setIsPresetModalVisible] = useState(false);
   const [testingPresetId, setTestingPresetId] = useState<string | null>(null);
   const [presetForm] = Form.useForm();
+  
+  // 预设编辑窗口的模型列表状态（独立于当前配置的模型列表）
+  const [presetModelOptions, setPresetModelOptions] = useState<Array<{ value: string; label: string; description: string }>>([]);
+  const [fetchingPresetModels, setFetchingPresetModels] = useState(false);
+  const [presetModelsFetched, setPresetModelsFetched] = useState(false);
 
   useEffect(() => {
     loadSettings();
@@ -55,7 +60,14 @@ export default function SettingsPage() {
   useEffect(() => {
     if (activeTab === 'presets') {
       loadPresets();
+    } else if (activeTab === 'current') {
+      // 切换到当前配置Tab时，刷新设置以获取最新数据
+      loadSettings();
+      // 清除旧的测试结果，因为可能是其他配置的测试结果
+      setTestResult(null);
+      setShowTestResult(false);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
   const loadSettings = async () => {
@@ -116,6 +128,36 @@ export default function SettingsPage() {
       message.success('设置已保存');
       setHasSettings(true);
       setIsDefaultSettings(false);
+      
+      // 保存后清除测试结果，因为配置可能已变更
+      setTestResult(null);
+      setShowTestResult(false);
+      
+      // 手动保存配置后，需要同步更新预设激活状态
+      // 因为用户手动修改的配置可能与之前激活的预设不一致了
+      // 重新加载预设列表以确保状态正确（后端在save时会自动取消激活状态）
+      if (activePresetId) {
+        // 检查当前保存的配置是否与激活预设一致
+        const activePreset = presets.find(p => p.id === activePresetId);
+        if (activePreset) {
+          const presetConfig = activePreset.config;
+          const configMismatch =
+            presetConfig.api_provider !== values.api_provider ||
+            presetConfig.api_key !== values.api_key ||
+            presetConfig.api_base_url !== values.api_base_url ||
+            presetConfig.llm_model !== values.llm_model ||
+            presetConfig.temperature !== values.temperature ||
+            presetConfig.max_tokens !== values.max_tokens;
+          
+          if (configMismatch) {
+            // 配置已变更，清除前端的激活状态标记
+            setActivePresetId(undefined);
+            message.info('配置已更改，预设激活状态已取消');
+            // 刷新预设列表以同步后端取消激活的状态
+            loadPresets();
+          }
+        }
+      }
       
       // 如果配置发生变化，需要处理 MCP 插件
       if (configChanged) {
@@ -357,6 +399,10 @@ export default function SettingsPage() {
   };
 
   const showPresetModal = (preset?: APIKeyPreset) => {
+    // 重置预设模型列表状态
+    setPresetModelOptions([]);
+    setPresetModelsFetched(false);
+    
     if (preset) {
       setEditingPreset(preset);
       presetForm.setFieldsValue({
@@ -369,6 +415,7 @@ export default function SettingsPage() {
       presetForm.resetFields();
       presetForm.setFieldsValue({
         api_provider: 'openai',
+        api_base_url: 'https://api.openai.com/v1',
         temperature: 0.7,
         max_tokens: 2000,
       });
@@ -380,6 +427,66 @@ export default function SettingsPage() {
     setIsPresetModalVisible(false);
     setEditingPreset(null);
     presetForm.resetFields();
+    // 清除预设模型列表状态
+    setPresetModelOptions([]);
+    setPresetModelsFetched(false);
+  };
+
+  // 预设编辑窗口：获取模型列表
+  const handleFetchPresetModels = async (silent: boolean = false) => {
+    const apiKey = presetForm.getFieldValue('api_key');
+    const apiBaseUrl = presetForm.getFieldValue('api_base_url');
+    const provider = presetForm.getFieldValue('api_provider');
+
+    if (!apiKey || !apiBaseUrl) {
+      if (!silent) {
+        message.warning('请先填写 API 密钥和 API 地址');
+      }
+      return;
+    }
+
+    setFetchingPresetModels(true);
+    try {
+      const response = await settingsApi.getAvailableModels({
+        api_key: apiKey,
+        api_base_url: apiBaseUrl,
+        provider: provider || 'openai'
+      });
+
+      setPresetModelOptions(response.models);
+      setPresetModelsFetched(true);
+      if (!silent) {
+        message.success(`成功获取 ${response.count || response.models.length} 个可用模型`);
+      }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } catch (error: any) {
+      const errorMsg = error?.response?.data?.detail || '获取模型列表失败';
+      if (!silent) {
+        message.error(errorMsg);
+      }
+      setPresetModelOptions([]);
+      setPresetModelsFetched(true);
+    } finally {
+      setFetchingPresetModels(false);
+    }
+  };
+
+  // 预设编辑窗口：模型选择框获得焦点时自动获取
+  const handlePresetModelSelectFocus = () => {
+    if (!presetModelsFetched && !fetchingPresetModels) {
+      handleFetchPresetModels(true);
+    }
+  };
+
+  // 预设编辑窗口：提供商变更时更新默认URL并清空模型列表
+  const handlePresetProviderChange = (value: string) => {
+    const provider = apiProviders.find(p => p.value === value);
+    if (provider && provider.defaultUrl) {
+      presetForm.setFieldValue('api_base_url', provider.defaultUrl);
+    }
+    // 清空模型列表，需要重新获取
+    setPresetModelOptions([]);
+    setPresetModelsFetched(false);
   };
 
   const handlePresetSave = async () => {
@@ -437,6 +544,15 @@ export default function SettingsPage() {
       
       await settingsApi.activatePreset(presetId);
       message.success(`已激活预设: ${presetName}`);
+      
+      // 激活预设后清除当前配置Tab的测试结果
+      setTestResult(null);
+      setShowTestResult(false);
+      
+      // 清除模型列表缓存，因为API配置可能已变更
+      setModelOptions([]);
+      setModelsFetched(false);
+      
       loadPresets();
       loadSettings(); // 重新加载当前配置
       
@@ -1419,7 +1535,7 @@ export default function SettingsPage() {
                   rules={[{ required: true, message: '请选择' }]}
                   style={{ marginBottom: 16 }}
                 >
-                  <Select placeholder="选择提供商">
+                  <Select placeholder="选择提供商" onChange={handlePresetProviderChange}>
                     <Select.Option value="openai">OpenAI</Select.Option>
                     <Select.Option value="gemini">Google Gemini</Select.Option>
                   </Select>
@@ -1464,11 +1580,105 @@ export default function SettingsPage() {
               <Col xs={24} sm={12}>
                 <Form.Item
                   name="llm_model"
-                  label="模型名称"
-                  rules={[{ required: true, message: '请输入模型名称' }]}
+                  label={
+                    <Space size={4}>
+                      <span>模型名称</span>
+                      <InfoCircleOutlined
+                        title="AI模型的名称，点击下拉框自动获取可用模型"
+                        style={{ color: 'var(--color-text-secondary)', fontSize: '12px' }}
+                      />
+                    </Space>
+                  }
+                  rules={[{ required: true, message: '请选择或输入模型名称' }]}
                   style={{ marginBottom: 16 }}
                 >
-                  <Input placeholder="例如：gpt-4" />
+                  <Select
+                    showSearch
+                    placeholder="点击获取模型列表或直接输入"
+                    optionFilterProp="label"
+                    loading={fetchingPresetModels}
+                    onFocus={handlePresetModelSelectFocus}
+                    filterOption={(input, option) =>
+                      (option?.label ?? '').toLowerCase().includes(input.toLowerCase()) ||
+                      (option?.description ?? '').toLowerCase().includes(input.toLowerCase())
+                    }
+                    dropdownRender={(menu) => (
+                      <>
+                        {menu}
+                        {fetchingPresetModels && (
+                          <div style={{ padding: '8px 12px', color: 'var(--color-text-secondary)', textAlign: 'center', fontSize: '12px' }}>
+                            <Spin size="small" /> 正在获取模型列表...
+                          </div>
+                        )}
+                        {!fetchingPresetModels && presetModelOptions.length === 0 && presetModelsFetched && (
+                          <div style={{ padding: '8px 12px', color: '#ff4d4f', textAlign: 'center', fontSize: '12px' }}>
+                            未能获取到模型列表，请检查 API 配置
+                          </div>
+                        )}
+                        {!fetchingPresetModels && presetModelOptions.length === 0 && !presetModelsFetched && (
+                          <div style={{ padding: '8px 12px', color: 'var(--color-text-secondary)', textAlign: 'center', fontSize: '12px' }}>
+                            点击输入框自动获取模型列表
+                          </div>
+                        )}
+                      </>
+                    )}
+                    notFoundContent={
+                      fetchingPresetModels ? (
+                        <div style={{ padding: '8px 12px', textAlign: 'center', fontSize: '12px' }}>
+                          <Spin size="small" /> 加载中...
+                        </div>
+                      ) : (
+                        <div style={{ padding: '8px 12px', color: 'var(--color-text-secondary)', textAlign: 'center', fontSize: '12px' }}>
+                          未找到匹配的模型
+                        </div>
+                      )
+                    }
+                    suffixIcon={
+                      <div
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (!fetchingPresetModels) {
+                            setPresetModelsFetched(false);
+                            handleFetchPresetModels(false);
+                          }
+                        }}
+                        style={{
+                          cursor: fetchingPresetModels ? 'not-allowed' : 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          padding: '0 4px',
+                          height: '100%',
+                          marginRight: -8
+                        }}
+                        title="获取模型列表"
+                      >
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<ReloadOutlined />}
+                          loading={fetchingPresetModels}
+                          style={{ pointerEvents: 'none' }}
+                        >
+                          获取
+                        </Button>
+                      </div>
+                    }
+                    options={presetModelOptions.map(model => ({
+                      value: model.value,
+                      label: model.label,
+                      description: model.description
+                    }))}
+                    optionRender={(option) => (
+                      <div>
+                        <div style={{ fontWeight: 500, fontSize: '13px' }}>{option.data.label}</div>
+                        {option.data.description && (
+                          <div style={{ fontSize: '11px', color: '#8c8c8c', marginTop: '2px' }}>
+                            {option.data.description}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  />
                 </Form.Item>
               </Col>
               <Col xs={12} sm={6}>

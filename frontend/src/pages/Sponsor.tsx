@@ -35,7 +35,7 @@ const benefits = [
     {
         icon: <RocketOutlined style={{ fontSize: '32px', color: 'var(--color-success)' }} />,
         title: 'Windows一键启动',
-        description: '获取免安装EXE程序，双击即可使用'
+        description: '获取免安装一键启动包，开箱即可使用'
     },
     {
         icon: <MessageOutlined style={{ fontSize: '32px', color: 'var(--color-warning)' }} />,
@@ -200,7 +200,7 @@ export default function Sponsor() {
                             💖 感谢您对 MuMuAINovel 项目的支持
                         </Title>
                         <Paragraph style={{ fontSize: 'clamp(12px, 2vw, 14px)', color: '#666', marginBottom: '12px' }}>
-                            您的赞助将帮助我们持续改进产品，提供更好的AI小说创作体验
+                            您的赞助将是我持续更新项目的动力，为大家提供更好的AI小说创作体验
                         </Paragraph>
                         <div style={{ fontSize: 'clamp(18px, 3vw, 24px)' }}>
                             <StarOutlined style={{ color: '#faad14', margin: '0 4px' }} />
