@@ -58,6 +58,15 @@ export default function BookshelfPage({
   const { resolvedMode } = useThemeMode();
   const isDark = resolvedMode === 'dark';
   const alphaColor = (color: string, alpha: number) => `color-mix(in srgb, ${color} ${(alpha * 100).toFixed(0)}%, transparent)`;
+  const coverButtonStyle = {
+    color: isDark ? token.colorWhite : token.colorPrimaryText,
+    background: isDark
+      ? 'rgba(255,255,255,0.14)'
+      : `linear-gradient(135deg, ${alphaColor(token.colorWhite, 0.92)} 0%, ${alphaColor(token.colorBgContainer, 0.84)} 100%)`,
+    borderColor: isDark ? 'rgba(255,255,255,0.22)' : alphaColor(token.colorPrimary, 0.35),
+    boxShadow: isDark ? 'none' : `0 6px 16px ${alphaColor(token.colorPrimary, 0.18)}`,
+    backdropFilter: 'blur(8px)',
+  };
   const [flippedProjectIds, setFlippedProjectIds] = useState<Record<string, boolean>>({});
   const [coverGeneratingIds, setCoverGeneratingIds] = useState<Record<string, boolean>>({});
   const mobileBookHeight = 520;
@@ -689,6 +698,7 @@ export default function BookshelfPage({
                               icon={<ReloadOutlined />}
                               loading={coverActionLoading}
                               onClick={(e) => void handleGenerateCoverClick(e, project, true)}
+                              style={coverButtonStyle}
                             >
                               {coverActionLoading ? '重新生成中...' : '重新生成'}
                             </Button>
@@ -702,6 +712,7 @@ export default function BookshelfPage({
                               icon={<PictureOutlined />}
                               loading={coverActionLoading}
                               onClick={(e) => void handleGenerateCoverClick(e, project, true)}
+                              style={coverButtonStyle}
                             >
                               {coverActionLoading ? '生成中...' : '生成封面'}
                             </Button>
@@ -894,10 +905,7 @@ export default function BookshelfPage({
                                     loading={coverActionLoading}
                                     onClick={(e) => void handleGenerateCoverClick(e, project, true)}
                                     style={{
-                                      color: token.colorWhite,
-                                      background: 'rgba(255,255,255,0.14)',
-                                      borderColor: 'rgba(255,255,255,0.22)',
-                                      backdropFilter: 'blur(8px)',
+                                      ...coverButtonStyle,
                                       minWidth: isMobile ? 112 : 124,
                                     }}
                                   >

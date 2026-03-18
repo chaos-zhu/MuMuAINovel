@@ -3,10 +3,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+import json
 from pathlib import Path
 from typing import Optional
 from urllib.parse import quote
 
+import httpx
 from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -99,12 +101,25 @@ class CoverGenerationService:
                 "model": result["model"],
                 "message": "封面生成成功",
             }
+        except httpx.HTTPStatusError as exc:
+            logger.error("封面生成上游 HTTP 错误: project_id=%s error=%s", project.id, exc, exc_info=True)
+            detail = self._extract_upstream_error_detail(exc)
+            project.cover_status = "failed"
+            project.cover_error = detail
+            await db.commit()
+            raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
+        except HTTPException as exc:
+            logger.error("封面生成业务错误: project_id=%s error=%s", project.id, exc.detail, exc_info=True)
+            project.cover_status = "failed"
+            project.cover_error = str(exc.detail)
+            await db.commit()
+            raise
         except Exception as exc:
             logger.error("封面生成失败: project_id=%s error=%s", project.id, exc, exc_info=True)
             project.cover_status = "failed"
             project.cover_error = str(exc)
             await db.commit()
-            raise HTTPException(status_code=500, detail=f"封面生成失败: {exc}") from exc
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
     async def test_cover_settings(
         self,
@@ -126,12 +141,17 @@ class CoverGenerationService:
             "Create a clean fantasy novel cover illustration, vertical book cover, "
             "standard 2:3 ratio, atmospheric lighting, no text, no watermark."
         )
-        await provider_instance.generate_cover(
-            prompt=test_prompt,
-            model=model,
-            width=COVER_WIDTH,
-            height=COVER_HEIGHT,
-        )
+        try:
+            await provider_instance.generate_cover(
+                prompt=test_prompt,
+                model=model,
+                width=COVER_WIDTH,
+                height=COVER_HEIGHT,
+            )
+        except httpx.HTTPStatusError as exc:
+            detail = self._extract_upstream_error_detail(exc)
+            raise HTTPException(status_code=exc.response.status_code, detail=detail) from exc
+
         return CoverTestResult(
             success=True,
             message="封面图片接口测试成功",
@@ -242,6 +262,38 @@ class CoverGenerationService:
             return GENERATED_COVER_STORAGE_DIR / relative_path
 
         raise HTTPException(status_code=404, detail="封面文件路径无效，请重新生成")
+
+    @staticmethod
+    def _extract_upstream_error_detail(exc: httpx.HTTPStatusError) -> str:
+        response = exc.response
+        if response is None:
+            return str(exc)
+
+        try:
+            data = response.json()
+        except json.JSONDecodeError:
+            text = response.text.strip()
+            return text or str(exc)
+
+        if isinstance(data, dict):
+            for key in ("detail", "message", "error", "msg"):
+                value = data.get(key)
+                if isinstance(value, str) and value.strip():
+                    return value.strip()
+                if isinstance(value, dict):
+                    for nested_key in ("message", "detail", "msg"):
+                        nested_value = value.get(nested_key)
+                        if isinstance(nested_value, str) and nested_value.strip():
+                            return nested_value.strip()
+                if isinstance(value, list) and value:
+                    first_item = value[0]
+                    if isinstance(first_item, str) and first_item.strip():
+                        return first_item.strip()
+
+        text = response.text.strip()
+        if text:
+            return text
+        return str(exc)
 
 
 cover_generation_service = CoverGenerationService()

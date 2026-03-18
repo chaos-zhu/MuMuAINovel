@@ -10,6 +10,7 @@ from typing import Optional, AsyncGenerator, List, Dict, Any, Union
 from app.config import settings as app_settings
 from app.logger import get_logger
 from app.services.ai_config import AIClientConfig, default_config
+from app.services.ai_metrics import AICallMetrics, TokenUsage, ToolCallMetrics
 from app.services.ai_clients.openai_client import OpenAIClient
 from app.services.ai_clients.anthropic_client import AnthropicClient
 from app.services.ai_clients.gemini_client import GeminiClient
@@ -163,6 +164,36 @@ class AIService:
             return self._gemini_provider
         raise ValueError(f"Provider {p} 未初始化")
 
+    def _build_call_metrics(
+        self,
+        *,
+        request_mode: str,
+        provider: Optional[str],
+        model: Optional[str],
+        prompt: str,
+        auto_mcp: bool,
+        tools_count: int,
+        stream: bool,
+    ) -> AICallMetrics:
+        return AICallMetrics(
+            request_mode=request_mode,
+            provider=normalize_provider(provider or self.api_provider) or "unknown",
+            model=model or self.default_model,
+            user_id=self.user_id,
+            stream=stream,
+            auto_mcp=auto_mcp,
+            tools_count=tools_count,
+            prompt_length=len(prompt or ""),
+        )
+
+    def _log_call_metrics(self, metrics: AICallMetrics, title: Optional[str] = None):
+        log_title = title or ("AI调用完成" if metrics.success else "AI调用失败")
+        message = metrics.to_log_message(log_title)
+        if metrics.success:
+            logger.info(message)
+        else:
+            logger.error(message)
+
     async def _prepare_mcp_tools(self, auto_mcp: bool = True, force_refresh: bool = False) -> Optional[List[Dict]]:
         """
         预处理MCP工具
@@ -255,19 +286,24 @@ class AIService:
         tool_calls = response.get("tool_calls", [])
         if not tool_calls or not self.user_id:
             return response
+
+        tool_metrics = ToolCallMetrics()
+        tool_metrics.usage.add(TokenUsage.from_response(response))
         
         result = {
             "content": response.get("content", ""),
             "tool_calls_made": 0,
             "tools_used": [],
             "finish_reason": response.get("finish_reason", ""),
-            "mcp_enhanced": True
+            "mcp_enhanced": True,
+            "usage": response.get("usage"),
         }
         
         prompt = original_prompt
         
         for round_num in range(max_rounds):
             logger.info(f"🔧 工具调用 - 第{round_num+1}/{max_rounds}轮，{len(tool_calls)}个工具")
+            tool_metrics.mcp_rounds += 1
             
             try:
                 # 批量执行工具调用
@@ -279,9 +315,11 @@ class AIService:
                 # 记录使用的工具
                 for tc in tool_calls:
                     name = tc["function"]["name"]
+                    tool_metrics.add_tool_name(name)
                     if name not in result["tools_used"]:
                         result["tools_used"].append(name)
                 result["tool_calls_made"] += len(tool_calls)
+                tool_metrics.tool_calls_count += len(tool_calls)
                 
                 # 构建工具上下文
                 tool_context = mcp_client.build_tool_context(tool_results, format="markdown")
@@ -306,6 +344,7 @@ class AIService:
                     tools=None if tool_choice == "none" else self._cached_tools,
                     tool_choice=tool_choice,
                 )
+                tool_metrics.usage.add(TokenUsage.from_response(next_response))
                 
                 tool_calls = next_response.get("tool_calls", [])
                 
@@ -313,13 +352,26 @@ class AIService:
                     # 没有更多工具调用，返回结果
                     result["content"] = next_response.get("content", "")
                     result["finish_reason"] = next_response.get("finish_reason", "stop")
+                    result["usage"] = {
+                        "prompt_tokens": tool_metrics.usage.prompt_tokens,
+                        "completion_tokens": tool_metrics.usage.completion_tokens,
+                        "total_tokens": tool_metrics.usage.total_tokens,
+                    }
                     break
                     
             except Exception as e:
                 logger.error(f"❌ 工具调用失败: {e}")
+                tool_metrics.tool_error_count += 1
                 result["content"] = response.get("content", "")
                 result["finish_reason"] = "tool_error"
+                result["usage"] = {
+                    "prompt_tokens": tool_metrics.usage.prompt_tokens,
+                    "completion_tokens": tool_metrics.usage.completion_tokens,
+                    "total_tokens": tool_metrics.usage.total_tokens,
+                }
                 break
+
+        result["__tool_metrics"] = tool_metrics
         
         return result
 
@@ -363,33 +415,60 @@ class AIService:
         # 自动加载MCP工具
         if auto_mcp and tools is None:
             tools = await self._prepare_mcp_tools(auto_mcp=auto_mcp)
-        
-        prov = self._get_provider(provider)
-        response = await prov.generate(
+
+        metrics = self._build_call_metrics(
+            request_mode="文本",
+            provider=provider,
+            model=model,
             prompt=prompt,
-            model=model or self.default_model,
-            temperature=temperature or self.default_temperature,
-            max_tokens=max_tokens or self.default_max_tokens,
-            system_prompt=system_prompt or self.default_system_prompt,
-            tools=tools,
-            tool_choice=tool_choice,
+            auto_mcp=auto_mcp,
+            tools_count=len(tools) if tools else 0,
+            stream=False,
         )
         
-        # 处理工具调用
-        if handle_tool_calls and response.get("tool_calls"):
-            return await self._handle_tool_calls(
-                original_prompt=prompt,
-                response=response,
-                provider=provider,
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                system_prompt=system_prompt,
+        try:
+            prov = self._get_provider(provider)
+            response = await prov.generate(
+                prompt=prompt,
+                model=model or self.default_model,
+                temperature=temperature or self.default_temperature,
+                max_tokens=max_tokens or self.default_max_tokens,
+                system_prompt=system_prompt or self.default_system_prompt,
+                tools=tools,
                 tool_choice=tool_choice,
-                max_rounds=mcp_max_rounds,
             )
-        
-        return response
+            usage = TokenUsage.from_response(response)
+            
+            # 处理工具调用
+            if handle_tool_calls and response.get("tool_calls"):
+                response = await self._handle_tool_calls(
+                    original_prompt=prompt,
+                    response=response,
+                    provider=provider,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    system_prompt=system_prompt,
+                    tool_choice=tool_choice,
+                    max_rounds=mcp_max_rounds,
+                )
+                usage = TokenUsage.from_response(response)
+                tool_metrics = response.get("__tool_metrics")
+                if tool_metrics:
+                    metrics.merge_tool_metrics(tool_metrics)
+
+            metrics.finish(
+                success=True,
+                response_length=len(response.get("content", "") or ""),
+                finish_reason=response.get("finish_reason"),
+                usage=usage,
+            )
+            self._log_call_metrics(metrics)
+            return response
+        except Exception as e:
+            metrics.finish(success=False, error=e)
+            self._log_call_metrics(metrics)
+            raise
 
     async def generate_text_stream(
         self,
@@ -431,21 +510,64 @@ class AIService:
             tools_to_use = await self._prepare_mcp_tools(auto_mcp=auto_mcp)
             if tools_to_use:
                 logger.info(f"🔧 已获取 {len(tools_to_use)} 个MCP工具")
-        
-        # 流式生成（Provider 层处理工具调用）
-        prov = self._get_provider(provider)
-        logger.debug(f"🔧 开始流式生成，provider={provider or self.api_provider}, tools_count={len(tools_to_use) if tools_to_use else 0}")
-        async for chunk in prov.generate_stream(
+
+        metrics = self._build_call_metrics(
+            request_mode="流式文本",
+            provider=provider,
+            model=model,
             prompt=prompt,
-            model=model or self.default_model,
-            temperature=temperature or self.default_temperature,
-            max_tokens=max_tokens or self.default_max_tokens,
-            system_prompt=system_prompt or self.default_system_prompt,
-            tools=tools_to_use,
-            tool_choice=tool_choice,
-            user_id=self.user_id,
-        ):
-            yield chunk
+            auto_mcp=auto_mcp,
+            tools_count=len(tools_to_use) if tools_to_use else 0,
+            stream=True,
+        )
+        response_parts: List[str] = []
+        latest_usage = TokenUsage()
+        finish_reason = "stop"
+        
+        try:
+            # 流式生成（Provider 层处理工具调用）
+            prov = self._get_provider(provider)
+            logger.debug(f"🔧 开始流式生成，provider={provider or self.api_provider}, tools_count={len(tools_to_use) if tools_to_use else 0}")
+            async for chunk in prov.generate_stream(
+                prompt=prompt,
+                model=model or self.default_model,
+                temperature=temperature or self.default_temperature,
+                max_tokens=max_tokens or self.default_max_tokens,
+                system_prompt=system_prompt or self.default_system_prompt,
+                tools=tools_to_use,
+                tool_choice=tool_choice,
+                user_id=self.user_id,
+            ):
+                if isinstance(chunk, dict):
+                    if chunk.get("usage"):
+                        latest_usage = TokenUsage.from_response({"usage": chunk.get("usage")})
+                    if chunk.get("finish_reason"):
+                        finish_reason = chunk.get("finish_reason") or finish_reason
+                    continue
+
+                if chunk:
+                    metrics.mark_first_chunk()
+                    metrics.chunk_count += 1
+                    response_parts.append(chunk)
+                yield chunk
+
+            metrics.finish(
+                success=True,
+                response_length=len("".join(response_parts)),
+                finish_reason=finish_reason,
+                usage=latest_usage,
+            )
+            self._log_call_metrics(metrics)
+        except Exception as e:
+            metrics.finish(
+                success=False,
+                response_length=len("".join(response_parts)),
+                finish_reason=finish_reason,
+                usage=latest_usage,
+                error=e,
+            )
+            self._log_call_metrics(metrics)
+            raise
 
     async def call_with_json_retry(
         self,
@@ -477,35 +599,67 @@ class AIService:
             解析后的JSON数据
         """
         last_response = ""
+        aggregate_usage = TokenUsage()
+        metrics = self._build_call_metrics(
+            request_mode="JSON重试",
+            provider=provider,
+            model=model,
+            prompt=prompt,
+            auto_mcp=auto_mcp,
+            tools_count=0,
+            stream=False,
+        )
         
-        for attempt in range(1, max_retries + 1):
-            current_prompt = prompt if attempt == 1 else self._add_json_hint(prompt, last_response, attempt)
+        try:
+            for attempt in range(1, max_retries + 1):
+                current_prompt = prompt if attempt == 1 else self._add_json_hint(prompt, last_response, attempt)
+                
+                result = await self.generate_text(
+                    prompt=current_prompt,
+                    provider=provider,
+                    model=model,
+                    temperature=temperature,
+                    max_tokens=max_tokens,
+                    system_prompt=system_prompt,
+                    auto_mcp=auto_mcp,
+                    handle_tool_calls=True,
+                )
+                aggregate_usage.add(TokenUsage.from_response(result))
+                metrics.retry_count = attempt
+                metrics.tools_count = max(metrics.tools_count, len(self._cached_tools) if self._cached_tools else 0)
+                
+                last_response = result.get("content", "")
+                
+                try:
+                    data = parse_json(last_response)
+                    if expected_type == "object" and not isinstance(data, dict):
+                        raise ValueError("期望对象")
+                    if expected_type == "array" and not isinstance(data, list):
+                        raise ValueError("期望数组")
+                    metrics.json_parse_success = True
+                    metrics.finish(
+                        success=True,
+                        response_length=len(last_response),
+                        finish_reason=result.get("finish_reason"),
+                        usage=aggregate_usage,
+                    )
+                    self._log_call_metrics(metrics, title="AI调用汇总")
+                    return data
+                except Exception as e:
+                    metrics.json_parse_success = False
+                    if attempt == max_retries:
+                        raise ValueError(f"JSON 解析失败: {e}")
             
-            result = await self.generate_text(
-                prompt=current_prompt,
-                provider=provider,
-                model=model,
-                temperature=temperature,
-                max_tokens=max_tokens,
-                system_prompt=system_prompt,
-                auto_mcp=auto_mcp,
-                handle_tool_calls=True,
+            raise ValueError("JSON 调用失败")
+        except Exception as e:
+            metrics.finish(
+                success=False,
+                response_length=len(last_response),
+                usage=aggregate_usage,
+                error=e,
             )
-            
-            last_response = result.get("content", "")
-            
-            try:
-                data = parse_json(last_response)
-                if expected_type == "object" and not isinstance(data, dict):
-                    raise ValueError("期望对象")
-                if expected_type == "array" and not isinstance(data, list):
-                    raise ValueError("期望数组")
-                return data
-            except Exception as e:
-                if attempt == max_retries:
-                    raise ValueError(f"JSON 解析失败: {e}")
-        
-        raise ValueError("JSON 调用失败")
+            self._log_call_metrics(metrics, title="AI调用汇总")
+            raise
 
     @staticmethod
     def _add_json_hint(prompt: str, failed: str, attempt: int) -> str:

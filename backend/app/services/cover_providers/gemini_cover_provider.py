@@ -27,7 +27,7 @@ class GeminiCoverProvider(BaseCoverProvider):
         width: int,
         height: int,
     ) -> CoverGenerationResult:
-        url = f"{self.base_url}/models/{model}:generateContent?key={self.api_key}"
+        url = f"{self.base_url}/models/{model}:generateContent"
         payload: dict[str, Any] = {
             "contents": [{
                 "role": "user",
@@ -43,11 +43,27 @@ class GeminiCoverProvider(BaseCoverProvider):
                 "temperature": 0.4,
             },
         }
+        headers = {
+            "x-goog-api-key": self.api_key,
+            "Content-Type": "application/json",
+        }
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(url, json=payload)
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(url, headers=headers, json=payload)
+
             response.raise_for_status()
             data = response.json()
+        except httpx.HTTPStatusError as exc:
+            logger.error(
+                "Gemini 封面生成 HTTP 错误: status=%s response=%s",
+                exc.response.status_code if exc.response else None,
+                exc.response.text[:2000] if exc.response is not None else None,
+            )
+            raise
+        except Exception:
+            logger.error("Gemini 封面生成请求异常", exc_info=True)
+            raise
 
         candidates = data.get("candidates") or []
         if not candidates:

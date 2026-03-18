@@ -60,16 +60,7 @@ RUN apt-get update && apt-get install -y \
 # 复制后端依赖文件
 COPY backend/requirements.txt ./
 
-# 根据架构安装PyTorch CPU版本
-# arm64架构使用pip直接安装，amd64使用PyTorch官方CPU源
-RUN if [ "$TARGETARCH" = "arm64" ]; then \
-        pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu || \
-        pip install --no-cache-dir torch; \
-    else \
-        pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu; \
-    fi
-
-# 安装其他Python依赖
+# 安装 Python 依赖（包含 torch，避免单独安装造成重复层）
 RUN if [ "$USE_CN_MIRROR" = "true" ]; then \
         pip install --no-cache-dir -r requirements.txt -i https://mirrors.aliyun.com/pypi/simple/; \
     else \
