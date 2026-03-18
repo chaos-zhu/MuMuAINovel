@@ -18,8 +18,6 @@ export interface SSEClientOptions {
   onError?: (error: string, code?: number) => void;
   onComplete?: () => void;
   onConnectionError?: (error: Event) => void;
-  onCharacterConfirmation?: (data: any) => void;  // 新增：角色确认回调
-  onOrganizationConfirmation?: (data: any) => void; // 新增：组织确认回调
 }
 
 export class SSEClient {
@@ -169,8 +167,6 @@ export class SSEPostClient {
         }
 
         let buffer = '';
-        let currentEvent = '';  // 跟踪当前事件类型
-
         while (true) {
           const { done, value } = await reader.read();
 
@@ -189,38 +185,14 @@ export class SSEPostClient {
             }
 
             try {
-              // 检查是否有事件类型
-              const eventMatch = line.match(/^event: (.+)$/m);
-              if (eventMatch) {
-                currentEvent = eventMatch[1];
-              }
-
               // 解析数据
               const dataMatch = line.match(/^data: (.+)$/m);
               if (dataMatch) {
                 const data = JSON.parse(dataMatch[1]);
 
-                // 根据事件类型处理
-                if (currentEvent === 'character_confirmation_required') {
-                  // 处理角色确认事件
-                  if (this.options.onCharacterConfirmation) {
-                    this.options.onCharacterConfirmation(data);
-                  }
-                  currentEvent = '';  // 重置事件类型
-                  return;  // 暂停流程，等待用户确认
-                } else if (currentEvent === 'organization_confirmation_required') {
-                  // 处理组织确认事件
-                  if (this.options.onOrganizationConfirmation) {
-                    this.options.onOrganizationConfirmation(data);
-                  }
-                  currentEvent = '';  // 重置事件类型
-                  return;  // 暂停流程，等待用户确认
-                } else {
-                  // 标准消息处理
-                  const message: SSEMessage = data;
-                  await this.handleMessage(message, resolve, reject);
-                  currentEvent = '';  // 重置事件类型
-                }
+                // 标准消息处理
+                const message: SSEMessage = data;
+                await this.handleMessage(message, resolve, reject);
               }
             } catch (error) {
               console.error('解析SSE消息失败:', error, line);

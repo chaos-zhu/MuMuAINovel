@@ -160,6 +160,7 @@ async def generate_career_system(
     project_id: str,
     main_career_count: int = 3,
     sub_career_count: int = 6,
+    user_requirements: str = "",
     enable_mcp: bool = False,
     http_request: Request = None,
     db: AsyncSession = Depends(get_db),
@@ -223,7 +224,20 @@ async def generate_career_system(
 - 世界规则：{project.world_rules or '未设定'}
 """
             
-            user_requirements = f"""
+            sanitized_user_requirements = user_requirements.strip()
+            extra_requirement_text = ""
+            if sanitized_user_requirements:
+                extra_requirement_text = f"""
+用户额外要求：
+{sanitized_user_requirements}
+
+执行要求：
+- 请优先满足用户提出的职业方向、能力风格、限制条件和避雷项
+- 如果用户要求与已有职业高度相似，请保留需求核心，但生成定位差异明确的新职业
+- 如果用户要求与项目世界观冲突，请在不违背世界观的前提下进行合理改写和本土化适配
+"""
+
+            generation_requirements = f"""
 已有职业情况：{existing_careers_text}
 
 生成要求（增量式）：
@@ -233,14 +247,15 @@ async def generate_career_system(
 - 新职业应填补已有职业体系的空缺，丰富职业多样性
 - 主职业必须严格符合世界观规则，体现核心能力体系
 - 副职业可以更加自由灵活，包含生产、辅助、特殊类型
-"""
+
+{extra_requirement_text}"""
             
             yield await tracker.preparing("构建AI提示词...")
             
             # 构建提示词
             prompt = f"""{project_context}
 
-{user_requirements}
+{generation_requirements}
 
 请为这个小说项目生成新的补充职业（增量式）。要求：
 1. **仔细分析已有职业**，避免生成重复或相似的职业
@@ -288,7 +303,8 @@ async def generate_career_system(
 4. 阶段名称要符合世界观特色
 5. 副职业可以相对简化，但要有独特性
 6. 所有职业都要符合项目的整体世界观设定
-7. 只返回纯JSON，不要添加任何解释文字
+7. 如果提供了用户额外要求，请优先满足；若与世界观冲突，必须以世界观为准进行合理改写
+8. 只返回纯JSON，不要添加任何解释文字
 """
             
             yield await tracker.generating(0, max(3000, len(prompt) * 8), "调用AI生成新职业...")

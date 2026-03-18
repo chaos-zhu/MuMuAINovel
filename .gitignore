@@ -79,6 +79,7 @@ backend/data/*.db-shm
 backend/data/*.db-wal
 backend/data/users.json
 backend/data/admins.json
+backend/storage/
 
 # Temporary files
 *.bak
@@ -121,3 +122,6 @@ backend/migrate_all_databases.py
 test_api.py
 # Embedding models (downloaded from HuggingFace at runtime)
 backend/embedding/
+
+# 提示词工坊实例标识（每个部署实例必须唯一）
+backend/.instance_id

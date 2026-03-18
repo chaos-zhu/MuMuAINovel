@@ -14,6 +14,7 @@ import time
 
 from app.database import get_db
 from app.models.settings import Settings
+from app.services.cover_generation_service import cover_generation_service
 from app.schemas.settings import (
     SettingsCreate, SettingsUpdate, SettingsResponse,
     APIKeyPreset, APIKeyPresetConfig, PresetCreateRequest,
@@ -22,11 +23,18 @@ from app.schemas.settings import (
 from app.user_manager import User
 from app.logger import get_logger
 from app.config import settings as app_settings, PROJECT_ROOT
-from app.services.ai_service import AIService, create_user_ai_service, create_user_ai_service_with_mcp
+from app.services.ai_service import AIService, create_user_ai_service, create_user_ai_service_with_mcp, normalize_provider
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/settings", tags=["设置管理"])
+
+
+class CoverSettingsTestRequest(BaseModel):
+    cover_api_provider: str
+    cover_api_key: str
+    cover_api_base_url: Optional[str] = None
+    cover_image_model: str
 
 
 def read_env_defaults() -> Dict[str, Any]:
@@ -140,6 +148,25 @@ async def get_settings(
     
     logger.info(f"用户 {user.user_id} 获取已保存的设置")
     return settings
+
+
+@router.post("/cover/test")
+async def test_cover_settings(
+    data: CoverSettingsTestRequest,
+    user: User = Depends(require_login),
+):
+    result = await cover_generation_service.test_cover_settings(
+        provider=data.cover_api_provider,
+        api_key=data.cover_api_key,
+        api_base_url=data.cover_api_base_url,
+        model=data.cover_image_model,
+    )
+    return {
+        "success": result.success,
+        "message": result.message,
+        "provider": result.provider,
+        "model": result.model,
+    }
 
 
 @router.post("", response_model=SettingsResponse)
@@ -288,6 +315,7 @@ async def get_available_models(
         模型列表
     """
     try:
+        provider = normalize_provider(provider)
         async with httpx.AsyncClient(timeout=10.0) as client:
             if provider == "openai" or provider == "azure" or provider == "custom":
                 # OpenAI 兼容接口获取模型列表
@@ -356,6 +384,11 @@ async def get_available_models(
             
     except httpx.HTTPStatusError as e:
         logger.error(f"获取模型列表失败 (HTTP {e.response.status_code}): {e.response.text}")
+        if e.response.status_code == 404:
+            raise HTTPException(
+                status_code=400,
+                detail=f"该 API 提供商不支持模型列表查询接口 (/models 返回 404)，请手动输入模型名称。当前请求地址: {api_base_url.rstrip('/')}/models"
+            )
         raise HTTPException(
             status_code=400,
             detail=f"无法从 API 获取模型列表 (HTTP {e.response.status_code})"
@@ -404,7 +437,7 @@ async def check_function_calling_support(data: ApiTestRequest):
     """
     api_key = data.api_key
     api_base_url = data.api_base_url
-    provider = data.provider
+    provider = normalize_provider(data.provider)
     llm_model = data.llm_model
     
     try:
@@ -620,7 +653,7 @@ async def test_api_connection(data: ApiTestRequest):
     """
     api_key = data.api_key
     api_base_url = data.api_base_url
-    provider = data.provider
+    provider = normalize_provider(data.provider)
     llm_model = data.llm_model
     # 使用前端传递的参数，如果未传递则使用默认值
     temperature = data.temperature if data.temperature is not None else 0.7
@@ -865,7 +898,10 @@ async def create_preset(
         "description": data.description,
         "is_active": False,
         "created_at": datetime.now().isoformat(),
-        "config": data.config.model_dump()
+        "config": {
+            **data.config.model_dump(),
+            "api_provider": normalize_provider(data.config.api_provider)
+        }
     }
     
     presets.append(new_preset)
@@ -915,7 +951,10 @@ async def update_preset(
     if data.description is not None:
         target_preset['description'] = data.description
     if data.config is not None:
-        target_preset['config'] = data.config.model_dump()
+        target_preset['config'] = {
+            **data.config.model_dump(),
+            'api_provider': normalize_provider(data.config.api_provider)
+        }
     
     # 保存回preferences
     prefs['api_presets'] = api_presets
@@ -1001,12 +1040,13 @@ async def activate_preset(
     
     # 应用配置到Settings主字段
     config = target_preset['config']
-    settings.api_provider = config['api_provider']
+    settings.api_provider = normalize_provider(config['api_provider'])
     settings.api_key = config['api_key']
     settings.api_base_url = config.get('api_base_url')
     settings.llm_model = config['llm_model']
     settings.temperature = config['temperature']
     settings.max_tokens = config['max_tokens']
+    settings.system_prompt = config.get('system_prompt')
     
     # 更新所有预设的is_active状态
     for preset in presets:
@@ -1083,12 +1123,13 @@ async def create_preset_from_current(
     
     # 从当前Settings主字段读取配置
     current_config = APIKeyPresetConfig(
-        api_provider=settings.api_provider,
+        api_provider=normalize_provider(settings.api_provider),
         api_key=settings.api_key,
         api_base_url=settings.api_base_url,
         llm_model=settings.llm_model,
         temperature=settings.temperature,
-        max_tokens=settings.max_tokens
+        max_tokens=settings.max_tokens,
+        system_prompt=settings.system_prompt
     )
     
     # 创建预设

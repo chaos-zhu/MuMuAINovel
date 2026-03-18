@@ -38,7 +38,8 @@ class PlotAnalyzer:
         db: AsyncSession = None,
         max_retries: int = 3,
         existing_foreshadows: Optional[List[Dict[str, Any]]] = None,
-        on_retry: Optional[OnRetryCallback] = None
+        on_retry: Optional[OnRetryCallback] = None,
+        characters_info: str = ""
     ) -> Optional[Dict[str, Any]]:
         """
         分析单章内容（带重试机制）
@@ -53,6 +54,7 @@ class PlotAnalyzer:
             max_retries: 最大重试次数，默认3次
             existing_foreshadows: 已埋入的伏笔列表（用于回收匹配）
             on_retry: 重试时的回调函数，参数为 (当前重试次数, 最大重试次数, 等待秒数, 错误原因)
+            characters_info: 项目角色信息文本（用于角色名称匹配）
         
         Returns:
             分析结果字典,失败返回None
@@ -83,11 +85,12 @@ class PlotAnalyzer:
             title=title,
             word_count=word_count,
             content=analysis_content,
-            existing_foreshadows=foreshadows_text
+            existing_foreshadows=foreshadows_text,
+            characters_info=characters_info if characters_info else "（暂无角色信息）"
         )
         
         last_error = None
-        
+        logger.debug(f"章节分析提示词{prompt}")
         for attempt in range(1, max_retries + 1):
             try:
                 # 调用AI进行分析
@@ -187,12 +190,13 @@ class PlotAnalyzer:
     
     def _format_existing_foreshadows(self, foreshadows: Optional[List[Dict[str, Any]]]) -> str:
         """
-        格式化已有伏笔列表，用于注入到分析提示词中（智能分类版）
+        格式化已有伏笔列表，用于注入到分析提示词中
         
-        核心策略：
-        1. 必须回收的伏笔 - 明确标注，要求AI识别回收
-        2. 超期的伏笔 - 提醒AI尽快回收
-        3. 未到期的伏笔 - 明确标注禁止提前回收
+        核心策略（重构版）：
+        - 分层展示所有已埋入伏笔，让AI能识别"自然回收"
+        - 第1层：本章必须回收的伏笔（最详细）
+        - 第2层：超期伏笔（较详细）
+        - 第3层：其他已埋入伏笔（精简信息，供AI判断是否自然回收了）
         
         Args:
             foreshadows: 伏笔列表，每个包含 id, title, content, plant_chapter_number, resolve_status 等
@@ -203,98 +207,60 @@ class PlotAnalyzer:
         if not foreshadows:
             return "（暂无已埋入的伏笔）"
         
-        # 按回收状态分类
-        must_resolve = []  # 本章必须回收
-        overdue = []       # 已超期
-        not_yet = []       # 尚未到期
-        no_plan = []       # 无明确计划
-        
-        for fs in foreshadows:
-            status = fs.get('resolve_status', 'no_plan')
-            if status == 'must_resolve_now':
-                must_resolve.append(fs)
-            elif status == 'overdue':
-                overdue.append(fs)
-            elif status == 'not_yet':
-                not_yet.append(fs)
-            else:
-                no_plan.append(fs)
+        # 分类伏笔
+        must_resolve = [fs for fs in foreshadows if fs.get('resolve_status') == 'must_resolve_now']
+        overdue = [fs for fs in foreshadows if fs.get('resolve_status') == 'overdue']
+        others = [fs for fs in foreshadows if fs.get('resolve_status') not in ('must_resolve_now', 'overdue')]
         
         lines = []
         
-        # 1. 本章必须回收的伏笔（最高优先级）
+        # === 第1层：本章必须回收的伏笔（最详细）===
         if must_resolve:
-            lines.append("=" * 50)
-            lines.append("【🎯 本章必须回收的伏笔 - 请务必识别回收】")
-            lines.append("=" * 50)
+            lines.append("=" * 40)
+            lines.append("【🎯 本章必须回收的伏笔】")
+            lines.append("=" * 40)
             for i, fs in enumerate(must_resolve, 1):
                 fs_id = fs.get('id', 'unknown')
                 fs_title = fs.get('title', '未命名伏笔')
-                fs_content = fs.get('content', '')[:150]
+                fs_content = fs.get('content', '')[:200]
                 plant_chapter = fs.get('plant_chapter_number', '?')
+                hint_text = fs.get('hint_text', '')
                 
                 lines.append(f"{i}. 【ID: {fs_id}】{fs_title}")
-                lines.append(f"   ⚠️ 回收要求：必须在本章回收此伏笔")
                 lines.append(f"   埋入章节：第{plant_chapter}章")
-                lines.append(f"   伏笔内容：{fs_content}{'...' if len(fs.get('content', '')) > 150 else ''}")
-                lines.append(f"   回收时请在 reference_foreshadow_id 中填写: {fs_id}")
+                lines.append(f"   伏笔内容：{fs_content}{'...' if len(fs.get('content', '')) > 200 else ''}")
+                if hint_text:
+                    lines.append(f"   埋入暗示：{hint_text[:100]}")
+                lines.append(f"   ⚠️ 回收时 reference_foreshadow_id 填写: {fs_id}")
                 lines.append("")
         
-        # 2. 超期的伏笔（需要尽快处理）
+        # === 第2层：超期伏笔 ===
         if overdue:
-            lines.append("-" * 50)
-            lines.append("【⚠️ 超期待回收伏笔 - 建议尽快回收】")
-            lines.append("-" * 50)
-            for i, fs in enumerate(overdue, 1):
+            lines.append("【⚠️ 超期未回收伏笔 - 如章节内容回收了请标记】")
+            for fs in overdue[:5]:
                 fs_id = fs.get('id', 'unknown')
-                fs_title = fs.get('title', '未命名伏笔')
-                fs_content = fs.get('content', '')[:100]
+                fs_title = fs.get('title', '')
                 plant_chapter = fs.get('plant_chapter_number', '?')
-                hint = fs.get('resolve_hint', '')
-                
-                lines.append(f"{i}. 【ID: {fs_id}】{fs_title}")
-                lines.append(f"   状态：{hint}")
-                lines.append(f"   埋入章节：第{plant_chapter}章")
-                lines.append(f"   内容：{fs_content}{'...' if len(fs.get('content', '')) > 100 else ''}")
-                lines.append("")
-        
-        # 3. 尚未到期的伏笔（禁止提前回收，仅作参考）
-        if not_yet:
-            lines.append("-" * 50)
-            lines.append("【📋 尚未到期的伏笔 - 仅供参考，请勿在本章回收】")
-            lines.append("-" * 50)
-            lines.append("⚠️ 以下伏笔尚未到计划回收时间，请勿提前回收！")
+                lines.append(f"- 【ID: {fs_id}】{fs_title}（第{plant_chapter}章埋入）")
             lines.append("")
-            for i, fs in enumerate(not_yet[:5], 1):  # 最多显示5个
-                fs_title = fs.get('title', '未命名伏笔')
-                target_chapter = fs.get('target_resolve_chapter_number', '?')
-                hint = fs.get('resolve_hint', '')
-                
-                lines.append(f"{i}. {fs_title}")
-                lines.append(f"   计划回收章节：第{target_chapter}章 | {hint}")
-                lines.append("")
-            
-            if len(not_yet) > 5:
-                lines.append(f"   ... 还有 {len(not_yet) - 5} 个未到期伏笔")
-                lines.append("")
         
-        # 4. 无明确计划的伏笔（可根据剧情自然回收）
-        if no_plan:
-            lines.append("-" * 50)
-            lines.append("【📝 无明确计划的伏笔 - 可根据剧情自然回收】")
-            lines.append("-" * 50)
-            for i, fs in enumerate(no_plan[:3], 1):  # 最多显示3个
+        # === 第3层：其他已埋入伏笔（精简）===
+        if others:
+            lines.append("【📋 其他已埋入伏笔 - 如章节内容自然回收了请标记】")
+            for fs in others[:10]:
                 fs_id = fs.get('id', 'unknown')
-                fs_title = fs.get('title', '未命名伏笔')
-                fs_content = fs.get('content', '')[:80]
+                fs_title = fs.get('title', '')
                 plant_chapter = fs.get('plant_chapter_number', '?')
-                
-                lines.append(f"{i}. 【ID: {fs_id}】{fs_title}")
-                lines.append(f"   埋入章节：第{plant_chapter}章")
-                lines.append(f"   内容：{fs_content}{'...' if len(fs.get('content', '')) > 80 else ''}")
-                lines.append("")
+                lines.append(f"- 【ID: {fs_id}】{fs_title}（第{plant_chapter}章埋入）")
+            if len(others) > 10:
+                lines.append(f"  ... 还有{len(others) - 10}个伏笔未列出")
+            lines.append("")
         
-        return "\n".join(lines) if lines else "（暂无已埋入的伏笔）"
+        # 操作指引
+        lines.append("提示：如果章节内容回收了上述任一伏笔，请在 foreshadows 数组中")
+        lines.append("添加 type='resolved' 的记录，并在 reference_foreshadow_id 填写对应ID。")
+        
+        return "\n".join(lines)
     
     def _parse_analysis_response(self, response: str) -> Optional[Dict[str, Any]]:
         """

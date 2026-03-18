@@ -130,7 +130,8 @@ from app.api import (
     wizard_stream, relationships, organizations,
     auth, users, settings, writing_styles, memories,
     mcp_plugins, admin, inspiration, prompt_templates,
-    changelog, careers, foreshadows
+    changelog, careers, foreshadows, prompt_workshop, book_import,
+    project_covers
 )
 
 app.include_router(auth.router, prefix="/api")
@@ -139,6 +140,7 @@ app.include_router(settings.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 
 app.include_router(projects.router, prefix="/api")
+app.include_router(project_covers.router, prefix="/api")
 app.include_router(wizard_stream.router, prefix="/api")
 app.include_router(inspiration.router, prefix="/api")
 app.include_router(outlines.router, prefix="/api")
@@ -153,10 +155,16 @@ app.include_router(foreshadows.router)  # 伏笔管理API (已包含/api前缀)
 app.include_router(mcp_plugins.router, prefix="/api")  # MCP插件管理API
 app.include_router(prompt_templates.router, prefix="/api")  # 提示词模板管理API
 app.include_router(changelog.router, prefix="/api")  # 更新日志API
+app.include_router(prompt_workshop.router, prefix="/api")  # 提示词工坊API
+app.include_router(book_import.router, prefix="/api")  # 拆书导入API
 
 static_dir = Path(__file__).parent.parent / "static"
+generated_assets_root_dir = Path(__file__).parent.parent / "storage"
+generated_covers_dir = generated_assets_root_dir / "generated_covers"
+generated_covers_dir.mkdir(parents=True, exist_ok=True)
 if static_dir.exists():
     app.mount("/assets", StaticFiles(directory=str(static_dir / "assets")), name="assets")
+    app.mount("/generated-assets/covers", StaticFiles(directory=str(generated_covers_dir)), name="generated-covers")
     
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):

@@ -26,6 +26,13 @@ cleanup_http_clients = cleanup_all_clients
 logger = get_logger(__name__)
 
 
+def normalize_provider(provider: Optional[str]) -> Optional[str]:
+    """标准化 provider 名称，兼容渠道别名。"""
+    if provider == "mumu":
+        return "openai"
+    return provider
+
+
 class AIService:
     """
     AI服务统一接口
@@ -78,7 +85,7 @@ class AIService:
         db_session: Optional[Any] = None,
         enable_mcp: bool = True,
     ):
-        self.api_provider = api_provider or app_settings.default_ai_provider
+        self.api_provider = normalize_provider(api_provider or app_settings.default_ai_provider)
         self.default_model = default_model or app_settings.default_model
         self.default_temperature = default_temperature or app_settings.default_temperature
         self.default_max_tokens = default_max_tokens or app_settings.default_max_tokens
@@ -97,21 +104,21 @@ class AIService:
         self._gemini_provider: Optional[GeminiProvider] = None
         
         # 初始化 OpenAI
-        openai_key = api_key if api_provider == "openai" else app_settings.openai_api_key
+        openai_key = api_key if self.api_provider == "openai" else app_settings.openai_api_key
         if openai_key:
-            base_url = api_base_url if api_provider == "openai" else app_settings.openai_base_url
+            base_url = api_base_url if self.api_provider == "openai" else app_settings.openai_base_url
             client = OpenAIClient(openai_key, base_url or "https://api.openai.com/v1", self.config)
             self._openai_provider = OpenAIProvider(client)
         
         # 初始化 Anthropic
-        anthropic_key = api_key if api_provider == "anthropic" else app_settings.anthropic_api_key
+        anthropic_key = api_key if self.api_provider == "anthropic" else app_settings.anthropic_api_key
         if anthropic_key:
-            base_url = api_base_url if api_provider == "anthropic" else app_settings.anthropic_base_url
+            base_url = api_base_url if self.api_provider == "anthropic" else app_settings.anthropic_base_url
             client = AnthropicClient(anthropic_key, base_url, self.config)
             self._anthropic_provider = AnthropicProvider(client)
         
         # 初始化 Gemini
-        if api_provider == "gemini" and api_key:
+        if self.api_provider == "gemini" and api_key:
             client = GeminiClient(api_key, api_base_url, self.config)
             self._gemini_provider = GeminiProvider(client)
 
@@ -147,7 +154,7 @@ class AIService:
     
     def _get_provider(self, provider: Optional[str] = None) -> BaseAIProvider:
         """获取对应的 Provider"""
-        p = provider or self.api_provider
+        p = normalize_provider(provider or self.api_provider)
         if p == "openai" and self._openai_provider:
             return self._openai_provider
         if p == "anthropic" and self._anthropic_provider:

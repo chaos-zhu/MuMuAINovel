@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { List, Button, Modal, Form, Input, Select, message, Empty, Space, Badge, Tag, Card, InputNumber, Alert, Radio, Descriptions, Collapse, Popconfirm, FloatButton } from 'antd';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { List, Button, Modal, Form, Input, Select, message, Empty, Space, Badge, Tag, Card, InputNumber, Alert, Radio, Descriptions, Collapse, Popconfirm, Pagination, theme } from 'antd';
 import { EditOutlined, FileTextOutlined, ThunderboltOutlined, LockOutlined, DownloadOutlined, SettingOutlined, FundOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, RocketOutlined, StopOutlined, InfoCircleOutlined, CaretRightOutlined, DeleteOutlined, BookOutlined, FormOutlined, PlusOutlined, ReadOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
 import { useChapterSync } from '../store/hooks';
@@ -10,8 +10,9 @@ import ChapterAnalysis from '../components/ChapterAnalysis';
 import ExpansionPlanEditor from '../components/ExpansionPlanEditor';
 import { SSELoadingOverlay } from '../components/SSELoadingOverlay';
 import { SSEProgressModal } from '../components/SSEProgressModal';
-import FloatingIndexPanel from '../components/FloatingIndexPanel';
 import ChapterReader from '../components/ChapterReader';
+import PartialRegenerateToolbar from '../components/PartialRegenerateToolbar';
+import PartialRegenerateModal from '../components/PartialRegenerateModal';
 
 const { TextArea } = Input;
 
@@ -47,6 +48,7 @@ const setCachedWordCount = (value: number): void => {
 export default function Chapters() {
   const { currentProject, chapters, outlines, setCurrentChapter, setCurrentProject } = useStore();
   const [modal, contextHolder] = Modal.useModal();
+  const { token } = theme.useToken();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [isContinuing, setIsContinuing] = useState(false);
@@ -67,8 +69,13 @@ export default function Chapters() {
   const [analysisChapterId, setAnalysisChapterId] = useState<string | null>(null);
   // 分析任务状态管理
   const [analysisTasksMap, setAnalysisTasksMap] = useState<Record<string, AnalysisTask>>({});
-  const pollingIntervalsRef = useRef<Record<string, number>>({});
-  const [isIndexPanelVisible, setIsIndexPanelVisible] = useState(false);
+  const analysisPollingIntervalRef = useRef<number | null>(null);
+  const activeAnalysisPollingIdsRef = useRef<Set<string>>(new Set());
+
+  // 列表查询与分页状态
+  const [chapterSearchKeyword, setChapterSearchKeyword] = useState('');
+  const [chapterPage, setChapterPage] = useState(1);
+  const [chapterPageSize, setChapterPageSize] = useState(20);
 
   // 阅读器状态
   const [readerVisible, setReaderVisible] = useState(false);
@@ -78,6 +85,14 @@ export default function Chapters() {
   const [planEditorVisible, setPlanEditorVisible] = useState(false);
   const [editingPlanChapter, setEditingPlanChapter] = useState<Chapter | null>(null);
 
+  // 局部重写状态
+  const [partialRegenerateToolbarVisible, setPartialRegenerateToolbarVisible] = useState(false);
+  const [partialRegenerateToolbarPosition, setPartialRegenerateToolbarPosition] = useState({ top: 0, left: 0 });
+  const [selectedTextForRegenerate, setSelectedTextForRegenerate] = useState('');
+  const [selectionStartPosition, setSelectionStartPosition] = useState(0);
+  const [selectionEndPosition, setSelectionEndPosition] = useState(0);
+  const [partialRegenerateModalVisible, setPartialRegenerateModalVisible] = useState(false);
+
   // 单章节生成进度状态
   const [singleChapterProgress, setSingleChapterProgress] = useState(0);
   const [singleChapterProgressMessage, setSingleChapterProgressMessage] = useState('');
@@ -85,6 +100,7 @@ export default function Chapters() {
   // 批量生成相关状态
   const [batchGenerateVisible, setBatchGenerateVisible] = useState(false);
   const [batchGenerating, setBatchGenerating] = useState(false);
+  const [batchAnalyzingUnanalyzed, setBatchAnalyzingUnanalyzed] = useState(false);
   const [batchTaskId, setBatchTaskId] = useState<string | null>(null);
   const [batchForm] = Form.useForm();
   const [manualCreateForm] = Form.useForm();
@@ -106,6 +122,212 @@ export default function Chapters() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
+  // 处理文本选中 - 检测选中文本并显示浮动工具栏
+  const handleTextSelection = useCallback(() => {
+    // 只在编辑器打开时处理选中
+    if (!isEditorOpen || isGenerating) {
+      setPartialRegenerateToolbarVisible(false);
+      return;
+    }
+
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) {
+      setPartialRegenerateToolbarVisible(false);
+      return;
+    }
+
+    const selectedText = selection.toString().trim();
+    
+    // 至少选中10个字符才显示工具栏
+    if (selectedText.length < 10) {
+      setPartialRegenerateToolbarVisible(false);
+      return;
+    }
+
+    // 检查选中是否在 TextArea 内
+    const textArea = contentTextAreaRef.current?.resizableTextArea?.textArea;
+    if (!textArea) {
+      setPartialRegenerateToolbarVisible(false);
+      return;
+    }
+    
+    // 检查选中是否在 textarea 内（需要特殊处理，因为 textarea 的选中不会创建 range）
+    if (document.activeElement !== textArea) {
+      setPartialRegenerateToolbarVisible(false);
+      return;
+    }
+
+    // 获取 textarea 中的选中位置
+    const start = textArea.selectionStart;
+    const end = textArea.selectionEnd;
+    const textContent = textArea.value;
+    const selectedInTextArea = textContent.substring(start, end);
+
+    if (selectedInTextArea.trim().length < 10) {
+      setPartialRegenerateToolbarVisible(false);
+      return;
+    }
+
+    // 计算浮动工具栏位置
+    const rect = textArea.getBoundingClientRect();
+    const computedStyle = window.getComputedStyle(textArea);
+    const lineHeight = parseFloat(computedStyle.lineHeight) || 24;
+    const paddingTop = parseFloat(computedStyle.paddingTop) || 0;
+    
+    // 计算选中文本起始位置所在的行号
+    const textBeforeSelection = textContent.substring(0, start);
+    const startLine = textBeforeSelection.split('\n').length - 1;
+    
+    // 计算选中文本在 textarea 中的视觉位置
+    // 需要考虑 scrollTop（textarea 内部滚动偏移）
+    const scrollTop = textArea.scrollTop;
+    const visualTop = (startLine * lineHeight) + paddingTop - scrollTop;
+    
+    // 工具栏位置：textarea 顶部 + 选中文本的视觉位置 - 工具栏高度偏移
+    const toolbarTop = rect.top + visualTop - 45;
+    
+    // 水平位置：放在 textarea 的右侧区域，避免遮挡文本
+    const toolbarLeft = rect.right - 180;
+
+    setSelectedTextForRegenerate(selectedInTextArea);
+    setSelectionStartPosition(start);
+    setSelectionEndPosition(end);
+    
+    // 计算工具栏位置，如果选中位置不在可视区域内，固定在边缘
+    let finalTop = toolbarTop;
+    if (visualTop < 0) {
+      finalTop = rect.top + 10;
+    } else if (visualTop > textArea.clientHeight) {
+      finalTop = rect.bottom - 50;
+    }
+    
+    setPartialRegenerateToolbarPosition({
+      top: Math.max(rect.top + 10, Math.min(finalTop, rect.bottom - 50)),
+      left: Math.min(Math.max(rect.left + 20, toolbarLeft), window.innerWidth - 200),
+    });
+    setPartialRegenerateToolbarVisible(true);
+  }, [isEditorOpen, isGenerating]);
+
+  // 更新工具栏位置的函数（不检测选中，只更新位置）
+  const updateToolbarPosition = useCallback(() => {
+    if (!partialRegenerateToolbarVisible || !selectedTextForRegenerate) return;
+    
+    const textArea = contentTextAreaRef.current?.resizableTextArea?.textArea;
+    if (!textArea) return;
+    
+    const rect = textArea.getBoundingClientRect();
+    const computedStyle = window.getComputedStyle(textArea);
+    const lineHeight = parseFloat(computedStyle.lineHeight) || 24;
+    const paddingTop = parseFloat(computedStyle.paddingTop) || 0;
+    
+    const textContent = textArea.value;
+    const textBeforeSelection = textContent.substring(0, selectionStartPosition);
+    const startLine = textBeforeSelection.split('\n').length - 1;
+    
+    const scrollTop = textArea.scrollTop;
+    const visualTop = (startLine * lineHeight) + paddingTop - scrollTop;
+    
+    const toolbarTop = rect.top + visualTop - 45;
+    // 固定在 textarea 右上角，不随选中位置变化
+    const toolbarLeft = rect.right - 180;
+    
+    // 工具栏固定在 textarea 可视区域内，即使选中文本滚出视野也保持显示
+    // 如果选中位置在可视区域内，跟随选中位置
+    // 如果滚出视野，固定在顶部或底部边缘
+    let finalTop = toolbarTop;
+    if (visualTop < 0) {
+      // 选中位置在上方视野外，工具栏固定在顶部
+      finalTop = rect.top + 10;
+    } else if (visualTop > textArea.clientHeight) {
+      // 选中位置在下方视野外，工具栏固定在底部
+      finalTop = rect.bottom - 50;
+    }
+    
+    setPartialRegenerateToolbarPosition({
+      top: Math.max(rect.top + 10, Math.min(finalTop, rect.bottom - 50)),
+      left: Math.min(Math.max(rect.left + 20, toolbarLeft), window.innerWidth - 200),
+    });
+  }, [partialRegenerateToolbarVisible, selectedTextForRegenerate, selectionStartPosition]);
+
+  // 监听选中事件
+  useEffect(() => {
+    if (!isEditorOpen) return;
+
+    const textArea = contentTextAreaRef.current?.resizableTextArea?.textArea;
+    if (!textArea) return;
+
+    const handleMouseUp = () => {
+      // 鼠标释放时检查选中
+      setTimeout(handleTextSelection, 50);
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      // Shift + 方向键选中时检查
+      if (e.shiftKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+        setTimeout(handleTextSelection, 50);
+      }
+    };
+
+    const handleScroll = () => {
+      // 滚动时更新位置（使用 requestAnimationFrame 优化性能）
+      requestAnimationFrame(updateToolbarPosition);
+    };
+
+    // 监听 textarea 滚动
+    textArea.addEventListener('mouseup', handleMouseUp);
+    textArea.addEventListener('keyup', handleKeyUp);
+    textArea.addEventListener('scroll', handleScroll);
+
+    // 同时监听 Modal body 滚动（Modal 内容可能在外层容器滚动）
+    const modalBody = textArea.closest('.ant-modal-body');
+    if (modalBody) {
+      modalBody.addEventListener('scroll', handleScroll);
+    }
+
+    // 监听窗口大小变化
+    window.addEventListener('resize', handleScroll);
+
+    return () => {
+      textArea.removeEventListener('mouseup', handleMouseUp);
+      textArea.removeEventListener('keyup', handleKeyUp);
+      textArea.removeEventListener('scroll', handleScroll);
+      if (modalBody) {
+        modalBody.removeEventListener('scroll', handleScroll);
+      }
+      window.removeEventListener('resize', handleScroll);
+    };
+  }, [isEditorOpen, handleTextSelection, updateToolbarPosition]);
+
+  // 点击其他区域时隐藏工具栏
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      
+      // 如果点击的是工具栏，不隐藏
+      if (target.closest('[data-partial-regenerate-toolbar]')) {
+        return;
+      }
+      
+      // 如果点击的是 textarea，不隐藏
+      if (target.tagName === 'TEXTAREA') {
+        return;
+      }
+      
+      // 如果点击的是 Modal 内部（包括滚动条），不隐藏
+      if (target.closest('.ant-modal-content')) {
+        return;
+      }
+      
+      // 点击 Modal 外部才隐藏工具栏
+      setPartialRegenerateToolbarVisible(false);
+    };
+
+    if (partialRegenerateToolbarVisible) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [partialRegenerateToolbarVisible]);
+
   const {
     refreshChapters,
     updateChapter,
@@ -125,94 +347,116 @@ export default function Chapters() {
 
   // 清理轮询定时器
   useEffect(() => {
-    const pollingIntervals = pollingIntervalsRef.current;
     const batchPollingInterval = batchPollingIntervalRef.current;
     return () => {
-      Object.values(pollingIntervals).forEach(interval => {
-        clearInterval(interval);
-      });
+      if (analysisPollingIntervalRef.current) {
+        clearInterval(analysisPollingIntervalRef.current);
+        analysisPollingIntervalRef.current = null;
+      }
       if (batchPollingInterval) {
         clearInterval(batchPollingInterval);
       }
     };
   }, []);
 
-  // 加载所有章节的分析任务状态
-  // 接受可选的 chaptersToLoad 参数，解决 React 状态更新延迟导致的问题
-  const loadAnalysisTasks = async (chaptersToLoad?: typeof chapters) => {
-    const targetChapters = chaptersToLoad || chapters;
-    if (!targetChapters || targetChapters.length === 0) return;
+  const clearAnalysisPollingIfIdle = useCallback(() => {
+    if (activeAnalysisPollingIdsRef.current.size === 0 && analysisPollingIntervalRef.current) {
+      clearInterval(analysisPollingIntervalRef.current);
+      analysisPollingIntervalRef.current = null;
+    }
+  }, []);
 
-    const tasksMap: Record<string, AnalysisTask> = {};
+  const pollActiveAnalysisTasks = useCallback(async () => {
+    if (!currentProject?.id) return;
 
-    for (const chapter of targetChapters) {
-      // 只查询有内容的章节
-      if (chapter.content && chapter.content.trim() !== '') {
-        try {
-          const response = await fetch(`/api/chapters/${chapter.id}/analysis/status`);
-          if (response.ok) {
-            const task: AnalysisTask = await response.json();
-            tasksMap[chapter.id] = task;
-
-            // 如果任务正在运行，启动轮询
-            if (task.status === 'pending' || task.status === 'running') {
-              startPollingTask(chapter.id);
-            }
-          }
-        } catch {
-          // 404或其他错误表示没有分析任务，忽略
-          console.debug(`章节 ${chapter.id} 暂无分析任务`);
-        }
-      }
+    const activeIds = Array.from(activeAnalysisPollingIdsRef.current);
+    if (activeIds.length === 0) {
+      clearAnalysisPollingIfIdle();
+      return;
     }
 
-    setAnalysisTasksMap(tasksMap);
-  };
+    try {
+      const response = await chapterApi.getBatchAnalysisStatuses(currentProject.id, activeIds);
+      const tasksMap = response.items || {};
 
-  // 启动单个章节的任务轮询
-  const startPollingTask = (chapterId: string) => {
-    // 如果已经在轮询，先清除
-    if (pollingIntervalsRef.current[chapterId]) {
-      clearInterval(pollingIntervalsRef.current[chapterId]);
-    }
+      setAnalysisTasksMap(prev => ({
+        ...prev,
+        ...tasksMap,
+      }));
 
-    const interval = window.setInterval(async () => {
-      try {
-        const response = await fetch(`/api/chapters/${chapterId}/analysis/status`);
-        if (!response.ok) return;
+      activeIds.forEach((chapterId) => {
+        const task = tasksMap[chapterId];
+        if (!task || task.status === 'completed' || task.status === 'failed' || task.status === 'none') {
+          activeAnalysisPollingIdsRef.current.delete(chapterId);
 
-        const task: AnalysisTask = await response.json();
-
-        setAnalysisTasksMap(prev => ({
-          ...prev,
-          [chapterId]: task
-        }));
-
-        // 任务完成或失败，停止轮询
-        if (task.status === 'completed' || task.status === 'failed') {
-          clearInterval(pollingIntervalsRef.current[chapterId]);
-          delete pollingIntervalsRef.current[chapterId];
-
-          if (task.status === 'completed') {
-            message.success(`章节分析完成`);
-          } else if (task.status === 'failed') {
+          if (task?.status === 'completed') {
+            message.success('章节分析完成');
+          } else if (task?.status === 'failed') {
             message.error(`章节分析失败: ${task.error_message || '未知错误'}`);
           }
         }
-      } catch (error) {
-        console.error('轮询分析任务失败:', error);
-      }
+      });
+
+      clearAnalysisPollingIfIdle();
+    } catch (error) {
+      console.error('批量轮询分析任务失败:', error);
+    }
+  }, [clearAnalysisPollingIfIdle, currentProject?.id]);
+
+  const ensureAnalysisPolling = useCallback(() => {
+    if (analysisPollingIntervalRef.current) return;
+
+    analysisPollingIntervalRef.current = window.setInterval(() => {
+      void pollActiveAnalysisTasks();
     }, 2000);
 
-    pollingIntervalsRef.current[chapterId] = interval;
+    // 立即执行一次
+    void pollActiveAnalysisTasks();
+  }, [pollActiveAnalysisTasks]);
 
-    // 5分钟超时
-    setTimeout(() => {
-      if (pollingIntervalsRef.current[chapterId]) {
-        clearInterval(pollingIntervalsRef.current[chapterId]);
-        delete pollingIntervalsRef.current[chapterId];
+  // 加载所有章节的分析任务状态（批量接口，避免逐章请求风暴）
+  // 接受可选的 chaptersToLoad 参数，解决 React 状态更新延迟导致的问题
+  const loadAnalysisTasks = async (chaptersToLoad?: typeof chapters) => {
+    const targetChapters = chaptersToLoad || chapters;
+    if (!targetChapters || targetChapters.length === 0 || !currentProject?.id) return;
+
+    const chapterIds = targetChapters
+      .filter(chapter => chapter.content && chapter.content.trim() !== '')
+      .map(chapter => chapter.id);
+
+    if (chapterIds.length === 0) {
+      setAnalysisTasksMap({});
+      activeAnalysisPollingIdsRef.current.clear();
+      clearAnalysisPollingIfIdle();
+      return;
+    }
+
+    try {
+      const response = await chapterApi.getBatchAnalysisStatuses(currentProject.id, chapterIds);
+      const tasksMap = response.items || {};
+      setAnalysisTasksMap(tasksMap);
+
+      activeAnalysisPollingIdsRef.current.clear();
+      Object.entries(tasksMap).forEach(([chapterId, task]) => {
+        if (task?.status === 'pending' || task?.status === 'running') {
+          activeAnalysisPollingIdsRef.current.add(chapterId);
+        }
+      });
+
+      if (activeAnalysisPollingIdsRef.current.size > 0) {
+        ensureAnalysisPolling();
+      } else {
+        clearAnalysisPollingIfIdle();
       }
-    }, 300000);
+    } catch (error) {
+      console.error('批量加载分析任务状态失败:', error);
+    }
+  };
+
+  // 启动单个章节的任务轮询（内部合并到批量轮询）
+  const startPollingTask = (chapterId: string) => {
+    activeAnalysisPollingIdsRef.current.add(chapterId);
+    ensureAnalysisPolling();
   };
 
   const loadWritingStyles = async () => {
@@ -343,9 +587,9 @@ export default function Chapters() {
   };
 
   // 按章节号排序并按大纲分组章节 (必须在早返回之前调用，避免违反 Hooks 规则)
-  const { sortedChapters, groupedChapters } = useMemo(() => {
+  const { sortedChapters } = useMemo(() => {
     const sorted = [...chapters].sort((a, b) => a.chapter_number - b.chapter_number);
-    
+
     const groups: Record<string, {
       outlineId: string | null;
       outlineTitle: string;
@@ -368,103 +612,143 @@ export default function Chapters() {
       groups[key].chapters.push(chapter);
     });
 
-    // 转换为数组并按大纲顺序排序
-    const grouped = Object.values(groups).sort((a, b) => a.outlineOrder - b.outlineOrder);
-    
-    return { sortedChapters: sorted, groupedChapters: grouped };
+    return { sortedChapters: sorted };
   }, [chapters]);
+
+  // 章节查询过滤（前端过滤，减少渲染压力）
+  const filteredSortedChapters = useMemo(() => {
+    const keyword = chapterSearchKeyword.trim().toLowerCase();
+    if (!keyword) return sortedChapters;
+
+    return sortedChapters.filter((chapter) => {
+      return (
+        String(chapter.chapter_number).includes(keyword) ||
+        chapter.title.toLowerCase().includes(keyword) ||
+        (chapter.outline_title || '').toLowerCase().includes(keyword)
+      );
+    });
+  }, [sortedChapters, chapterSearchKeyword]);
+
+  // 分页后的扁平章节
+  const pagedSortedChapters = useMemo(() => {
+    const start = (chapterPage - 1) * chapterPageSize;
+    return filteredSortedChapters.slice(start, start + chapterPageSize);
+  }, [filteredSortedChapters, chapterPage, chapterPageSize]);
+
+  // one-to-many 模式分页后再按大纲分组
+  const pagedGroupedChapters = useMemo(() => {
+    const groups: Record<string, {
+      outlineId: string | null;
+      outlineTitle: string;
+      outlineOrder: number;
+      chapters: Chapter[];
+    }> = {};
+
+    pagedSortedChapters.forEach(chapter => {
+      const key = chapter.outline_id || 'uncategorized';
+      if (!groups[key]) {
+        groups[key] = {
+          outlineId: chapter.outline_id || null,
+          outlineTitle: chapter.outline_title || '未分类章节',
+          outlineOrder: chapter.outline_order ?? 999,
+          chapters: []
+        };
+      }
+      groups[key].chapters.push(chapter);
+    });
+
+    return Object.values(groups).sort((a, b) => a.outlineOrder - b.outlineOrder);
+  }, [pagedSortedChapters]);
+
+  // 搜索词或分页大小变化时重置到第一页
+  useEffect(() => {
+    setChapterPage(1);
+  }, [chapterSearchKeyword, chapterPageSize, currentProject?.outline_mode]);
+
+  // 数据变化导致页码越界时自动纠正
+  useEffect(() => {
+    const maxPage = Math.max(1, Math.ceil(filteredSortedChapters.length / chapterPageSize));
+    if (chapterPage > maxPage) {
+      setChapterPage(maxPage);
+    }
+  }, [filteredSortedChapters.length, chapterPage, chapterPageSize]);
+
+  // 预计算每章可生成状态，避免在渲染阶段重复 O(n²) 扫描
+  const chapterGenerateGateMap = useMemo(() => {
+    const gateMap: Record<string, { canGenerate: boolean; reason: string }> = {};
+    const incompleteChapterNumbers: number[] = [];
+    const unanalyzedChapters: Array<{ chapterNumber: number; reason: string }> = [];
+
+    sortedChapters.forEach((chapter) => {
+      if (incompleteChapterNumbers.length > 0) {
+        gateMap[chapter.id] = {
+          canGenerate: false,
+          reason: `需要先完成前置章节：第 ${incompleteChapterNumbers.join('、')} 章`
+        };
+      } else if (unanalyzedChapters.length > 0) {
+        gateMap[chapter.id] = {
+          canGenerate: false,
+          reason: `需要先分析前置章节：第 ${unanalyzedChapters.map(c => c.chapterNumber).join('、')} 章 (${unanalyzedChapters.map(c => c.reason).join('、')})`
+        };
+      } else {
+        gateMap[chapter.id] = { canGenerate: true, reason: '' };
+      }
+
+      // 将当前章纳入“后续章节”的前置条件
+      if (!chapter.content || chapter.content.trim() === '') {
+        incompleteChapterNumbers.push(chapter.chapter_number);
+      }
+
+      const task = analysisTasksMap[chapter.id];
+      if (!task || !task.has_task) {
+        unanalyzedChapters.push({ chapterNumber: chapter.chapter_number, reason: '未分析' });
+      } else if (task.status === 'pending') {
+        unanalyzedChapters.push({ chapterNumber: chapter.chapter_number, reason: '等待分析' });
+      } else if (task.status === 'running') {
+        unanalyzedChapters.push({ chapterNumber: chapter.chapter_number, reason: '分析中' });
+      } else if (task.status === 'failed') {
+        unanalyzedChapters.push({ chapterNumber: chapter.chapter_number, reason: '分析失败' });
+      } else if (task.status !== 'completed') {
+        unanalyzedChapters.push({ chapterNumber: chapter.chapter_number, reason: '状态未知' });
+      }
+    });
+
+    return gateMap;
+  }, [sortedChapters, analysisTasksMap]);
+
+  // 当前可被“一键分析”的章节（有内容且未处于完成/进行中）
+  const batchAnalyzableChapterCount = useMemo(() => {
+    return sortedChapters.filter((chapter) => {
+      if (!chapter.content || chapter.content.trim() === '') return false;
+      const task = analysisTasksMap[chapter.id];
+      if (!task || !task.has_task) return true;
+      return task.status !== 'completed' && task.status !== 'pending' && task.status !== 'running';
+    }).length;
+  }, [sortedChapters, analysisTasksMap]);
 
   if (!currentProject) return null;
 
-  // 获取人称的中文显示文本
+  // 获取人称的中文显示文本（同时支持中英文值）
   const getNarrativePerspectiveText = (perspective?: string): string => {
     const texts: Record<string, string> = {
+      // 英文值映射（向后兼容）
       'first_person': '第一人称（我）',
       'third_person': '第三人称（他/她）',
       'omniscient': '全知视角',
+      // 中文值映射（项目设置使用）
+      '第一人称': '第一人称（我）',
+      '第三人称': '第三人称（他/她）',
+      '全知视角': '全知视角',
     };
     return texts[perspective || ''] || '第三人称（默认）';
   };
 
   const canGenerateChapter = (chapter: Chapter): boolean => {
-    if (chapter.chapter_number === 1) {
-      return true;
-    }
-
-    const previousChapters = chapters.filter(
-      c => c.chapter_number < chapter.chapter_number
-    );
-
-    // 检查所有前置章节是否有内容
-    const allHaveContent = previousChapters.every(c => c.content && c.content.trim() !== '');
-    if (!allHaveContent) {
-      return false;
-    }
-
-    // 检查所有前置章节是否分析成功
-    const allAnalyzed = previousChapters.every(c => {
-      const task = analysisTasksMap[c.id];
-      // 如果没有分析任务或分析失败，则不允许生成
-      if (!task || !task.has_task) {
-        return false;
-      }
-      // 只有completed状态才算分析成功
-      return task.status === 'completed';
-    });
-
-    return allAnalyzed;
+    return chapterGenerateGateMap[chapter.id]?.canGenerate ?? true;
   };
 
   const getGenerateDisabledReason = (chapter: Chapter): string => {
-    if (chapter.chapter_number === 1) {
-      return '';
-    }
-
-    const previousChapters = chapters.filter(
-      c => c.chapter_number < chapter.chapter_number
-    );
-
-    // 首先检查是否有未完成内容的章节
-    const incompleteChapters = previousChapters.filter(
-      c => !c.content || c.content.trim() === ''
-    );
-
-    if (incompleteChapters.length > 0) {
-      const numbers = incompleteChapters.map(c => c.chapter_number).join('、');
-      return `需要先完成前置章节：第 ${numbers} 章`;
-    }
-
-    // 检查是否有未分析或分析失败的章节
-    const unanalyzedChapters = previousChapters.filter(c => {
-      const task = analysisTasksMap[c.id];
-      if (!task || !task.has_task) {
-        return true; // 没有分析任务
-      }
-      return task.status !== 'completed'; // 分析未完成或失败
-    });
-
-    if (unanalyzedChapters.length > 0) {
-      const numbers = unanalyzedChapters.map(c => c.chapter_number).join('、');
-      const reasons = unanalyzedChapters.map(c => {
-        const task = analysisTasksMap[c.id];
-        if (!task || !task.has_task) {
-          return '未分析';
-        }
-        if (task.status === 'pending') {
-          return '等待分析';
-        }
-        if (task.status === 'running') {
-          return '分析中';
-        }
-        if (task.status === 'failed') {
-          return '分析失败';
-        }
-        return '状态未知';
-      });
-      return `需要先分析前置章节：第 ${numbers} 章 (${reasons.join('、')})`;
-    }
-
-    return '';
+    return chapterGenerateGateMap[chapter.id]?.reason || '';
   };
 
   const handleOpenModal = (id: string) => {
@@ -617,11 +901,11 @@ export default function Chapters() {
             <div style={{
               marginTop: 16,
               padding: 12,
-              background: 'var(--color-info-bg)',
-              borderRadius: 4,
-              border: '1px solid var(--color-info-border)'
+              background: token.colorInfoBg,
+              borderRadius: token.borderRadius,
+              border: `1px solid ${token.colorInfoBorder}`
             }}>
-              <div style={{ marginBottom: 8, fontWeight: 500, color: 'var(--color-primary)' }}>
+              <div style={{ marginBottom: 8, fontWeight: 500, color: token.colorPrimary }}>
                 📚 将引用的前置章节（共{previousChapters.length}章）：
               </div>
               <div style={{ maxHeight: 150, overflowY: 'auto' }}>
@@ -631,13 +915,13 @@ export default function Chapters() {
                   </div>
                 ))}
               </div>
-              <div style={{ marginTop: 8, fontSize: 12, color: '#666' }}>
+              <div style={{ marginTop: 8, fontSize: 12, color: token.colorTextSecondary }}>
                 💡 AI会参考这些章节内容，确保情节连贯、角色状态一致
               </div>
             </div>
           )}
 
-          <p style={{ color: '#ff4d4f', marginTop: 16, marginBottom: 0 }}>
+          <p style={{ color: token.colorError, marginTop: 16, marginBottom: 0 }}>
             ⚠️ 注意：此操作将覆盖当前章节内容
           </p>
         </div>
@@ -731,6 +1015,41 @@ export default function Chapters() {
   const handleShowAnalysis = (chapterId: string) => {
     setAnalysisChapterId(chapterId);
     setAnalysisVisible(true);
+  };
+
+  // 一键按章节顺序分析未分析章节
+  const handleBatchAnalyzeUnanalyzed = async () => {
+    if (!currentProject?.id) return;
+
+    try {
+      setBatchAnalyzingUnanalyzed(true);
+      const result = await chapterApi.batchAnalyzeUnanalyzed(currentProject.id);
+
+      if (result.total_started > 0) {
+        setAnalysisTasksMap((prev) => ({
+          ...prev,
+          ...result.started_tasks,
+        }));
+
+        Object.keys(result.started_tasks).forEach((chapterId) => {
+          startPollingTask(chapterId);
+        });
+
+        message.success(
+          `已加入 ${result.total_started} 章顺序分析队列（跳过已分析 ${result.total_already_completed} 章，分析中/排队中 ${result.total_skipped_running} 章）`
+        );
+      } else {
+        message.info('没有可启动分析的章节：当前章节要么无内容、要么已分析完成、要么正在分析中');
+      }
+
+      // 刷新一次状态，确保前端与后端一致
+      await loadAnalysisTasks();
+    } catch (error: unknown) {
+      const err = error as Error;
+      message.error(`一键分析失败：${err.message || '未知错误'}`);
+    } finally {
+      setBatchAnalyzingUnanalyzed(false);
+    }
   };
 
   // 批量生成函数
@@ -1088,7 +1407,7 @@ export default function Chapters() {
           // 显示冲突提示Modal
           modal.confirm({
             title: '章节序号冲突',
-            icon: <InfoCircleOutlined style={{ color: '#ff4d4f' }} />,
+            icon: <InfoCircleOutlined style={{ color: token.colorError }} />,
             width: 500,
             centered: true,
             content: (
@@ -1098,9 +1417,9 @@ export default function Chapters() {
                 </p>
                 <div style={{
                   padding: 12,
-                  background: '#fff7e6',
-                  borderRadius: 4,
-                  border: '1px solid #ffd591',
+                  background: token.colorWarningBg,
+                  borderRadius: token.borderRadius,
+                  border: `1px solid ${token.colorWarningBorder}`,
                   marginBottom: 12
                 }}>
                   <div><strong>标题：</strong>{conflictChapter.title}</div>
@@ -1110,10 +1429,10 @@ export default function Chapters() {
                     <div><strong>所属大纲：</strong>{conflictChapter.outline_title}</div>
                   )}
                 </div>
-                <p style={{ color: '#ff4d4f', marginBottom: 8 }}>
+                <p style={{ color: token.colorError, marginBottom: 8 }}>
                   ⚠️ 是否删除旧章节并创建新章节？
                 </p>
-                <p style={{ fontSize: 12, color: '#666', marginBottom: 0 }}>
+                <p style={{ fontSize: 12, color: token.colorTextSecondary, marginBottom: 0 }}>
                   删除后将无法恢复，章节内容和分析结果都将被删除。
                 </p>
               </div>
@@ -1193,12 +1512,19 @@ export default function Chapters() {
             等待分析
           </Tag>
         );
-      case 'running':
+      case 'running': {
+        // 检查是否正在重试（后端会在error_message中包含"重试"信息）
+        const isRetrying = task.error_message && task.error_message.includes('重试');
         return (
-          <Tag icon={<SyncOutlined spin />} color="processing">
-            分析中 {task.progress}%
+          <Tag
+            icon={<SyncOutlined spin />}
+            color={isRetrying ? "warning" : "processing"}
+            title={task.error_message || undefined}
+          >
+            {isRetrying ? `重试中 ${task.progress}%` : `分析中 ${task.progress}%`}
           </Tag>
         );
+      }
       case 'completed':
         return (
           <Tag icon={<CheckCircleOutlined />} color="success">
@@ -1226,7 +1552,7 @@ export default function Chapters() {
       modal.info({
         title: (
           <Space style={{ flexWrap: 'wrap' }}>
-            <InfoCircleOutlined style={{ color: 'var(--color-primary)' }} />
+            <InfoCircleOutlined style={{ color: token.colorPrimary }} />
             <span style={{ wordBreak: 'break-word' }}>第{chapter.chapter_number}章展开规划</span>
           </Space>
         ),
@@ -1359,7 +1685,7 @@ export default function Chapters() {
                         key={idx}
                         size="small"
                         style={{
-                          backgroundColor: '#fafafa',
+                          backgroundColor: token.colorFillQuaternary,
                           maxWidth: '100%',
                           overflow: 'hidden'
                         }}
@@ -1502,19 +1828,6 @@ export default function Chapters() {
     }
   };
 
-  const handleChapterSelect = (chapterId: string) => {
-    const element = document.getElementById(`chapter-item-${chapterId}`);
-    if (element) {
-      element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-      // Optional: add a visual highlight effect
-      element.style.transition = 'background-color 0.5s ease';
-      element.style.backgroundColor = '#e6f7ff';
-      setTimeout(() => {
-        element.style.backgroundColor = '';
-      }, 1500);
-    }
-  };
-
   // 打开阅读器
   const handleOpenReader = (chapter: Chapter) => {
     setReadingChapter(chapter);
@@ -1533,6 +1846,29 @@ export default function Chapters() {
     }
   };
 
+  // 打开局部重写弹窗
+  const handleOpenPartialRegenerate = () => {
+    setPartialRegenerateToolbarVisible(false);
+    setPartialRegenerateModalVisible(true);
+  };
+
+  // 应用局部重写结果
+  const handleApplyPartialRegenerate = (newText: string, startPos: number, endPos: number) => {
+    // 获取当前内容
+    const currentContent = editorForm.getFieldValue('content') || '';
+    
+    // 替换选中部分
+    const newContent = currentContent.substring(0, startPos) + newText + currentContent.substring(endPos);
+    
+    // 更新表单
+    editorForm.setFieldsValue({ content: newContent });
+    
+    // 关闭弹窗
+    setPartialRegenerateModalVisible(false);
+    
+    message.success('局部重写已应用');
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {contextHolder}
@@ -1540,21 +1876,38 @@ export default function Chapters() {
         position: 'sticky',
         top: 0,
         zIndex: 10,
-        backgroundColor: 'var(--color-bg-container)',
+        backgroundColor: token.colorBgContainer,
         padding: isMobile ? '12px 0' : '16px 0',
         marginBottom: isMobile ? 12 : 16,
-        borderBottom: '1px solid #f0f0f0',
+        borderBottom: `1px solid ${token.colorBorderSecondary}`,
         display: 'flex',
         flexDirection: isMobile ? 'column' : 'row',
         gap: isMobile ? 12 : 0,
         justifyContent: 'space-between',
         alignItems: isMobile ? 'stretch' : 'center'
       }}>
-        <h2 style={{ margin: 0, fontSize: isMobile ? 18 : 24 }}>
-          <BookOutlined style={{ marginRight: 8 }} />
-          章节管理
-        </h2>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <h2 style={{ margin: 0, fontSize: isMobile ? 18 : 24 }}>
+            <BookOutlined style={{ marginRight: 8 }} />
+            章节管理
+          </h2>
+          <Tag
+            color={currentProject.outline_mode === 'one-to-one' ? 'blue' : 'green'}
+            style={{ width: 'fit-content' }}
+          >
+            {currentProject.outline_mode === 'one-to-one'
+              ? '传统模式：章节由大纲管理，请在大纲页面操作'
+              : '细化模式：章节可在大纲页面展开'}
+          </Tag>
+        </div>
         <Space direction={isMobile ? 'vertical' : 'horizontal'} style={{ width: isMobile ? '100%' : 'auto' }}>
+          <Input.Search
+            allowClear
+            placeholder="搜索章节（序号/标题/大纲）"
+            value={chapterSearchKeyword}
+            onChange={(e) => setChapterSearchKeyword(e.target.value)}
+            style={{ width: isMobile ? '100%' : 280 }}
+          />
           {currentProject.outline_mode === 'one-to-many' && (
             <Button
               icon={<PlusOutlined />}
@@ -1567,12 +1920,25 @@ export default function Chapters() {
           )}
           <Button
             type="primary"
+            icon={<ThunderboltOutlined />}
+            onClick={handleBatchAnalyzeUnanalyzed}
+            loading={batchAnalyzingUnanalyzed}
+            disabled={chapters.length === 0 || batchAnalyzableChapterCount === 0}
+            block={isMobile}
+            size={isMobile ? 'middle' : 'middle'}
+            style={{ background: token.colorWarning, borderColor: token.colorWarning }}
+            title={batchAnalyzableChapterCount === 0 ? '暂无可一键分析章节' : `可一键分析 ${batchAnalyzableChapterCount} 章`}
+          >
+            一键分析{batchAnalyzableChapterCount > 0 ? ` (${batchAnalyzableChapterCount})` : ''}
+          </Button>
+          <Button
+            type="primary"
             icon={<RocketOutlined />}
             onClick={handleOpenBatchGenerate}
             disabled={chapters.length === 0}
             block={isMobile}
             size={isMobile ? 'middle' : 'middle'}
-            style={{ background: '#722ed1', borderColor: '#722ed1' }}
+            style={{ background: token.colorInfo, borderColor: token.colorInfo }}
           >
             批量生成
           </Button>
@@ -1586,32 +1952,27 @@ export default function Chapters() {
           >
             导出为TXT
           </Button>
-          {!isMobile && (
-            <Tag color="blue">
-              {currentProject.outline_mode === 'one-to-one'
-                ? '传统模式：章节由大纲管理，请在大纲页面操作'
-                : '细化模式：章节可在大纲页面展开'}
-            </Tag>
-          )}
         </Space>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
         {chapters.length === 0 ? (
           <Empty description="还没有章节，开始创作吧！" />
+        ) : filteredSortedChapters.length === 0 ? (
+          <Empty description="未找到匹配章节" />
         ) : currentProject.outline_mode === 'one-to-one' ? (
           // one-to-one 模式：直接显示扁平列表
           <List
-            dataSource={sortedChapters}
+            dataSource={pagedSortedChapters}
             renderItem={(item) => (
               <List.Item
                 id={`chapter-item-${item.id}`}
                 style={{
                   padding: '16px',
                   marginBottom: 16,
-                  background: '#fff',
-                  borderRadius: 8,
-                  border: '1px solid #f0f0f0',
+                  background: token.colorBgContainer,
+                  borderRadius: token.borderRadius,
+                  border: `1px solid ${token.colorBorderSecondary}`,
                   flexDirection: isMobile ? 'column' : 'row',
                   alignItems: isMobile ? 'flex-start' : 'center',
                 }}
@@ -1665,7 +2026,7 @@ export default function Chapters() {
               >
                 <div style={{ width: '100%' }}>
                   <List.Item.Meta
-                    avatar={!isMobile && <FileTextOutlined style={{ fontSize: 32, color: 'var(--color-primary)' }} />}
+                    avatar={!isMobile && <FileTextOutlined style={{ fontSize: 32, color: token.colorPrimary }} />}
                     title={
                       <div style={{
                         display: 'flex',
@@ -1679,7 +2040,7 @@ export default function Chapters() {
                         </span>
                         <Space wrap size={isMobile ? 4 : 8}>
                           <Tag color={getStatusColor(item.status)}>{getStatusText(item.status)}</Tag>
-                          <Badge count={`${item.word_count || 0}字`} style={{ backgroundColor: 'var(--color-success)' }} />
+                          <Badge count={`${item.word_count || 0}字`} style={{ backgroundColor: token.colorSuccess }} />
                           {renderAnalysisStatus(item.id)}
                           {!canGenerateChapter(item) && (
                             <Tag icon={<LockOutlined />} color="warning" title={getGenerateDisabledReason(item)}>
@@ -1691,12 +2052,12 @@ export default function Chapters() {
                     }
                     description={
                       item.content ? (
-                        <div style={{ marginTop: 8, color: 'rgba(0,0,0,0.65)', lineHeight: 1.6, fontSize: isMobile ? 12 : 14 }}>
+                        <div style={{ marginTop: 8, color: token.colorTextSecondary, lineHeight: 1.6, fontSize: isMobile ? 12 : 14 }}>
                           {item.content.substring(0, isMobile ? 80 : 150)}
                           {item.content.length > (isMobile ? 80 : 150) && '...'}
                         </div>
                       ) : (
-                        <span style={{ color: 'rgba(0,0,0,0.45)', fontSize: isMobile ? 12 : 14 }}>暂无内容</span>
+                        <span style={{ color: token.colorTextTertiary, fontSize: isMobile ? 12 : 14 }}>暂无内容</span>
                       )
                     }
                   />
@@ -1756,11 +2117,12 @@ export default function Chapters() {
           // one-to-many 模式：按大纲分组显示
           <Collapse
             bordered={false}
-            defaultActiveKey={groupedChapters.map((_, idx) => idx.toString())}
+            defaultActiveKey={pagedGroupedChapters.length > 0 ? ['0'] : []}
+            destroyInactivePanel
             expandIcon={({ isActive }) => <CaretRightOutlined rotate={isActive ? 90 : 0} />}
             style={{ background: 'transparent' }}
           >
-            {groupedChapters.map((group, groupIndex) => (
+            {pagedGroupedChapters.map((group, groupIndex) => (
               <Collapse.Panel
                 key={groupIndex.toString()}
                 header={
@@ -1773,19 +2135,19 @@ export default function Chapters() {
                     </span>
                     <Badge
                       count={`${group.chapters.length} 章`}
-                      style={{ backgroundColor: 'var(--color-success)' }}
+                      style={{ backgroundColor: token.colorSuccess }}
                     />
                     <Badge
                       count={`${group.chapters.reduce((sum, ch) => sum + (ch.word_count || 0), 0)} 字`}
-                      style={{ backgroundColor: 'var(--color-primary)' }}
+                      style={{ backgroundColor: token.colorPrimary }}
                     />
                   </div>
                 }
                 style={{
                   marginBottom: 16,
-                  background: '#fff',
-                  borderRadius: 8,
-                  border: '1px solid #f0f0f0',
+                  background: token.colorBgContainer,
+                  borderRadius: token.borderRadius,
+                  border: `1px solid ${token.colorBorderSecondary}`,
                 }}
               >
                 <List
@@ -1869,7 +2231,7 @@ export default function Chapters() {
                     >
                       <div style={{ width: '100%' }}>
                         <List.Item.Meta
-                          avatar={!isMobile && <FileTextOutlined style={{ fontSize: 32, color: 'var(--color-primary)' }} />}
+                          avatar={!isMobile && <FileTextOutlined style={{ fontSize: 32, color: token.colorPrimary }} />}
                           title={
                             <div style={{
                               display: 'flex',
@@ -1883,7 +2245,7 @@ export default function Chapters() {
                               </span>
                               <Space wrap size={isMobile ? 4 : 8}>
                                 <Tag color={getStatusColor(item.status)}>{getStatusText(item.status)}</Tag>
-                                <Badge count={`${item.word_count || 0}字`} style={{ backgroundColor: 'var(--color-success)' }} />
+                                <Badge count={`${item.word_count || 0}字`} style={{ backgroundColor: token.colorSuccess }} />
                                 {renderAnalysisStatus(item.id)}
                                 {!canGenerateChapter(item) && (
                                   <Tag icon={<LockOutlined />} color="warning" title={getGenerateDisabledReason(item)}>
@@ -1894,7 +2256,7 @@ export default function Chapters() {
                                   {item.expansion_plan && (
                                     <InfoCircleOutlined
                                       title="查看展开详情"
-                                      style={{ color: 'var(--color-primary)', cursor: 'pointer', fontSize: 16 }}
+                                      style={{ color: token.colorPrimary, cursor: 'pointer', fontSize: 16 }}
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         showExpansionPlanModal(item);
@@ -1903,7 +2265,7 @@ export default function Chapters() {
                                   )}
                                   <FormOutlined
                                     title={item.expansion_plan ? "编辑规划信息" : "创建规划信息"}
-                                    style={{ color: 'var(--color-success)', cursor: 'pointer', fontSize: 16 }}
+                                    style={{ color: token.colorSuccess, cursor: 'pointer', fontSize: 16 }}
                                     onClick={(e) => {
                                       e.stopPropagation();
                                       handleOpenPlanEditor(item);
@@ -1915,12 +2277,12 @@ export default function Chapters() {
                           }
                           description={
                             item.content ? (
-                              <div style={{ marginTop: 8, color: 'rgba(0,0,0,0.65)', lineHeight: 1.6, fontSize: isMobile ? 12 : 14 }}>
+                              <div style={{ marginTop: 8, color: token.colorTextSecondary, lineHeight: 1.6, fontSize: isMobile ? 12 : 14 }}>
                                 {item.content.substring(0, isMobile ? 80 : 150)}
                                 {item.content.length > (isMobile ? 80 : 150) && '...'}
                               </div>
                             ) : (
-                              <span style={{ color: 'rgba(0,0,0,0.45)', fontSize: isMobile ? 12 : 14 }}>暂无内容</span>
+                              <span style={{ color: token.colorTextTertiary, fontSize: isMobile ? 12 : 14 }}>暂无内容</span>
                             )
                           }
                         />
@@ -2001,6 +2363,27 @@ export default function Chapters() {
         )}
       </div>
 
+      {filteredSortedChapters.length > 0 && (
+        <div style={{ paddingTop: 12, display: 'flex', justifyContent: 'flex-end' }}>
+          <Pagination
+            current={chapterPage}
+            pageSize={chapterPageSize}
+            total={filteredSortedChapters.length}
+            showSizeChanger
+            pageSizeOptions={['10', '20', '50', '100']}
+            onChange={(page, size) => {
+              setChapterPage(page);
+              if (size !== chapterPageSize) {
+                setChapterPageSize(size);
+                setChapterPage(1);
+              }
+            }}
+            showTotal={(total) => `共 ${total} 条`}
+            size={isMobile ? 'small' : 'default'}
+          />
+        </div>
+      )}
+
       <Modal
         title={editingId ? '编辑章节信息' : '添加章节'}
         open={isModalOpen}
@@ -2079,7 +2462,7 @@ export default function Chapters() {
           setIsEditorOpen(false);
         }}
         closable={!isGenerating}
-        maskClosable={!isGenerating}
+        maskClosable={false}
         keyboard={!isGenerating}
         width={isMobile ? 'calc(100vw - 32px)' : '85%'}
         centered
@@ -2157,7 +2540,7 @@ export default function Chapters() {
                 ))}
               </Select>
               {!selectedStyleId && (
-                <div style={{ color: '#ff4d4f', fontSize: 12, marginTop: 4 }}>请选择写作风格</div>
+                <div style={{ color: token.colorError, fontSize: 12, marginTop: 4 }}>请选择写作风格</div>
               )}
             </Form.Item>
 
@@ -2173,12 +2556,12 @@ export default function Chapters() {
                 allowClear
                 disabled={isGenerating}
               >
-                <Select.Option value="first_person">第一人称(我)</Select.Option>
-                <Select.Option value="third_person">第三人称(他/她)</Select.Option>
-                <Select.Option value="omniscient">全知视角</Select.Option>
+                <Select.Option value="第一人称">第一人称(我)</Select.Option>
+                <Select.Option value="第三人称">第三人称(他/她)</Select.Option>
+                <Select.Option value="全知视角">全知视角</Select.Option>
               </Select>
               {temporaryNarrativePerspective && (
-                <div style={{ color: 'var(--color-success)', fontSize: 12, marginTop: 4 }}>
+                <div style={{ color: token.colorSuccess, fontSize: 12, marginTop: 4 }}>
                   ✓ {getNarrativePerspectiveText(temporaryNarrativePerspective)}
                 </div>
               )}
@@ -2246,6 +2629,16 @@ export default function Chapters() {
             />
           </Form.Item>
 
+          {/* 局部重写浮动工具栏 */}
+          <div data-partial-regenerate-toolbar>
+            <PartialRegenerateToolbar
+              visible={partialRegenerateToolbarVisible && !isGenerating}
+              position={partialRegenerateToolbarPosition}
+              selectedText={selectedTextForRegenerate}
+              onRegenerate={handleOpenPartialRegenerate}
+            />
+          </div>
+
           <Form.Item>
             <Space style={{ width: '100%', justifyContent: 'flex-end', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center' }}>
               <Space style={{ width: isMobile ? '100%' : 'auto' }}>
@@ -2297,51 +2690,10 @@ export default function Chapters() {
                 });
             }
 
-            // 延迟500ms后刷新该章节的分析状态，给后端足够时间完成数据库写入
-            if (analysisChapterId) {
-              const chapterIdToRefresh = analysisChapterId;
-
-              setTimeout(() => {
-                fetch(`/api/chapters/${chapterIdToRefresh}/analysis/status`)
-                  .then(response => {
-                    if (response.ok) {
-                      return response.json();
-                    }
-                    throw new Error('获取状态失败');
-                  })
-                  .then((task: AnalysisTask) => {
-                    setAnalysisTasksMap(prev => ({
-                      ...prev,
-                      [chapterIdToRefresh]: task
-                    }));
-
-                    // 如果任务正在运行，启动轮询
-                    if (task.status === 'pending' || task.status === 'running') {
-                      startPollingTask(chapterIdToRefresh);
-                    }
-                  })
-                  .catch(error => {
-                    console.error('刷新分析状态失败:', error);
-                    // 如果查询失败，再延迟尝试一次
-                    setTimeout(() => {
-                      fetch(`/api/chapters/${chapterIdToRefresh}/analysis/status`)
-                        .then(response => response.ok ? response.json() : null)
-                        .then((task: AnalysisTask | null) => {
-                          if (task) {
-                            setAnalysisTasksMap(prev => ({
-                              ...prev,
-                              [chapterIdToRefresh]: task
-                            }));
-                            if (task.status === 'pending' || task.status === 'running') {
-                              startPollingTask(chapterIdToRefresh);
-                            }
-                          }
-                        })
-                        .catch(err => console.error('第二次刷新失败:', err));
-                    }, 1000);
-                  });
-              }, 500);
-            }
+            // 延迟500ms后批量刷新分析状态，避免单章接口高频调用
+            setTimeout(() => {
+              loadAnalysisTasks();
+            }, 500);
 
             setAnalysisChapterId(null);
           }}
@@ -2352,7 +2704,7 @@ export default function Chapters() {
       <Modal
         title={
           <Space>
-            <RocketOutlined style={{ color: '#722ed1' }} />
+            <RocketOutlined style={{ color: token.colorInfo }} />
             <span>批量生成章节内容</span>
           </Space>
         }
@@ -2528,7 +2880,7 @@ export default function Chapters() {
               >
                 <Radio.Group disabled>
                   <Radio value={true}>
-                    <span style={{ fontSize: 12, color: '#52c41a' }}>✓ 自动更新角色状态</span>
+                    <span style={{ fontSize: 12, color: token.colorSuccess }}>✓ 自动更新角色状态</span>
                   </Radio>
                 </Radio.Group>
               </Form.Item>
@@ -2606,21 +2958,6 @@ export default function Chapters() {
         cancelButtonText="取消任务"
       />
 
-      <FloatButton
-        icon={<BookOutlined />}
-        type="primary"
-        tooltip="章节目录"
-        onClick={() => setIsIndexPanelVisible(true)}
-        style={{ right: isMobile ? 24 : 48, bottom: isMobile ? 80 : 48 }}
-      />
-
-      <FloatingIndexPanel
-        visible={isIndexPanelVisible}
-        onClose={() => setIsIndexPanelVisible(false)}
-        groupedChapters={groupedChapters}
-        onChapterSelect={handleChapterSelect}
-      />
-
       {/* 章节阅读器 */}
       {readingChapter && (
         <ChapterReader
@@ -2631,6 +2968,20 @@ export default function Chapters() {
             setReadingChapter(null);
           }}
           onChapterChange={handleReaderChapterChange}
+        />
+      )}
+
+      {/* 局部重写弹窗 */}
+      {editingId && (
+        <PartialRegenerateModal
+          visible={partialRegenerateModalVisible}
+          chapterId={editingId}
+          selectedText={selectedTextForRegenerate}
+          startPosition={selectionStartPosition}
+          endPosition={selectionEndPosition}
+          styleId={selectedStyleId}
+          onClose={() => setPartialRegenerateModalVisible(false)}
+          onApply={handleApplyPartialRegenerate}
         />
       )}
 

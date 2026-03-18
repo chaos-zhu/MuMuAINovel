@@ -34,6 +34,10 @@ import type {
   WritingStyleUpdate,
   PresetStyle,
   WritingStyleListResponse,
+  PromptWorkshopListResponse,
+  PromptWorkshopItem,
+  PromptSubmission,
+  PromptSubmissionCreate,
   MCPPlugin,
   MCPPluginCreate,
   MCPPluginUpdate,
@@ -46,6 +50,14 @@ import type {
   PresetUpdateRequest,
   PresetListResponse,
   ChapterPlanItem,
+  BookImportTask,
+  BookImportPreview,
+  BookImportApplyPayload,
+  BookImportResult,
+  BookImportRetryResult,
+  BatchAnalysisStatusResponse,
+  BatchAnalyzeUnanalyzedRequest,
+  BatchAnalyzeUnanalyzedResponse,
 } from '../types';
 
 interface MCPPluginSimpleCreate {
@@ -206,6 +218,14 @@ export const settingsApi = {
       suggestions?: string[];
     }>('/settings/test', params),
 
+  testCoverConnection: (params: { cover_api_provider: string; cover_api_key: string; cover_api_base_url?: string; cover_image_model: string }) =>
+    api.post<unknown, {
+      success: boolean;
+      message: string;
+      provider?: string;
+      model?: string;
+    }>('/settings/cover/test', params),
+
   checkFunctionCalling: (params: { api_key: string; api_base_url: string; provider: string; llm_model: string }) =>
     api.post<unknown, {
       success: boolean;
@@ -284,6 +304,43 @@ export const projectApi = {
 
   deleteProject: (id: string) => api.delete(`/projects/${id}`),
 
+  generateCover: (id: string, overwrite: boolean = true) =>
+    api.post<unknown, {
+      project_id: string;
+      cover_status: string;
+      cover_image_url?: string;
+      cover_prompt?: string;
+      provider?: string;
+      model?: string;
+      message: string;
+    }>(`/projects/${id}/cover/generate`, { overwrite }),
+
+  downloadCover: async (id: string, filename?: string) => {
+    const response = await axios.get(`/api/projects/${id}/cover/download`, {
+      responseType: 'blob',
+      withCredentials: true,
+    });
+    const contentDisposition = response.headers['content-disposition'];
+    let finalFilename = filename || 'novel-cover.png';
+    if (contentDisposition) {
+      const utf8Match = /filename\*=UTF-8''(.+)/.exec(contentDisposition);
+      const basicMatch = /filename="?([^";]+)"?/.exec(contentDisposition);
+      if (utf8Match?.[1]) {
+        finalFilename = decodeURIComponent(utf8Match[1]);
+      } else if (basicMatch?.[1]) {
+        finalFilename = basicMatch[1];
+      }
+    }
+    const url = window.URL.createObjectURL(new Blob([response.data]));
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', finalFilename);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
+
   exportProject: (id: string) => {
     window.open(`/api/projects/${id}/export`, '_blank');
   },
@@ -360,6 +417,53 @@ export const projectApi = {
   },
 };
 
+export const bookImportApi = {
+  createTask: (params: {
+    file: File;
+  }) => {
+    const formData = new FormData();
+    formData.append('file', params.file);
+
+    return api.post<unknown, { task_id: string; status: BookImportTask['status'] }>(
+      '/book-import/tasks',
+      formData,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+  },
+
+  getTaskStatus: (taskId: string) =>
+    api.get<unknown, BookImportTask>(`/book-import/tasks/${taskId}`),
+
+  getPreview: (taskId: string) =>
+    api.get<unknown, BookImportPreview>(`/book-import/tasks/${taskId}/preview`),
+
+  applyImport: (taskId: string, payload: BookImportApplyPayload) =>
+    api.post<unknown, BookImportResult>(`/book-import/tasks/${taskId}/apply`, payload),
+
+  applyImportStream: (
+    taskId: string,
+    payload: BookImportApplyPayload,
+    options?: SSEClientOptions,
+  ) => ssePost<BookImportResult>(
+    `/api/book-import/tasks/${taskId}/apply-stream`,
+    payload,
+    options,
+  ),
+
+  retryFailedStepsStream: (
+    taskId: string,
+    steps: string[],
+    options?: SSEClientOptions,
+  ) => ssePost<BookImportRetryResult>(
+    `/api/book-import/tasks/${taskId}/retry-stream`,
+    { steps },
+    options,
+  ),
+
+  cancelTask: (taskId: string) =>
+    api.delete<unknown, { success: boolean; message: string }>(`/book-import/tasks/${taskId}`),
+};
+
 export const outlineApi = {
   getOutlines: (projectId: string) =>
     api.get<unknown, { total: number; items: Outline[] }>(`/outlines/project/${projectId}`).then(res => res.items),
@@ -378,35 +482,6 @@ export const outlineApi = {
 
   generateOutline: (data: GenerateOutlineRequest) =>
     api.post<unknown, { total: number; items: Outline[] }>('/outlines/generate', data).then(res => res.items),
-
-  // 预测续写所需角色
-  predictCharacters: (data: {
-    project_id: string;
-    start_chapter: number;
-    chapter_count: number;
-    plot_stage: string;
-    story_direction?: string;
-    enable_mcp: boolean;
-  }) =>
-    api.post<unknown, {
-      needs_new_characters: boolean;
-      reason: string;
-      character_count: number;
-      predicted_characters: Array<{
-        name: string | null;
-        role_description: string;
-        suggested_role_type: string;
-        importance: string;
-        appearance_chapter: number;
-        key_abilities: string[];
-        plot_function: string;
-        relationship_suggestions: Array<{
-          target_character_name: string;
-          relationship_type: string;
-          description?: string;
-        }>;
-      }>;
-    }>('/outlines/predict-characters', data),
 
   // 获取大纲关联的章节
   getOutlineChapters: (outlineId: string) =>
@@ -596,6 +671,16 @@ export const chapterApi = {
   checkCanGenerate: (chapterId: string) =>
     api.get<unknown, import('../types').ChapterCanGenerateResponse>(`/chapters/${chapterId}/can-generate`),
 
+  getBatchAnalysisStatuses: (projectId: string, chapterIds?: string[]) =>
+    api.post<unknown, BatchAnalysisStatusResponse>(`/chapters/project/${projectId}/analysis/statuses`, {
+      chapter_ids: chapterIds && chapterIds.length > 0 ? chapterIds : undefined,
+    }),
+
+  batchAnalyzeUnanalyzed: (projectId: string, data?: BatchAnalyzeUnanalyzedRequest) =>
+    api.post<unknown, BatchAnalyzeUnanalyzedResponse>(`/chapters/project/${projectId}/analysis/analyze-unanalyzed`, {
+      chapter_ids: data?.chapter_ids && data.chapter_ids.length > 0 ? data.chapter_ids : undefined,
+    }),
+
   // 章节重新生成相关
   getRegenerationTasks: (chapterId: string, limit?: number) =>
     api.get<unknown, {
@@ -612,6 +697,45 @@ export const chapterApi = {
         completed_at: string | null;
       }>;
     }>(`/chapters/${chapterId}/regeneration/tasks`, { params: { limit } }),
+
+  // 局部重写相关
+  partialRegenerateStream: (
+    chapterId: string,
+    data: {
+      selected_text: string;
+      start_position: number;
+      end_position: number;
+      user_instructions: string;
+      context_chars?: number;
+      style_id?: number;
+      length_mode?: 'similar' | 'expand' | 'condense' | 'custom';
+      target_word_count?: number;
+    },
+    options?: SSEClientOptions
+  ) => ssePost<{
+    new_text: string;
+    word_count: number;
+    original_word_count: number;
+    start_position: number;
+    end_position: number;
+  }>(
+    `/api/chapters/${chapterId}/partial-regenerate-stream`,
+    data,
+    options
+  ),
+
+  applyPartialRegenerate: (chapterId: string, data: {
+    new_text: string;
+    start_position: number;
+    end_position: number;
+  }) =>
+    api.post<unknown, {
+      success: boolean;
+      chapter_id: string;
+      word_count: number;
+      old_word_count: number;
+      message: string;
+    }>(`/chapters/${chapterId}/apply-partial-regenerate`, data),
 };
 
 export const writingStyleApi = {
@@ -646,6 +770,107 @@ export const writingStyleApi = {
   // 为项目初始化默认风格（如果没有任何风格）
   initializeDefaultStyles: (projectId: string) =>
     api.post<unknown, WritingStyleListResponse>(`/writing-styles/project/${projectId}/initialize`, {}),
+};
+
+export const promptWorkshopApi = {
+  // 检查服务状态
+  getStatus: () =>
+    api.get<unknown, { mode: string; instance_id: string; cloud_url?: string; cloud_connected?: boolean }>('/prompt-workshop/status'),
+
+  // 获取工坊提示词列表
+  getItems: (params?: {
+    category?: string;
+    search?: string;
+    tags?: string;
+    sort?: 'newest' | 'popular' | 'downloads';
+    page?: number;
+    limit?: number;
+  }) => api.get<unknown, PromptWorkshopListResponse>('/prompt-workshop/items', { params }),
+
+  // 获取单个提示词
+  getItem: (itemId: string) =>
+    api.get<unknown, { success: boolean; data: PromptWorkshopItem }>(`/prompt-workshop/items/${itemId}`),
+
+  // 导入到本地
+  importItem: (itemId: string, customName?: string) =>
+    api.post<unknown, { success: boolean; message: string; writing_style: WritingStyle }>(
+      `/prompt-workshop/items/${itemId}/import`,
+      { custom_name: customName }
+    ),
+
+  // 点赞
+  toggleLike: (itemId: string) =>
+    api.post<unknown, { success: boolean; liked: boolean; like_count: number }>(
+      `/prompt-workshop/items/${itemId}/like`
+    ),
+
+  // 提交提示词
+  submit: (data: PromptSubmissionCreate) =>
+    api.post<unknown, { success: boolean; message: string; submission: PromptSubmission }>('/prompt-workshop/submit', data),
+
+  // 我的提交
+  getMySubmissions: (status?: string) =>
+    api.get<unknown, { success: boolean; data: { total: number; items: PromptSubmission[] } }>(
+      '/prompt-workshop/my-submissions',
+      { params: { status } }
+    ),
+
+  // 撤回提交（pending状态）
+  withdrawSubmission: (submissionId: string) =>
+    api.delete<unknown, { success: boolean; message: string }>(`/prompt-workshop/submissions/${submissionId}`),
+
+  // 删除提交记录（所有状态，需要 force=true）
+  deleteSubmission: (submissionId: string) =>
+    api.delete<unknown, { success: boolean; message: string }>(`/prompt-workshop/submissions/${submissionId}`, {
+      params: { force: true }
+    }),
+
+  // ========== 管理员 API（仅服务端模式可用） ==========
+  
+  // 获取待审核列表
+  adminGetSubmissions: (params?: { status?: string; source?: string; page?: number; limit?: number }) =>
+    api.get<unknown, {
+      success: boolean;
+      data: {
+        total: number;
+        pending_count: number;
+        page: number;
+        limit: number;
+        items: PromptSubmission[];
+      };
+    }>('/prompt-workshop/admin/submissions', { params }),
+
+  // 审核提交
+  adminReviewSubmission: (submissionId: string, data: { action: 'approve' | 'reject'; review_note?: string; category?: string; tags?: string[] }) =>
+    api.post<unknown, { success: boolean; message: string; workshop_item?: PromptWorkshopItem; submission?: PromptSubmission }>(
+      `/prompt-workshop/admin/submissions/${submissionId}/review`,
+      data
+    ),
+
+  // 添加官方提示词
+  adminCreateItem: (data: { name: string; description?: string; prompt_content: string; category: string; tags?: string[] }) =>
+    api.post<unknown, { success: boolean; item: PromptWorkshopItem }>('/prompt-workshop/admin/items', data),
+
+  // 编辑提示词
+  adminUpdateItem: (itemId: string, data: { name?: string; description?: string; prompt_content?: string; category?: string; tags?: string[]; status?: string }) =>
+    api.put<unknown, { success: boolean; item: PromptWorkshopItem }>(`/prompt-workshop/admin/items/${itemId}`, data),
+
+  // 删除提示词
+  adminDeleteItem: (itemId: string) =>
+    api.delete<unknown, { success: boolean; message: string }>(`/prompt-workshop/admin/items/${itemId}`),
+
+  // 获取统计数据
+  adminGetStats: () =>
+    api.get<unknown, {
+      success: boolean;
+      data: {
+        total_items: number;
+        total_official: number;
+        total_pending: number;
+        total_downloads: number;
+        total_likes: number;
+      };
+    }>('/prompt-workshop/admin/stats'),
 };
 
 export const polishApi = {

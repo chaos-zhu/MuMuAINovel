@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom';
 import {
   Card, Table, Button, Tag, Space, Modal, Form, Input, Select,
   InputNumber, Switch, message, Tooltip, Popconfirm, Statistic,
-  Row, Col, Empty, Divider, Badge, Alert, Pagination, Dropdown
+  Row, Col, Empty, Divider, Badge, Alert, Pagination, Dropdown, theme
 } from 'antd';
 import type { MenuProps } from 'antd';
 import {
@@ -73,6 +73,7 @@ export default function Foreshadows() {
   // 表格容器引用，用于计算滚动高度
   const tableContainerRef = useRef<HTMLDivElement>(null);
   const [tableScrollY, setTableScrollY] = useState<number>(400);
+  const { token } = theme.useToken();
 
   // 加载伏笔列表
   const loadForeshadows = useCallback(async () => {
@@ -126,9 +127,10 @@ export default function Foreshadows() {
   const loadStats = useCallback(async () => {
     if (!projectId) return;
     try {
-      // 获取当前最大章节号
-      const maxChapter = chapters.length > 0 
-        ? Math.max(...chapters.map(c => c.chapter_number))
+      // 获取当前最大章节号（只计算有内容的章节，与表格显示逻辑保持一致）
+      const chaptersWithContent = chapters.filter(c => c.content);
+      const maxChapter = chaptersWithContent.length > 0
+        ? Math.max(...chaptersWithContent.map(c => c.chapter_number))
         : undefined;
       const statsData = await foreshadowApi.getForeshadowStats(projectId, maxChapter);
       setStats(statsData);
@@ -507,22 +509,22 @@ export default function Foreshadows() {
           </Col>
           <Col span={3}>
             <Card size="small">
-              <Statistic title="待埋入" value={stats.pending} valueStyle={{ color: '#8c8c8c' }} />
+              <Statistic title="待埋入" value={stats.pending} valueStyle={{ color: token.colorTextSecondary }} />
             </Card>
           </Col>
           <Col span={3}>
             <Card size="small">
-              <Statistic title="已埋入" value={stats.planted} valueStyle={{ color: '#52c41a' }} />
+              <Statistic title="已埋入" value={stats.planted} valueStyle={{ color: token.colorSuccess }} />
             </Card>
           </Col>
           <Col span={3}>
             <Card size="small">
-              <Statistic title="已回收" value={stats.resolved} valueStyle={{ color: '#1890ff' }} />
+              <Statistic title="已回收" value={stats.resolved} valueStyle={{ color: token.colorPrimary }} />
             </Card>
           </Col>
           <Col span={3}>
             <Card size="small">
-              <Statistic title="长线伏笔" value={stats.long_term_count} valueStyle={{ color: '#722ed1' }} />
+              <Statistic title="长线伏笔" value={stats.long_term_count} valueStyle={{ color: token.colorInfo }} />
             </Card>
           </Col>
           <Col span={3}>
@@ -530,7 +532,7 @@ export default function Foreshadows() {
               <Statistic 
                 title="超期未回收" 
                 value={stats.overdue_count} 
-                valueStyle={{ color: stats.overdue_count > 0 ? '#ff4d4f' : '#8c8c8c' }}
+                valueStyle={{ color: stats.overdue_count > 0 ? token.colorError : token.colorTextSecondary }}
                 prefix={stats.overdue_count > 0 ? <WarningOutlined /> : null}
               />
             </Card>
@@ -658,12 +660,12 @@ export default function Foreshadows() {
       {/* 分页器 - 固定在底部居中 */}
       <div style={{
         padding: '12px 0',
-        borderTop: '1px solid #f0f0f0',
+        borderTop: `1px solid ${token.colorBorderSecondary}`,
         display: 'flex',
         justifyContent: 'center',
         alignItems: 'center',
         flexShrink: 0,
-        background: '#fff',
+        background: token.colorBgContainer,
       }}>
         <Pagination
           current={currentPage}
@@ -867,7 +869,7 @@ export default function Foreshadows() {
               {currentForeshadow.hint_text && (
                 <Col span={24}>
                   <strong>暗示文本：</strong>
-                  <p style={{ marginTop: 8, whiteSpace: 'pre-wrap', color: '#666' }}>
+                  <p style={{ marginTop: 8, whiteSpace: 'pre-wrap', color: token.colorTextSecondary }}>
                     {currentForeshadow.hint_text}
                   </p>
                 </Col>
@@ -876,7 +878,7 @@ export default function Foreshadows() {
               {currentForeshadow.resolution_text && (
                 <Col span={24}>
                   <strong>揭示文本：</strong>
-                  <p style={{ marginTop: 8, whiteSpace: 'pre-wrap', color: '#666' }}>
+                  <p style={{ marginTop: 8, whiteSpace: 'pre-wrap', color: token.colorTextSecondary }}>
                     {currentForeshadow.resolution_text}
                   </p>
                 </Col>
@@ -919,7 +921,7 @@ export default function Foreshadows() {
               {currentForeshadow.notes && (
                 <Col span={24}>
                   <strong>备注：</strong>
-                  <p style={{ marginTop: 8, color: '#666' }}>{currentForeshadow.notes}</p>
+                  <p style={{ marginTop: 8, color: token.colorTextSecondary }}>{currentForeshadow.notes}</p>
                 </Col>
               )}
               

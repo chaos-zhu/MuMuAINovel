@@ -15,6 +15,11 @@ class SettingsBase(BaseModel):
     temperature: Optional[float] = Field(default=0.7, ge=0.0, le=2.0, description="温度参数")
     max_tokens: Optional[int] = Field(default=2000, ge=1, description="最大token数")
     system_prompt: Optional[str] = Field(default=None, description="系统级别提示词，每次AI调用都会使用")
+    cover_api_provider: Optional[str] = Field(default=None, description="封面图片API提供商")
+    cover_api_key: Optional[str] = Field(default=None, description="封面图片API密钥")
+    cover_api_base_url: Optional[str] = Field(default=None, description="封面图片自定义API地址")
+    cover_image_model: Optional[str] = Field(default=None, description="封面图片模型名称")
+    cover_enabled: Optional[bool] = Field(default=False, description="是否启用封面图片生成")
     preferences: Optional[str] = Field(default=None, description="其他偏好设置(JSON)")
 
 
@@ -50,6 +55,7 @@ class APIKeyPresetConfig(BaseModel):
     llm_model: str = Field(..., description="模型名称")
     temperature: float = Field(default=0.7, ge=0.0, le=2.0, description="温度参数")
     max_tokens: int = Field(default=2000, ge=1, description="最大token数")
+    system_prompt: Optional[str] = Field(default=None, description="系统级别提示词")
 
 
 class APIKeyPreset(BaseModel):

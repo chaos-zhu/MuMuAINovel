@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-1.3.1-blue.svg)
+![Version](https://img.shields.io/badge/version-1.4.2-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109.0-green.svg)
 ![React](https://img.shields.io/badge/react-18.3.1-blue.svg)
@@ -18,28 +18,44 @@
 
 <div align="center">
 
+## 💬 加入交流群
+
+欢迎扫码加入 QQ 交流群，一起交流 AI 小说创作心得、反馈问题、获取最新动态！
+
+<img src="frontend/public/qq.jpg" alt="QQ交流群二维码" width="300" />
+
+</div>
+
+---
+
+<div align="center">
+
 ## 💖 支持项目
 
 如果这个项目对你有帮助，欢迎通过以下方式支持开发：
 
 **[☕ 请我喝杯咖啡](https://mumuverse.space:1588/)**
 
+**[🌐 MuMuのAPI站点](https://api.mumuverse.space/register?aff=4NN8)**
+
+> 在 MuMu の API 站点充值满 50 元及以上，也可以获得下方赞助专属权益。
+
 ### 🎁 赞助专属权益
 
 | 权益 | 说明 |
 |------|------|
 | 📋 **优先需求响应** | 您的功能需求和问题反馈将获得优先处理 |
-| 🚀 **Windows一键启动** | 获取免安装EXE程序，双击即可使用 |
+| 🚀 **Windows一键启动** | 获取免安装 EXE 程序，双击即可使用 |
 | 💬 **专属技术支持** | 加入赞助者内部群，获得远程协助和配置指导 |
 
-### ☕ 赞助金额
+### ☕ 赞助 / API 站点充值档位
 
 | 金额 | 描述 |
 |------|------|
 | ¥5 | 🌶️ 一包辣条 |
 | ¥10 | 🍱 一顿拼好饭 |
 | ¥20 | 🧋 一杯咖啡 |
-| ¥50 | 🍖 一次烧烤 |
+| ¥50 | 🍖 一次烧烤  |
 | ¥99 | 🍲 一顿海底捞 |
 
 您的支持是我持续开发的动力！🙏
@@ -70,14 +86,22 @@
 ### 登录界面
 ![登录界面](images/1.png)
 
+![登录界面](images/1-1.png)
+
 ### 主界面
 ![主界面](images/2.png)
+
+![主界面（暗色）](images/2-1.png)
 
 ### 项目管理
 ![项目管理](images/3.png)
 
+![项目管理](images/3-1.png)
+
 ### 赞助我 💖
 ![赞助我](images/4.png)
+
+![赞助我](images/4-1.png)
 
 </div>
 
@@ -98,10 +122,12 @@
 - [x] **职业等级体系** - 自定义职业和等级系统，支持修仙境界、魔法等级等多种体系
 - [x] **角色/组织卡片导入导出** - 单独导出角色和组织卡片，支持跨项目数据共享
 - [x] **伏笔管理** - 智能追踪剧情伏笔，提醒未回收线索，可视化伏笔时间线
+- [x] **提示词工坊** - 社区驱动的 Prompt 模板分享平台，一键导入优质提示词
+- [x] **拆书功能** - 目前呼声比较高的功能，一键拆书，给当年的ta一个圆满的结局
 
 ### 📝 规划中功能
 
-- [ ] **提示词工坊** - 社区驱动的 Prompt 模板分享平台，一键导入优质提示词
+......
 
 > 💡 欢迎提交 Issue 或 Pull Request！
 
@@ -200,7 +226,7 @@ services:
       POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
       - ./backend/scripts/init_postgres.sql:/docker-entrypoint-initdb.d/init.sql:ro
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
@@ -251,6 +277,7 @@ services:
     volumes:
       - ./logs:/app/logs
       - ./.env:/app/.env:ro
+      - ./storage/generated_covers:/app/backend/storage/generated_covers
     environment:
       # 应用配置
       - APP_NAME=${APP_NAME:-MuMuAINovel}

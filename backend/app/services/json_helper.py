@@ -31,7 +31,7 @@ def clean_json_response(text: str) -> str:
             json.loads(text)
             logger.debug(f"✅ 直接解析成功，无需清洗")
             return text
-        except:
+        except Exception:
             pass
         
         # 找到第一个 { 或 [

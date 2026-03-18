@@ -355,6 +355,7 @@ async def career_system_generator(
             title=project.title,
             genre=project.genre or '未设定',
             theme=project.theme or '未设定',
+            description=project.description or '暂无简介',
             time_period=world_data.get('time_period', '未设定'),
             location=world_data.get('location', '未设定'),
             atmosphere=world_data.get('atmosphere', '未设定'),
@@ -897,7 +898,6 @@ async def characters_generator(
                 relationships=relationships_text,
                 organization_type=char_data.get("organization_type") if is_organization else None,
                 organization_purpose=char_data.get("organization_purpose") if is_organization else None,
-                organization_members=json.dumps(char_data.get("organization_members", []), ensure_ascii=False) if is_organization else None,
                 traits=json.dumps(char_data.get("traits", []), ensure_ascii=False) if char_data.get("traits") else None
             )
             db.add(character)
@@ -1200,10 +1200,10 @@ async def characters_generator(
                     "personality": char.personality,
                     "background": char.background,
                     "appearance": char.appearance,
-                    "relationships": char.relationships,
+                    "relationships": "",
                     "organization_type": char.organization_type,
                     "organization_purpose": char.organization_purpose,
-                    "organization_members": char.organization_members,
+                    "organization_members": "",
                     "traits": char.traits,
                     "created_at": char.created_at.isoformat() if char.created_at else None,
                     "updated_at": char.updated_at.isoformat() if char.updated_at else None
@@ -1381,6 +1381,52 @@ async def outline_generator(
             await db.refresh(outline)
         
         logger.info(f"✅ 成功创建{len(created_outlines)}个大纲节点")
+        
+        # 🎭 角色校验：检查大纲structure中的characters是否存在对应角色
+        yield await tracker.saving("🎭 校验角色信息...", 0.5)
+        try:
+            from app.services.auto_character_service import get_auto_character_service
+            
+            auto_char_service = get_auto_character_service(user_ai_service)
+            char_check_result = await auto_char_service.check_and_create_missing_characters(
+                project_id=project_id,
+                outline_data_list=outline_data[:outline_count],
+                db=db,
+                user_id=user_id,
+                enable_mcp=enable_mcp
+            )
+            if char_check_result["created_count"] > 0:
+                created_names = [c.name for c in char_check_result["created_characters"]]
+                logger.info(f"🎭 向导大纲：自动创建了 {char_check_result['created_count']} 个角色: {', '.join(created_names)}")
+                yield await tracker.saving(
+                    f"🎭 自动创建了 {char_check_result['created_count']} 个角色: {', '.join(created_names)}",
+                    0.6
+                )
+        except Exception as e:
+            logger.error(f"⚠️ 向导大纲角色校验失败（不影响主流程）: {e}")
+        
+        # 🏛️ 组织校验：检查大纲structure中的characters（type=organization）是否存在对应组织
+        yield await tracker.saving("🏛️ 校验组织信息...", 0.55)
+        try:
+            from app.services.auto_organization_service import get_auto_organization_service
+            
+            auto_org_service = get_auto_organization_service(user_ai_service)
+            org_check_result = await auto_org_service.check_and_create_missing_organizations(
+                project_id=project_id,
+                outline_data_list=outline_data[:outline_count],
+                db=db,
+                user_id=user_id,
+                enable_mcp=enable_mcp
+            )
+            if org_check_result["created_count"] > 0:
+                created_names = [c.name for c in org_check_result["created_organizations"]]
+                logger.info(f"🏛️ 向导大纲：自动创建了 {org_check_result['created_count']} 个组织: {', '.join(created_names)}")
+                yield await tracker.saving(
+                    f"🏛️ 自动创建了 {org_check_result['created_count']} 个组织: {', '.join(created_names)}",
+                    0.65
+                )
+        except Exception as e:
+            logger.error(f"⚠️ 向导大纲组织校验失败（不影响主流程）: {e}")
         
         # 根据项目的大纲模式决定是否自动创建章节
         created_chapters = []

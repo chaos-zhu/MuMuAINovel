@@ -174,8 +174,9 @@ class SyncFromAnalysisResponse(BaseModel):
     """从分析同步伏笔响应"""
     synced_count: int
     skipped_count: int
-    new_foreshadows: List[ForeshadowResponse]
-    skipped_reasons: List[dict]
+    resolved_count: int = 0
+    new_foreshadows: List[ForeshadowResponse] = []
+    skipped_reasons: List[dict] = []
 
 
 class ForeshadowContextRequest(BaseModel):

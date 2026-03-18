@@ -4,6 +4,7 @@ from typing import Optional
 from pathlib import Path
 import logging
 import os
+import uuid
 
 # 获取项目根目录(从backend/app/config.py向上两级)
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -106,6 +107,11 @@ class Settings(BaseSettings):
     SESSION_EXPIRE_MINUTES: int = 120  # 会话过期时间（分钟），默认2小时
     SESSION_REFRESH_THRESHOLD_MINUTES: int = 30  # 会话刷新阈值（分钟），剩余时间少于此值时可刷新
     
+    # 提示词工坊配置
+    WORKSHOP_MODE: str = "client"  # client: 本地部署实例, server: 云端中央服务器
+    WORKSHOP_CLOUD_URL: str = "https://mumuverse.space:1566"  # 云端服务地址
+    WORKSHOP_API_TIMEOUT: int = 30  # 云端API请求超时时间（秒）
+    
     class Config:
         env_file = ".env"
         case_sensitive = False
@@ -117,3 +123,44 @@ settings = Settings()
 config_logger.info(f"配置加载完成: {settings.app_name} v{settings.app_version}")
 config_logger.debug(f"调试模式: {settings.debug}")
 config_logger.debug(f"AI提供商: {settings.default_ai_provider}")
+
+
+# ==================== 提示词工坊实例标识 ====================
+
+def get_or_create_instance_id() -> str:
+    """获取或创建实例唯一标识
+    
+    - Server 模式：固定使用 "server" 作为标识，确保与所有 Client 实例区分
+    - Client 模式：从 .instance_id 文件读取或自动生成唯一标识
+    """
+    # Server 模式使用固定标识
+    if settings.WORKSHOP_MODE.lower() == "server":
+        config_logger.info("Server 模式：使用固定实例标识 'server'")
+        return "server"
+    
+    # Client 模式：从文件读取或生成
+    instance_file = PROJECT_ROOT / ".instance_id"
+    if instance_file.exists():
+        with open(instance_file, 'r') as f:
+            instance_id = f.read().strip()
+            if instance_id and instance_id != "server":  # 确保不与 server 冲突
+                return instance_id
+    
+    # 生成新的实例ID
+    instance_id = str(uuid.uuid4())[:12]
+    try:
+        with open(instance_file, 'w') as f:
+            f.write(instance_id)
+        config_logger.info(f"生成新的实例标识: {instance_id}")
+    except Exception as e:
+        config_logger.warning(f"无法保存实例标识到文件: {e}")
+    
+    return instance_id
+
+INSTANCE_ID = get_or_create_instance_id()
+
+def is_workshop_server() -> bool:
+    """判断当前实例是否为工坊服务端"""
+    return settings.WORKSHOP_MODE.lower() == "server"
+
+config_logger.info(f"提示词工坊模式: {settings.WORKSHOP_MODE}, 实例ID: {INSTANCE_ID}")

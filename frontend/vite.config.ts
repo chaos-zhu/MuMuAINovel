@@ -23,7 +23,7 @@ export default defineConfig({
     emptyOutDir: true,
     rollupOptions: {
       output: {
-        // 手动分割代码块，将大型依赖库分离
+        // 手动分割代码块,将大型依赖库分离
         manualChunks: {
           // React 核心库
           'vendor-react': ['react', 'react-dom', 'react-router-dom'],
@@ -34,7 +34,7 @@ export default defineConfig({
           // Diff查看器（较大的组件）
           'vendor-diff': ['react-diff-viewer-continued'],
           // 拖拽库
-          'vendor-dnd': ['react-beautiful-dnd'],
+          'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/utilities'],
         },
       },
     },
@@ -42,6 +42,10 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/generated-assets': {
         target: 'http://localhost:8000',
         changeOrigin: true,
       }

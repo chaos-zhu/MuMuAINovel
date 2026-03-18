@@ -550,10 +550,6 @@ async def generate_organization_stream(
                 appearance=organization_data.get("appearance", ""),
                 organization_type=organization_data.get("organization_type"),
                 organization_purpose=organization_data.get("organization_purpose"),
-                organization_members=json.dumps(
-                    organization_data.get("organization_members", []), 
-                    ensure_ascii=False
-                ),
                 traits=json.dumps(
                     organization_data.get("traits", []), 
                     ensure_ascii=False

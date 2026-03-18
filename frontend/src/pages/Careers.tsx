@@ -159,19 +159,25 @@ export default function Careers() {
         });
     };
 
-    const handleAIGenerate = async (values: { main_career_count: number; sub_career_count: number }) => {
+    const handleAIGenerate = async (values: {
+        main_career_count: number;
+        sub_career_count: number;
+        user_requirements?: string;
+    }) => {
         setIsAIModalOpen(false);
         setAiGenerating(true);
         setAiProgress(0);
         setAiMessage('开始生成新职业...');
 
         try {
+            const userRequirements = values.user_requirements?.trim() || '';
             const eventSource = new EventSource(
                 `/api/careers/generate-system?` +
                 new URLSearchParams({
                     project_id: projectId || '',
                     main_career_count: values.main_career_count.toString(),
                     sub_career_count: values.sub_career_count.toString(),
+                    user_requirements: userRequirements,
                     enable_mcp: 'false'
                 }).toString(),
                 { withCredentials: true }
@@ -421,6 +427,19 @@ export default function Careers() {
                     </Form.Item>
                     <Form.Item label="本次新增副职业数量" name="sub_career_count" initialValue={5}>
                         <InputNumber min={0} max={15} style={{ width: '100%' }} />
+                    </Form.Item>
+                    <Form.Item
+                        label="职业要求"
+                        name="user_requirements"
+                        rules={[{ max: 500, message: '额外要求最多500字' }]}
+                        extra="可选。可描述希望新增的职业方向、能力侧重、限制条件或希望避开的职业类型，AI会结合世界观与已有职业综合生成。"
+                    >
+                        <TextArea
+                            rows={4}
+                            showCount
+                            maxLength={500}
+                            placeholder="例如：希望新增一个偏情报收集与潜伏渗透的主职业；副职业偏医术、经营或制造方向；避免再出现纯正面战斗型职业。"
+                        />
                     </Form.Item>
                     <Form.Item>
                         <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
