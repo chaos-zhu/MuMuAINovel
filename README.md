@@ -2,7 +2,7 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-1.5.6-blue.svg)
+![Version](https://img.shields.io/badge/version-1.5.7-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.12-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109.0-green.svg)
 ![React](https://img.shields.io/badge/react-18.3.1-blue.svg)
@@ -70,12 +70,12 @@
 
 <table>
 <tr>
-<td width="200" align="center" valign="middle"><a href="https://www.apophis.uk/"><img src="images/apophis.png" alt="ApophisCode 中转站" width="180"></a></td>
-<td valign="middle">感谢 <strong>ApophisCode 中转站</strong> 赞助支持本项目！ApophisCode 为 MuMuAINovel 长篇创作提供稳定又实惠的模型补给，写大纲、搭世界观、生成章节不卡顿，支持第三方 AI API。全新启航限时福利倍率：Claude Fable 5.1 满血 Max (1.4x)、Claude Opus 5 Kiro (0.25x)、GPT-6 Astra (0.08x)。新用户进交流群（425421707）绑定账号即赠尝鲜额度，每日签到还能继续领！点击 <a href="https://www.apophis.uk/">此处</a> 前往起飞站开用。</td>
+<td width="200" align="center" valign="middle"><a href="https://www.aiyoyoo.com/register?aff=4AXY9WGE2C5Q"><img src="images/CrazyToken.png" alt="CrazyToken" width="180"></a></td>
+<td valign="middle">感谢 <strong>CrazyToken</strong> 赞助支持本项目！CrazyToken 提供 Claude、GPT、Gemini、Kimi、GLM、DeepSeek、Qwen、Grok 等全系主流模型，覆盖大纲构思、正文续写、爽点打磨、润色改稿，针对不同环节选择最合适的模型。全模型低至官方价格的 5%（<code>0.05×</code>），Token 级账单透明可查；官方原生通道，不掺水、不混模、不压缩长上下文，保持模型原生输出体验；稳定高速、高并发不限流，支持多书创作和章节批量生成。新用户通过 <a href="https://www.aiyoyoo.com/register?aff=4AXY9WGE2C5Q">专属链接</a> 注册即送 <code>$20</code> 体验额度，充值额外加赠，并提供独家 1 对 1 远程配置服务，全程真人协助，开箱即用。</td>
 </tr>
 <tr>
-<td width="200" align="center" valign="middle"><a href="https://api.atku.cn"><img src="images/conduit.jpg" alt="Conduit 消息推送服务" width="180"></a></td>
-<td valign="middle">感谢 <strong>Conduit</strong> 赞助支持本项目！Conduit 是一款统一消息推送解决方案，专注把消息高效、稳定地送达用户。只需一次接入，即可轻松覆盖 QQ、微信、Telegram 等多个主流平台，真正实现「一条消息，多平台即时送达」。标准 API 分钟级接入，毫秒级实时推送，多重防护与数据加密，并提供可视化控制台统一管理。点击 <a href="https://api.atku.cn">此处</a> 前往官网立即体验。</td>
+<td width="200" align="center" valign="middle"><a href="https://www.apophis.uk/"><img src="images/apophis.png" alt="ApophisCode 中转站" width="180"></a></td>
+<td valign="middle">感谢 <strong>ApophisCode 中转站</strong> 赞助支持本项目！ApophisCode 为 MuMuAINovel 长篇创作提供稳定又实惠的模型补给，写大纲、搭世界观、生成章节不卡顿，支持第三方 AI API。全新启航限时福利倍率：Claude Fable 5.1 满血 Max (1.4x)、Claude Opus 5 Kiro (0.25x)、GPT-6 Astra (0.08x)。新用户进交流群（425421707）绑定账号即赠尝鲜额度，每日签到还能继续领！点击 <a href="https://www.apophis.uk/">此处</a> 前往起飞站开用。</td>
 </tr>
 </table>
 
@@ -300,7 +300,7 @@ services:
     environment:
       # 应用配置
       - APP_NAME=${APP_NAME:-MuMuAINovel}
-      - APP_VERSION=${APP_VERSION:-1.5.6}
+      - APP_VERSION=${APP_VERSION:-1.5.7}
       - APP_HOST=${APP_HOST:-0.0.0.0}
       - APP_PORT=8000
       - DEBUG=${DEBUG:-false}
