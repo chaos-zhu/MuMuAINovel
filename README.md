@@ -2,6 +2,8 @@
 
 <div align="center">
 
+<img src="frontend/public/logo.svg" alt="MuMuAINovel logo" width="120" />
+
 ![Version](https://img.shields.io/badge/version-1.5.7-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.12-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109.0-green.svg)
