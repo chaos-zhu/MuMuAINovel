@@ -21,6 +21,7 @@ import {
   MoonOutlined,
   ThunderboltOutlined,
   SettingOutlined,
+  DatabaseOutlined,
 } from '@ant-design/icons';
 import { useStore } from '../store';
 import { useCharacterSync, useOutlineSync, useChapterSync } from '../store/hooks';
@@ -206,6 +207,11 @@ export default function ProjectDetail() {
           icon: <BulbOutlined />,
           label: <Link to={`/project/${projectId}/foreshadows`}>伏笔管理</Link>,
         },
+        {
+          key: 'knowledge-base',
+          icon: <DatabaseOutlined />,
+          label: <Link to={`/project/${projectId}/knowledge-base`}>知识库管理</Link>,
+        },
       ],
     },
     {
@@ -288,6 +294,11 @@ export default function ProjectDetail() {
       label: <Link to={`/project/${projectId}/foreshadows`}>伏笔管理</Link>,
     },
     {
+      key: 'knowledge-base',
+      icon: <DatabaseOutlined />,
+      label: <Link to={`/project/${projectId}/knowledge-base`}>知识库管理</Link>,
+    },
+    {
       key: 'writing-styles',
       icon: <EditOutlined />,
       label: <Link to={`/project/${projectId}/writing-styles`}>写作风格</Link>,
@@ -313,6 +324,7 @@ export default function ProjectDetail() {
   const selectedKey = useMemo(() => {
     const path = location.pathname;
     if (path.includes('/world-setting')) return 'world-setting';
+    if (path.includes('/knowledge-base')) return 'knowledge-base';
     if (path.includes('/careers')) return 'careers';
     if (path.includes('/relationships')) return 'relationships';
     if (path.includes('/organizations')) return 'organizations';

@@ -26,6 +26,7 @@ from app.schemas.character import CharacterResponse
 from app.services.ai_service import AIService
 from app.services.json_helper import loads_json
 from app.services.prompt_service import prompt_service, PromptService
+from app.services.knowledge_service import knowledge_service
 from app.logger import get_logger, safe_preview
 from app.api.settings import get_user_ai_service
 from app.api.common import verify_project_access
@@ -492,6 +493,16 @@ async def generate_organization_stream(
                 user_input=user_input
             )
             
+            knowledge_context = await knowledge_service.get_generation_context(
+                user_id,
+                gen_request.project_id,
+                f"{project.title}\n{project.theme or ''}\n{project.genre or ''}\n{gen_request.background or ''}\n{gen_request.requirements or ''}\n{project.world_rules or ''}",
+                db,
+                purpose="organization",
+            )
+            if knowledge_context:
+                prompt += "\n\n" + knowledge_context
+
             yield await tracker.generating(0, max(3000, len(prompt) * 8), "调用AI服务生成组织...")
             logger.info(f"🎯 开始为项目 {gen_request.project_id} 生成组织（SSE流式）")
             

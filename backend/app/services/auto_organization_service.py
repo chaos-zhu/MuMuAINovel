@@ -9,6 +9,7 @@ from app.models.relationship import Organization, OrganizationMember
 from app.models.project import Project
 from app.services.ai_service import AIService
 from app.services.prompt_service import PromptService
+from app.services.knowledge_service import knowledge_service
 from app.logger import get_logger
 
 logger = get_logger(__name__)
@@ -88,6 +89,16 @@ class AutoOrganizationService:
         )
         
         # 调用AI生成（使用统一的JSON调用方法）
+        knowledge_context = await knowledge_service.get_generation_context(
+            user_id,
+            project.id,
+            f"{project.title}\n{project.theme or ''}\n{project.genre or ''}\n{json.dumps(spec, ensure_ascii=False)}\n{project.world_rules or ''}",
+            db,
+            purpose="organization",
+        )
+        if knowledge_context:
+            prompt += "\n\n" + knowledge_context
+
         try:
             # 使用统一的JSON调用方法（支持自动MCP工具加载）
             organization_data = await self.ai_service.call_with_json_retry(

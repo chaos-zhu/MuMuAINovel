@@ -15,8 +15,25 @@ from app.models.memory import StoryMemory, PlotAnalysis
 from app.models.foreshadow import Foreshadow
 from app.models.relationship import CharacterRelationship, Organization, OrganizationMember
 from app.logger import get_logger
+from app.services.knowledge_service import knowledge_service
 
 logger = get_logger(__name__)
+
+
+async def _get_knowledge_context(user_id: str, project_id: str, query: str, db: AsyncSession) -> Optional[str]:
+    if not query:
+        return None
+    try:
+        return await knowledge_service.get_generation_context(
+            user_id,
+            project_id,
+            query,
+            db,
+            purpose="chapter",
+        )
+    except Exception as exc:
+        logger.warning("knowledge retrieval failed; skipping knowledge context: %s", exc)
+        return None
 
 
 STATUS_LABELS = {
@@ -338,6 +355,19 @@ class OneToManyContextBuilder:
                 context.chapter_outline, db
             )
             logger.info(f"  ✅ 相关记忆: {len(context.relevant_memories or '')}字符")
+
+        knowledge_context = await _get_knowledge_context(
+            user_id,
+            project.id,
+            f"{project.title or ''}\n{project.genre or ''}\n{project.theme or ''}\n"
+            f"{chapter.title or ''}\n{context.chapter_outline}\n{context.chapter_characters}",
+            db,
+        )
+        if knowledge_context:
+            context.relevant_memories = "\n\n".join(
+                part for part in (context.relevant_memories, knowledge_context) if part
+            )
+            logger.info(f"  ✅ 本地知识库上下文: {len(knowledge_context)}字符")
         
         # === P2-伏笔提醒===
         if self.foreshadow_service:
@@ -1338,6 +1368,19 @@ class OneToOneContextBuilder:
         else:
             context.relevant_memories = None
             logger.info(f"  ⚠️ P2-相关记忆: 无大纲内容或记忆服务不可用")
+
+        knowledge_context = await _get_knowledge_context(
+            user_id,
+            project.id,
+            f"{project.title or ''}\n{project.genre or ''}\n{project.theme or ''}\n"
+            f"{chapter.title or ''}\n{context.chapter_outline}\n{context.chapter_characters}",
+            db,
+        )
+        if knowledge_context:
+            context.relevant_memories = "\n\n".join(
+                part for part in (context.relevant_memories, knowledge_context) if part
+            )
+            logger.info(f"  ✅ 本地知识库上下文: {len(knowledge_context)}字符")
         
         # === 统计信息 ===
         context.context_stats = {

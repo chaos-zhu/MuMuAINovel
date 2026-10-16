@@ -1357,3 +1357,56 @@ export const PROMPT_CATEGORIES: Record<string, string> = {
   game: '游戏/电竞',
   other: '其他',
 };
+
+
+export interface KnowledgeBaseSettings {
+  retrieval_enabled: boolean;
+  top_k: number;
+  min_score: number;
+  max_context_chars: number;
+}
+
+export interface KnowledgeBase {
+  id: string;
+  project_id: string;
+  name: string;
+  description?: string;
+  scope: string;
+  status: string;
+  settings?: KnowledgeBaseSettings;
+  document_count: number;
+  chunk_count: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface KnowledgeDocument {
+  id: string;
+  knowledge_base_id: string;
+  title: string;
+  original_filename: string;
+  source_type: string;
+  mime_type?: string;
+  file_size: number;
+  status: string;
+  error_message?: string;
+  extracted_char_count: number;
+  chunk_count: number;
+  indexed_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface KnowledgeSearchHit {
+  chunk_id: string;
+  content: string;
+  score: number;
+  distance: number;
+  metadata: {
+    title?: string;
+    original_filename?: string;
+    section_title?: string;
+    heading_path?: string | string[];
+    [key: string]: unknown;
+  };
+}

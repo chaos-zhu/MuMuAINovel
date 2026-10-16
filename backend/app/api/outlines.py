@@ -29,6 +29,7 @@ from app.schemas.outline import (
 from app.services.ai_service import AIService
 from app.services.json_helper import loads_json
 from app.services.prompt_service import prompt_service, PromptService
+from app.services.knowledge_service import knowledge_service
 from app.services.memory_service import memory_service
 from app.services.plot_expansion_service import PlotExpansionService
 from app.services.foreshadow_service import foreshadow_service
@@ -1097,6 +1098,16 @@ async def new_outline_generator(
             requirements=data.get("requirements") or "",
             mcp_references=""
         )
+        knowledge_context = await knowledge_service.get_generation_context(
+            user_id_for_mcp,
+            project_id,
+            f"{project.title}\n{data.get('theme') or project.theme or ''}\n{data.get('genre') or project.genre or ''}\n{data.get('requirements') or ''}\n{project.world_rules or ''}",
+            db,
+            purpose="outline",
+        )
+        if knowledge_context:
+            prompt += "\n\n" + knowledge_context
+
         logger.debug(f"大纲生成提示词完成: prompt_length={len(prompt)}")
         # 添加调试日志
         model_param = data.get("model")
@@ -1558,6 +1569,16 @@ async def continue_outline_generator(
                 requirements=data.get("requirements", ""),
                 mcp_references=""
             )
+            knowledge_context = await knowledge_service.get_generation_context(
+                user_id,
+                project_id,
+                f"{project.title}\n{project.theme or ''}\n{project.genre or ''}\n{data.get('requirements') or ''}\n{context['recent_outlines']}",
+                db,
+                purpose="outline continuation",
+            )
+            if knowledge_context:
+                prompt += "\n\n" + knowledge_context
+
             logger.debug(f"续写提示词完成: batch={batch_num + 1}, prompt_length={len(prompt)}")
             # 调用AI生成当前批次
             model_param = data.get("model")
@@ -1909,6 +1930,16 @@ async def _run_new_outline_bg(
         requirements=data.get("requirements") or "",
         mcp_references=""
     )
+    knowledge_context = await knowledge_service.get_generation_context(
+        user_id_for_mcp,
+        project_id,
+        f"{project.title}\n{project.theme or ''}\n{project.genre or ''}\n{data.get('requirements') or ''}\n{project.world_rules or ''}",
+        db,
+        purpose="outline",
+    )
+    if knowledge_context:
+        prompt += "\n\n" + knowledge_context
+
 
     model_param = data.get("model")
     provider_param = data.get("provider")
@@ -2147,6 +2178,16 @@ async def _run_continue_outline_bg(
         accumulated_text = ""
         chunk_count = 0
         estimated_chars = current_batch_size * 1000
+        knowledge_context = await knowledge_service.get_generation_context(
+            user_id,
+            project_id,
+            f"{project.title}\n{project.theme or ''}\n{project.genre or ''}\n{data.get('requirements') or ''}\n{context['recent_outlines']}",
+            db,
+            purpose="outline continuation",
+        )
+        if knowledge_context:
+            prompt += "\n\n" + knowledge_context
+
 
         async for chunk in user_ai_service.generate_text_stream(
             prompt=prompt,

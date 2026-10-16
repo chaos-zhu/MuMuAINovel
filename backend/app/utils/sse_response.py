@@ -400,28 +400,52 @@ async def wrap_stream_with_heartbeat(
     heartbeat_interval: float = 15.0
 ) -> AsyncGenerator:
     """
-    包装异步生成器，在等待数据时产生心跳哨兵，防止连接超时断开。
-    
-    用法：
-        async for chunk in wrap_stream_with_heartbeat(
-            ai_service.generate_text_stream(prompt), 
-            heartbeat_interval=15
-        ):
-            if chunk is HEARTBEAT:
-                yield await tracker.heartbeat()
-                continue
-            # chunk 是原始AI数据
+    Wrap an async generator and emit heartbeat sentinels while waiting for data.
+
+    Do not cancel the underlying ``__anext__`` when the heartbeat timer fires.
+    Reasoning models may emit only ``reasoning_content`` for a long period while
+    the AI client filters it from the visible response. The old ``wait_for``
+    implementation cancelled the upstream HTTP stream in that situation, which
+    caused upstream gateways to report ``client_gone/context canceled``.
+    A background read task keeps consuming the upstream stream; a timeout only
+    emits a heartbeat. The task is cancelled only when the downstream consumer
+    actually stops consuming the stream.
     """
     ait = async_gen.__aiter__()
-    while True:
-        try:
-            item = await asyncio.wait_for(ait.__anext__(), timeout=heartbeat_interval)
+    next_task: Optional[asyncio.Task] = None
+
+    try:
+        next_task = asyncio.create_task(ait.__anext__())
+        while True:
+            done, _ = await asyncio.wait(
+                {next_task},
+                timeout=heartbeat_interval,
+            )
+
+            if not done:
+                # Heartbeat timeout must not cancel the upstream read task.
+                yield HEARTBEAT
+                continue
+
+            try:
+                item = next_task.result()
+            except StopAsyncIteration:
+                return
+
             yield item
-        except asyncio.TimeoutError:
-            # 等待超时，产生心跳哨兵
-            yield HEARTBEAT
-        except StopAsyncIteration:
-            return
+            next_task = asyncio.create_task(ait.__anext__())
+    finally:
+        # Only stop the upstream stream when the downstream has ended.
+        if next_task is not None and not next_task.done():
+            next_task.cancel()
+            await asyncio.gather(next_task, return_exceptions=True)
+
+        close = getattr(ait, "aclose", None)
+        if close is not None:
+            try:
+                await close()
+            except (GeneratorExit, asyncio.CancelledError):
+                pass
 
 
 def create_sse_response(generator: AsyncGenerator[str, None]) -> StreamingResponse:

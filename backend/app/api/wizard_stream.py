@@ -22,6 +22,7 @@ from app.services.plot_expansion_service import PlotExpansionService
 from app.logger import get_logger, safe_preview
 from app.utils.sse_response import SSEResponse, create_sse_response, WizardProgressTracker
 from app.api.settings import get_user_ai_service
+from app.services.knowledge_service import knowledge_service
 
 router = APIRouter(prefix="/wizard-stream", tags=["项目创建向导(流式)"])
 logger = get_logger(__name__)
@@ -85,6 +86,16 @@ async def world_building_generator(
         )
         
         # 设置用户信息以启用MCP
+        knowledge_context = await knowledge_service.get_generation_context(
+            user_id,
+            data.get("project_id"),
+            f"{title}\n{description}\n{theme}\n{genre}",
+            db,
+            purpose="worldbuilding",
+        )
+        if knowledge_context:
+            base_prompt += "\n\n" + knowledge_context
+
         if user_id:
             user_ai_service.user_id = user_id
             user_ai_service.db_session = db
@@ -735,6 +746,16 @@ async def characters_generator(
                         requirements=batch_requirements + careers_context  # 添加职业上下文
                     )
                     
+                    knowledge_context = await knowledge_service.get_generation_context(
+                        user_id,
+                        project_id,
+                        f"{project.title}\n{theme or project.theme or ''}\n{genre or project.genre or ''}\n{world_context}\n{batch_requirements}",
+                        db,
+                        purpose="character",
+                    )
+                    if knowledge_context:
+                        base_prompt += "\n\n" + knowledge_context
+
                     prompt = base_prompt
                     
                     # 流式生成（带字数统计）
@@ -1329,6 +1350,16 @@ async def outline_generator(
         )
         
         # 流式生成大纲
+        knowledge_context = await knowledge_service.get_generation_context(
+            user_id,
+            project_id,
+            f"{project.title}\n{project.theme or ''}\n{project.genre or ''}\n{requirements}\n{project.world_rules or ''}",
+            db,
+            purpose="outline",
+        )
+        if knowledge_context:
+            outline_prompt += "\n\n" + knowledge_context
+
         estimated_total = 1000
         accumulated_text = ""
         chunk_count = 0
@@ -1588,6 +1619,16 @@ async def world_building_regenerate_generator(
         )
         
         # 设置用户信息以启用MCP
+        knowledge_context = await knowledge_service.get_generation_context(
+            user_id,
+            project_id,
+            f"{project.title}\n{project.description or ''}\n{project.theme or ''}\n{project.genre or ''}",
+            db,
+            purpose="worldbuilding",
+        )
+        if knowledge_context:
+            base_prompt += "\n\n" + knowledge_context
+
         if user_id:
             user_ai_service.user_id = user_id
             user_ai_service.db_session = db

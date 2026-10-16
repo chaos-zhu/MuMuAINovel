@@ -1385,6 +1385,28 @@ export interface ProjectAgentStreamCallbacks {
   onError?: (error: string) => void;
 }
 
+export const knowledgeApi = {
+  listBases: (projectId: string) =>
+    api.get<unknown, { success: boolean; items: import('../types').KnowledgeBase[] }>(`/projects/${projectId}/knowledge-bases`),
+  createBase: (projectId: string, payload: { name: string; description?: string }) =>
+    api.post<unknown, { success: boolean; item: import('../types').KnowledgeBase }>(`/projects/${projectId}/knowledge-bases`, payload),
+  updateBase: (baseId: string, payload: { settings?: Partial<import('../types').KnowledgeBaseSettings>; name?: string; description?: string }) =>
+    api.patch<unknown, { success: boolean; item: import('../types').KnowledgeBase }>(`/knowledge-bases/${baseId}`, payload),
+  listDocuments: (baseId: string) =>
+    api.get<unknown, { success: boolean; items: import('../types').KnowledgeDocument[] }>(`/knowledge-bases/${baseId}/documents`),
+  uploadDocument: (baseId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post<unknown, { success: boolean; action: string; document: import('../types').KnowledgeDocument; task_id?: string }>(
+      `/knowledge-bases/${baseId}/documents`, formData, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 },
+    );
+  },
+  deleteDocument: (documentId: string) => api.delete<unknown, { success: boolean }>(`/knowledge-documents/${documentId}`),
+  reindexDocument: (documentId: string) => api.post<unknown, { success: boolean; task_id: string }>(`/knowledge-documents/${documentId}/reindex`),
+  search: (baseId: string, payload: { query: string; top_k?: number; min_score?: number; document_ids?: string[] }) =>
+    api.post<unknown, { success: boolean; query: string; items: import('../types').KnowledgeSearchHit[]; total: number }>(`/knowledge-bases/${baseId}/search`, payload),
+};
+
 export const projectAgentApi = {
   listConversations: (projectId: string) =>
     api.get<unknown, AgentConversation[]>(`/projects/${projectId}/agent/conversations`),

@@ -22,6 +22,7 @@ from app.schemas.character import (
 from app.services.ai_service import AIService
 from app.services.json_helper import loads_json
 from app.services.prompt_service import prompt_service, PromptService
+from app.services.knowledge_service import knowledge_service
 from app.services.import_export_service import ImportExportService
 from app.schemas.import_export import CharactersExportRequest, CharactersImportResult
 from app.logger import get_logger, safe_preview
@@ -936,6 +937,16 @@ async def generate_character_stream(
                 user_input=user_input
             )
             
+            knowledge_context = await knowledge_service.get_generation_context(
+                user_id,
+                request.project_id,
+                f"{project.title}\n{project.theme or ''}\n{project.genre or ''}\n{request.background or ''}\n{request.requirements or ''}\n{project.world_rules or ''}",
+                db,
+                purpose="character",
+            )
+            if knowledge_context:
+                prompt += "\n\n" + knowledge_context
+
             yield await tracker.generating(0, max(3000, len(prompt) * 8), "调用AI服务生成角色...")
             logger.info(f"🎯 开始为项目 {request.project_id} 生成角色（SSE流式）")
             

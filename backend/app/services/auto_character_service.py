@@ -9,6 +9,7 @@ from app.models.relationship import CharacterRelationship, Organization, Organiz
 from app.models.project import Project
 from app.services.ai_service import AIService
 from app.services.prompt_service import PromptService
+from app.services.knowledge_service import knowledge_service
 from app.logger import get_logger
 
 logger = get_logger(__name__)
@@ -104,8 +105,17 @@ class AutoCharacterService:
             existing_characters=existing_chars_summary + careers_info,
             plot_context="根据剧情需要引入的新角色",
             character_specification=json.dumps(spec, ensure_ascii=False, indent=2),
-            mcp_references=""  # MCP工具通过AI服务自动加载
+            mcp_references=""  # MCP tools are loaded by the AI service
         )
+        knowledge_context = await knowledge_service.get_generation_context(
+            user_id,
+            project.id,
+            f"{project.title}\n{project.theme or ''}\n{project.genre or ''}\n{json.dumps(spec, ensure_ascii=False)}\n{project.world_rules or ''}",
+            db,
+            purpose="character",
+        )
+        if knowledge_context:
+            prompt += "\n\n" + knowledge_context
         
         logger.info(f"🔧 角色详情生成: enable_mcp={enable_mcp}")
         

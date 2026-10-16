@@ -21,6 +21,7 @@ from app.models.prompt_workshop import PromptWorkshopItem, PromptSubmission, Pro
 from app.models.background_task import BackgroundTask
 from app.models.announcement import Announcement
 from app.models.project_agent import AgentConversation, AgentMessage, AgentToolCall, AgentExecutionStep
+from app.models.knowledge import KnowledgeBase, KnowledgeDocument, KnowledgeChunk
 
 __all__ = [
     "Project",
@@ -56,4 +57,7 @@ __all__ = [
     "AgentMessage",
     "AgentToolCall",
     "AgentExecutionStep",
+    "KnowledgeBase",
+    "KnowledgeDocument",
+    "KnowledgeChunk",
 ]
