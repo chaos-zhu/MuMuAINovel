@@ -9,6 +9,7 @@ from app.models.relationship import Organization, OrganizationMember
 from app.models.project import Project
 from app.services.ai_service import AIService
 from app.services.prompt_service import PromptService
+from app.services.knowledge_service import knowledge_service
 from app.logger import get_logger
 
 logger = get_logger(__name__)
@@ -88,11 +89,22 @@ class AutoOrganizationService:
         )
         
         # 调用AI生成（使用统一的JSON调用方法）
+        knowledge_context = await knowledge_service.get_generation_context(
+            user_id,
+            project.id,
+            f"{project.title}\n{project.theme or ''}\n{project.genre or ''}\n{json.dumps(spec, ensure_ascii=False)}\n{project.world_rules or ''}",
+            db,
+            purpose="organization",
+        )
+        if knowledge_context:
+            prompt += "\n\n" + knowledge_context
+
         try:
             # 使用统一的JSON调用方法（支持自动MCP工具加载）
             organization_data = await self.ai_service.call_with_json_retry(
                 prompt=prompt,
                 max_retries=3,
+                auto_mcp=enable_mcp,
             )
             
             org_name = organization_data.get('name', '未知')
@@ -453,13 +465,6 @@ class AutoOrganizationService:
         }
 
 
-# 全局实例缓存
-_auto_organization_service_instance: Optional[AutoOrganizationService] = None
-
-
 def get_auto_organization_service(ai_service: AIService) -> AutoOrganizationService:
-    """获取自动组织服务实例（单例模式）"""
-    global _auto_organization_service_instance
-    if _auto_organization_service_instance is None:
-        _auto_organization_service_instance = AutoOrganizationService(ai_service)
-    return _auto_organization_service_instance
+    """获取自动组织服务实例。AIService 绑定当前用户配置，不能全局复用。"""
+    return AutoOrganizationService(ai_service)

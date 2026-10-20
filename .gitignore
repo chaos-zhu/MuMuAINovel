@@ -106,15 +106,13 @@ dmypy.json
 
 #build
 BUILD_GUIDE.md
-launcher.py
-launcher.spec
 mumuainovel.md
 logo.ico
 .embed_cache
 dist_embed/
 embed_build.py
 
-
+.roo/
 data/
 docs/
 data_old/
@@ -125,3 +123,10 @@ backend/embedding/
 
 # 提示词工坊实例标识（每个部署实例必须唯一）
 backend/.instance_id
+test.json
+tests/
+# Local test suite (kept outside version control)
+backend/tests/
+**/test_*.py
+**/*_test.py
+tool/

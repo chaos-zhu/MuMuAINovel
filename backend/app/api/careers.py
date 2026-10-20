@@ -7,7 +7,7 @@ import json
 from typing import AsyncGenerator
 
 from app.database import get_db
-from app.utils.sse_response import SSEResponse, create_sse_response, WizardProgressTracker
+from app.utils.sse_response import SSEResponse, create_sse_response, WizardProgressTracker, wrap_stream_with_heartbeat, HEARTBEAT
 from app.models.career import Career, CharacterCareer
 from app.models.character import Character
 from app.models.project import Project
@@ -25,7 +25,8 @@ from app.schemas.career import (
     CareerStage
 )
 from app.services.ai_service import AIService
-from app.logger import get_logger
+from app.services.json_helper import loads_json
+from app.logger import get_logger, safe_preview
 from app.api.settings import get_user_ai_service
 from app.api.common import verify_project_access
 
@@ -155,14 +156,10 @@ async def create_career(
         raise HTTPException(status_code=500, detail=f"创建职业失败: {str(e)}")
 
 
-@router.get("/generate-system", summary="AI生成新职业（增量式，流式）")
+@router.post("/generate-system", summary="AI生成新职业（增量式，流式）")
 async def generate_career_system(
-    project_id: str,
-    main_career_count: int = 3,
-    sub_career_count: int = 6,
-    user_requirements: str = "",
-    enable_mcp: bool = False,
-    http_request: Request = None,
+    request_data: CareerGenerateRequest,
+    http_request: Request,
     db: AsyncSession = Depends(get_db),
     user_ai_service: AIService = Depends(get_user_ai_service)
 ):
@@ -176,6 +173,10 @@ async def generate_career_system(
         try:
             # 验证用户权限和项目是否存在
             user_id = getattr(http_request.state, 'user_id', None)
+            project_id = request_data.project_id
+            main_career_count = request_data.main_career_count
+            sub_career_count = request_data.sub_career_count
+            user_requirements = request_data.user_requirements
             project = await verify_project_access(project_id, user_id, db)
             
             yield await tracker.start()
@@ -316,7 +317,15 @@ async def generate_career_system(
                 chunk_count = 0
                 estimated_total = max(3000, len(prompt) * 8)
                 
-                async for chunk in user_ai_service.generate_text_stream(prompt=prompt):
+                async for chunk in wrap_stream_with_heartbeat(
+                    user_ai_service.generate_text_stream(prompt=prompt),
+                    heartbeat_interval=15.0
+                ):
+                    # 心跳哨兵：发送心跳保活，不混入AI响应
+                    if chunk is HEARTBEAT:
+                        yield await tracker.heartbeat()
+                        continue
+
                     chunk_count += 1
                     ai_response += chunk
                     
@@ -345,11 +354,11 @@ async def generate_career_system(
             # 清洗并解析JSON
             try:
                 cleaned_response = user_ai_service._clean_json_response(ai_response)
-                career_data = json.loads(cleaned_response)
+                career_data = loads_json(cleaned_response)
                 logger.info(f"✅ 职业体系JSON解析成功")
             except json.JSONDecodeError as e:
                 logger.error(f"❌ 职业体系JSON解析失败: {e}")
-                logger.error(f"   原始响应预览: {ai_response[:200]}")
+                logger.debug(f"   原始响应预览: {safe_preview(ai_response, 200)}")
                 yield await tracker.error(f"AI返回的内容无法解析为JSON：{str(e)}")
                 return
             

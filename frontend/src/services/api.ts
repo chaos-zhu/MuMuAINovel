@@ -12,6 +12,9 @@ import type {
   Outline,
   OutlineCreate,
   OutlineUpdate,
+  OutlineImportMode,
+  OutlineImportPreview,
+  OutlineImportResult,
   OutlineReorderRequest,
   OutlineExpansionRequest,
   OutlineExpansionResponse,
@@ -38,6 +41,11 @@ import type {
   PromptWorkshopItem,
   PromptSubmission,
   PromptSubmissionCreate,
+  Announcement,
+  AnnouncementCreate,
+  AnnouncementListResponse,
+  AnnouncementStatusResponse,
+  AnnouncementUpdate,
   MCPPlugin,
   MCPPluginCreate,
   MCPPluginUpdate,
@@ -53,11 +61,17 @@ import type {
   BookImportTask,
   BookImportPreview,
   BookImportApplyPayload,
+  BookImportCreateTaskPayload,
   BookImportResult,
   BookImportRetryResult,
   BatchAnalysisStatusResponse,
   BatchAnalyzeUnanalyzedRequest,
   BatchAnalyzeUnanalyzedResponse,
+  AgentConversation,
+  AgentConversationDetail,
+  AgentToolCall,
+  AgentToolDecision,
+  AgentExecutionStep,
 } from '../types';
 
 interface MCPPluginSimpleCreate {
@@ -98,14 +112,25 @@ api.interceptors.response.use(
         case 400:
           errorMessage = data?.detail || '请求参数错误';
           break;
-        case 401:
-          errorMessage = '未授权，请先登录';
-          if (window.location.pathname !== '/login') {
+        case 401: {
+          const backendDetail = data?.detail || data?.message;
+          const unauthenticatedDetails = [
+            '未登录',
+            '需要登录',
+            '未登录或用户ID缺失',
+            '未登录，无法刷新会话',
+          ];
+          const isUnauthenticated = unauthenticatedDetails.includes(backendDetail);
+
+          errorMessage = backendDetail || '登录状态已失效，请重新登录';
+
+          if (isUnauthenticated && window.location.pathname !== '/login') {
             window.location.href = '/login';
           }
           break;
+        }
         case 403:
-          errorMessage = '没有权限访问';
+          errorMessage = data?.detail || '没有权限访问';
           break;
         case 404:
           errorMessage = data?.detail || '请求的资源不存在';
@@ -139,13 +164,30 @@ api.interceptors.response.use(
 );
 
 export const authApi = {
-  getAuthConfig: () => api.get<unknown, { local_auth_enabled: boolean; linuxdo_enabled: boolean }>('/auth/config'),
+  getAuthConfig: () => api.get<unknown, {
+    local_auth_enabled: boolean;
+    linuxdo_enabled: boolean;
+    email_auth_enabled: boolean;
+    email_register_enabled: boolean;
+  }>('/auth/config'),
 
   localLogin: (username: string, password: string) =>
     api.post<unknown, { success: boolean; message: string; user: User }>('/auth/local/login', { username, password }),
 
   bindAccountLogin: (username: string, password: string) =>
     api.post<unknown, { success: boolean; message: string; user: User }>('/auth/bind/login', { username, password }),
+
+  emailLogin: (payload: import('../types').EmailLoginPayload) =>
+    api.post<unknown, { success: boolean; message: string; user: User }>('/auth/email/login', payload),
+
+  sendEmailCode: (payload: import('../types').EmailSendCodePayload) =>
+    api.post<unknown, { success: boolean; message: string; expire_in_seconds: number; resend_interval_seconds: number }>('/auth/email/send-code', payload),
+
+  emailRegister: (payload: import('../types').EmailRegisterPayload) =>
+    api.post<unknown, { success: boolean; message: string; user: User }>('/auth/email/register', payload),
+
+  resetEmailPassword: (payload: import('../types').EmailResetPasswordPayload) =>
+    api.post<unknown, { success: boolean; message: string }>('/auth/email/reset-password', payload),
 
   getLinuxDOAuthUrl: () => api.get<unknown, AuthUrlResponse>('/auth/linuxdo/url'),
 
@@ -201,10 +243,10 @@ export const settingsApi = {
 
   deleteSettings: () => api.delete<unknown, { message: string; user_id: string }>('/settings'),
 
-  getAvailableModels: (params: { api_key: string; api_base_url: string; provider: string }) =>
+  getAvailableModels: (params: { api_key?: string; api_base_url?: string; provider: string }) =>
     api.get<unknown, { provider: string; models: Array<{ value: string; label: string; description: string }>; count?: number }>('/settings/models', { params }),
 
-  testApiConnection: (params: { api_key: string; api_base_url: string; provider: string; llm_model: string; temperature?: number; max_tokens?: number }) =>
+  testApiConnection: (params: { api_key?: string; api_base_url?: string; provider: string; llm_model: string; temperature?: number; max_tokens?: number }) =>
     api.post<unknown, {
       success: boolean;
       message: string;
@@ -226,7 +268,7 @@ export const settingsApi = {
       model?: string;
     }>('/settings/cover/test', params),
 
-  checkFunctionCalling: (params: { api_key: string; api_base_url: string; provider: string; llm_model: string }) =>
+  checkFunctionCalling: (params: { api_key?: string; api_base_url?: string; provider: string; llm_model: string }) =>
     api.post<unknown, {
       success: boolean;
       supported: boolean;
@@ -286,10 +328,24 @@ export const settingsApi = {
       suggestions?: string[];
     }>(`/settings/presets/${presetId}/test`),
 
+  setChapterAnalysisPresetSelection: (presetId?: string) =>
+    api.put<unknown, { message: string; chapter_analysis_preset_id?: string; preset_name?: string }>('/settings/presets/usage/chapter-analysis', {
+      preset_id: presetId || null,
+    }),
+
   createPresetFromCurrent: (name: string, description?: string) =>
     api.post<unknown, APIKeyPreset>('/settings/presets/from-current', null, {
       params: { name, description }
     }),
+
+  getSystemSMTPSettings: () =>
+    api.get<unknown, import('../types').SystemSMTPSettings>('/settings/system/smtp'),
+
+  updateSystemSMTPSettings: (data: import('../types').SystemSMTPSettingsUpdate) =>
+    api.put<unknown, import('../types').SystemSMTPSettings>('/settings/system/smtp', data),
+
+  testSystemSMTPSettings: (data: { to_email: string }) =>
+    api.post<unknown, { success: boolean; message: string }>('/settings/system/smtp/test', data),
 };
 
 export const projectApi = {
@@ -418,11 +474,12 @@ export const projectApi = {
 };
 
 export const bookImportApi = {
-  createTask: (params: {
-    file: File;
-  }) => {
+  createTask: (params: BookImportCreateTaskPayload) => {
     const formData = new FormData();
     formData.append('file', params.file);
+    const tailChapterCount = params.tail_chapter_count ?? 10;
+    formData.append('extract_mode', params.extract_mode ?? 'tail');
+    formData.append('tail_chapter_count', String(tailChapterCount));
 
     return api.post<unknown, { task_id: string; status: BookImportTask['status'] }>(
       '/book-import/tasks',
@@ -476,6 +533,59 @@ export const outlineApi = {
     api.put<unknown, Outline>(`/outlines/${id}`, data),
 
   deleteOutline: (id: string) => api.delete(`/outlines/${id}`),
+
+  exportOutlines: async (projectId: string, outlineIds?: string[]) => {
+    const response = await axios.post(
+      '/api/outlines/export',
+      { project_id: projectId, outline_ids: outlineIds },
+      { responseType: 'blob', withCredentials: true },
+    );
+
+    const contentDisposition = response.headers['content-disposition'] as string | undefined;
+    let filename = 'outlines_export.json';
+    if (contentDisposition) {
+      const encodedMatch = /filename\*=UTF-8''([^;]+)/i.exec(contentDisposition);
+      const plainMatch = /filename="?([^";]+)"?/i.exec(contentDisposition);
+      if (encodedMatch?.[1]) {
+        try {
+          filename = decodeURIComponent(encodedMatch[1]);
+        } catch {
+          filename = encodedMatch[1];
+        }
+      } else if (plainMatch?.[1]) {
+        filename = plainMatch[1].trim();
+      }
+    }
+
+    const url = window.URL.createObjectURL(response.data as Blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.URL.revokeObjectURL(url);
+  },
+
+  previewImport: (projectId: string, mode: OutlineImportMode, file: File) => {
+    const formData = new FormData();
+    formData.append('project_id', projectId);
+    formData.append('mode', mode);
+    formData.append('file', file);
+    return api.post<unknown, OutlineImportPreview>('/outlines/import/preview', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+
+  importOutlines: (projectId: string, mode: OutlineImportMode, file: File) => {
+    const formData = new FormData();
+    formData.append('project_id', projectId);
+    formData.append('mode', mode);
+    formData.append('file', file);
+    return api.post<unknown, OutlineImportResult>('/outlines/import', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
 
   reorderOutlines: (data: OutlineReorderRequest) =>
     api.post<unknown, { message: string; updated_outlines: number; updated_chapters: number }>('/outlines/reorder', data),
@@ -873,6 +983,35 @@ export const promptWorkshopApi = {
     }>('/prompt-workshop/admin/stats'),
 };
 
+export const announcementApi = {
+  getStatus: () =>
+    api.get<unknown, AnnouncementStatusResponse>('/announcements/status'),
+
+  list: (params?: { page?: number; limit?: number }) =>
+    api.get<unknown, AnnouncementListResponse>('/announcements', { params }),
+
+  sync: (params?: { since?: string; limit?: number }) =>
+    api.get<unknown, AnnouncementListResponse>('/announcements/sync', { params }),
+
+  adminList: (params?: { status?: string; q?: string; page?: number; limit?: number; include_expired?: boolean }) =>
+    api.get<unknown, AnnouncementListResponse>('/announcements/admin/items', { params }),
+
+  adminCreate: (data: AnnouncementCreate) =>
+    api.post<unknown, { success: boolean; item: Announcement }>('/announcements/admin/items', data),
+
+  adminUpdate: (id: string, data: AnnouncementUpdate) =>
+    api.put<unknown, { success: boolean; item: Announcement }>(`/announcements/admin/items/${id}`, data),
+
+  adminDelete: (id: string) =>
+    api.delete<unknown, { success: boolean; message: string }>(`/announcements/admin/items/${id}`),
+
+  adminPublish: (id: string) =>
+    api.post<unknown, { success: boolean; item: Announcement }>(`/announcements/admin/items/${id}/publish`),
+
+  adminHide: (id: string) =>
+    api.post<unknown, { success: boolean; item: Announcement }>(`/announcements/admin/items/${id}/hide`),
+};
+
 export const polishApi = {
   polishText: (data: PolishTextRequest) =>
     api.post<unknown, { polished_text: string }>('/polish', data),
@@ -1226,4 +1365,131 @@ export const foreshadowApi = {
       `/foreshadows/projects/${projectId}/sync-from-analysis`,
       data
     ),
+};
+
+export interface ProjectAgentStreamCallbacks {
+  onConversation?: (data: { conversation_id: string; title: string }) => void;
+  onChunk?: (content: string) => void;
+  onToolProposed?: (toolCall: AgentToolCall) => void;
+  onToolExecuted?: (data: {
+    tool_call: AgentToolCall;
+    resources: string[];
+    approval_mode: 'automatic' | 'manual';
+  }) => void;
+  onStepStart?: (step: AgentExecutionStep) => void;
+  onStepUpdate?: (step: AgentExecutionStep) => void;
+  onFinalStart?: (data: { message_id: string }) => void;
+  onFinalChunk?: (content: string) => void;
+  onFinalDone?: (data: { message_id: string }) => void;
+  onResult?: (data: { conversation_id: string; message_id: string; status: string }) => void;
+  onError?: (error: string) => void;
+}
+
+export const knowledgeApi = {
+  listBases: (projectId: string) =>
+    api.get<unknown, { success: boolean; items: import('../types').KnowledgeBase[] }>(`/projects/${projectId}/knowledge-bases`),
+  createBase: (projectId: string, payload: { name: string; description?: string }) =>
+    api.post<unknown, { success: boolean; item: import('../types').KnowledgeBase }>(`/projects/${projectId}/knowledge-bases`, payload),
+  updateBase: (baseId: string, payload: { settings?: Partial<import('../types').KnowledgeBaseSettings>; name?: string; description?: string }) =>
+    api.patch<unknown, { success: boolean; item: import('../types').KnowledgeBase }>(`/knowledge-bases/${baseId}`, payload),
+  listDocuments: (baseId: string) =>
+    api.get<unknown, { success: boolean; items: import('../types').KnowledgeDocument[] }>(`/knowledge-bases/${baseId}/documents`),
+  uploadDocument: (baseId: string, file: File) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return api.post<unknown, { success: boolean; action: string; document: import('../types').KnowledgeDocument; task_id?: string }>(
+      `/knowledge-bases/${baseId}/documents`, formData, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 },
+    );
+  },
+  deleteDocument: (documentId: string) => api.delete<unknown, { success: boolean }>(`/knowledge-documents/${documentId}`),
+  reindexDocument: (documentId: string) => api.post<unknown, { success: boolean; task_id: string }>(`/knowledge-documents/${documentId}/reindex`),
+  search: (baseId: string, payload: { query: string; top_k?: number; min_score?: number; document_ids?: string[] }) =>
+    api.post<unknown, { success: boolean; query: string; items: import('../types').KnowledgeSearchHit[]; total: number }>(`/knowledge-bases/${baseId}/search`, payload),
+};
+
+export const projectAgentApi = {
+  listConversations: (projectId: string) =>
+    api.get<unknown, AgentConversation[]>(`/projects/${projectId}/agent/conversations`),
+
+  createConversation: (projectId: string, title?: string) =>
+    api.post<unknown, AgentConversation>(`/projects/${projectId}/agent/conversations`, { title }),
+
+  getConversation: (projectId: string, conversationId: string) =>
+    api.get<unknown, AgentConversationDetail>(
+      `/projects/${projectId}/agent/conversations/${conversationId}`
+    ),
+
+  deleteConversation: (projectId: string, conversationId: string) =>
+    api.delete(`/projects/${projectId}/agent/conversations/${conversationId}`),
+
+  confirmToolCall: (projectId: string, toolCallId: string) =>
+    api.post<unknown, AgentToolDecision>(
+      `/projects/${projectId}/agent/tool-calls/${toolCallId}/confirm`
+    ),
+
+  rejectToolCall: (projectId: string, toolCallId: string) =>
+    api.post<unknown, AgentToolDecision>(
+      `/projects/${projectId}/agent/tool-calls/${toolCallId}/reject`
+    ),
+
+  chatStream: async (
+    projectId: string,
+    payload: {
+      conversation_id?: string;
+      message: string;
+      page_context?: Record<string, unknown>;
+      auto_approve?: boolean;
+    },
+    callbacks: ProjectAgentStreamCallbacks,
+    signal?: AbortSignal,
+  ) => {
+    const response = await fetch(`/api/projects/${projectId}/agent/chat-stream`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+      signal,
+    });
+    if (!response.ok) {
+      let detail = `请求失败 (${response.status})`;
+      try {
+        const body = await response.json();
+        detail = body.detail || detail;
+      } catch {
+        // 保留 HTTP 状态错误。
+      }
+      throw new Error(detail);
+    }
+    if (!response.body) throw new Error('无法读取木木创作助手响应流');
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const blocks = buffer.split('\n\n');
+      buffer = blocks.pop() || '';
+      for (const block of blocks) {
+        const match = block.match(/^data:\s*(.+)$/m);
+        if (!match) continue;
+        const event = JSON.parse(match[1]);
+        if (event.type === 'conversation') callbacks.onConversation?.(event.data);
+        else if (event.type === 'chunk') callbacks.onChunk?.(event.content || '');
+        else if (event.type === 'tool_proposed') callbacks.onToolProposed?.(event.data);
+        else if (event.type === 'tool_executed') callbacks.onToolExecuted?.(event.data);
+        else if (event.type === 'step_start') callbacks.onStepStart?.(event.data);
+        else if (event.type === 'step_update') callbacks.onStepUpdate?.(event.data);
+        else if (event.type === 'final_start') callbacks.onFinalStart?.(event.data);
+        else if (event.type === 'final_chunk') callbacks.onFinalChunk?.(event.content || '');
+        else if (event.type === 'final_done') callbacks.onFinalDone?.(event.data);
+        else if (event.type === 'result') callbacks.onResult?.(event.data);
+        else if (event.type === 'error') {
+          callbacks.onError?.(event.error || '木木创作助手执行失败');
+          throw new Error(event.error || '木木创作助手执行失败');
+        }
+      }
+    }
+  },
 };

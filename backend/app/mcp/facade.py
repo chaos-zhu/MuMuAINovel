@@ -41,7 +41,7 @@ from mcp.client.sse import sse_client
 from anyio import ClosedResourceError
 
 from app.mcp.config import mcp_config
-from app.logger import get_logger
+from app.logger import get_logger, summarize_log_value
 
 logger = get_logger(__name__)
 
@@ -316,6 +316,9 @@ class MCPClientFacade:
             if key in self._sessions:
                 await self._close_session_unsafe(key)
 
+            stream_ctx = None
+            session = None
+            
             try:
                 logger.info(f"🔗 连接MCP服务器: {config.plugin_name} -> {config.url} (类型: {config.plugin_type})")
 
@@ -365,11 +368,19 @@ class MCPClientFacade:
                     error_details.append(f"{type(exc).__name__}: {exc}")
                 error_msg = "; ".join(error_details)
                 logger.error(f"❌ MCP连接失败 {key}: TaskGroup异常 - {error_msg}")
+                
+                # 在同一任务中清理已创建的上下文，避免跨任务清理cancel scope
+                await self._cleanup_contexts_in_task(session, stream_ctx)
+                
                 await self._emit_status_change(config.user_id, config.plugin_name, "inactive", "error", error_msg)
                 return False
 
             except Exception as e:
                 logger.error(f"❌ MCP连接失败 {key}: {type(e).__name__}: {e}")
+                
+                # 在同一任务中清理已创建的上下文，避免跨任务清理cancel scope
+                await self._cleanup_contexts_in_task(session, stream_ctx)
+                
                 await self._emit_status_change(config.user_id, config.plugin_name, "inactive", "error", str(e))
                 return False
     
@@ -391,6 +402,27 @@ class MCPClientFacade:
             self._invalidate_cache(key)
         
         await self._emit_status_change(user_id, plugin_name, old_status, "inactive", "已注销")
+    
+    async def _cleanup_contexts_in_task(self, session, stream_ctx):
+        """在当前任务中清理已创建的上下文（异步方法）
+        
+        当MCP连接失败时，上下文（cancel scope）必须在与创建时相同的任务中清理。
+        由于异常处理和上下文创建在同一个任务中，这里可以安全地await __aexit__。
+        """
+        # 先清理session，再清理stream（LIFO顺序）
+        if session is not None:
+            try:
+                await session.__aexit__(None, None, None)
+            except Exception as e:
+                logger.debug(f"清理session上下文: {e}")
+        
+        if stream_ctx is not None:
+            try:
+                await stream_ctx.__aexit__(None, None, None)
+            except Exception as e:
+                logger.debug(f"清理stream上下文: {e}")
+        
+        logger.debug("已在当前任务中清理MCP上下文")
     
     async def _close_session_unsafe(self, key: str):
         """关闭会话（不加用户锁，需要调用者确保线程安全）"""
@@ -581,14 +613,22 @@ class MCPClientFacade:
         session = await self._get_session(user_id, plugin_name)
         result = await session.list_tools()
         
-        tools = [
-            {
-                "name": t.name,
-                "description": t.description or "",
-                "inputSchema": t.inputSchema
-            }
-            for t in result.tools
-        ]
+        tools = []
+        for tool in result.tools:
+            annotations = getattr(tool, "annotations", None)
+            if annotations is not None and hasattr(annotations, "model_dump"):
+                annotations = annotations.model_dump(exclude_none=True)
+            elif annotations is not None and not isinstance(annotations, dict):
+                annotations = {
+                    key: value for key, value in vars(annotations).items()
+                    if not key.startswith("_") and value is not None
+                }
+            tools.append({
+                "name": tool.name,
+                "description": tool.description or "",
+                "inputSchema": tool.inputSchema,
+                "annotations": annotations or {},
+            })
         
         # 更新缓存
         self._tool_cache[cache_key] = ToolCacheEntry(
@@ -631,7 +671,7 @@ class MCPClientFacade:
                 session = await self._get_session(user_id, plugin_name)
                 
                 logger.info(f"调用工具: {tool_key}")
-                logger.debug(f"  参数: {arguments}")
+                logger.debug(f"  参数摘要: {summarize_log_value(arguments)}")
                 
                 # 带超时调用
                 result = await asyncio.wait_for(

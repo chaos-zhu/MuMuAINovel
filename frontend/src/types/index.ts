@@ -11,6 +11,65 @@ export interface User {
   last_login: string;
 }
 
+export interface EmailLoginPayload {
+  email: string;
+  code: string;
+}
+
+export interface EmailRegisterPayload {
+  email: string;
+  code: string;
+  password: string;
+  display_name?: string;
+}
+
+export interface EmailSendCodePayload {
+  email: string;
+  scene: 'register' | 'login' | 'reset_password';
+}
+
+export interface EmailResetPasswordPayload {
+  email: string;
+  code: string;
+  new_password: string;
+}
+
+export interface SystemSMTPSettings {
+  id: string;
+  user_id: string;
+  smtp_provider: string;
+  smtp_host?: string;
+  smtp_port: number;
+  smtp_username?: string;
+  smtp_password?: string;
+  smtp_use_tls: boolean;
+  smtp_use_ssl: boolean;
+  smtp_from_email?: string;
+  smtp_from_name: string;
+  email_auth_enabled: boolean;
+  email_register_enabled: boolean;
+  verification_code_ttl_minutes: number;
+  verification_resend_interval_seconds: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SystemSMTPSettingsUpdate {
+  smtp_provider?: string;
+  smtp_host?: string;
+  smtp_port?: number;
+  smtp_username?: string;
+  smtp_password?: string;
+  smtp_use_tls?: boolean;
+  smtp_use_ssl?: boolean;
+  smtp_from_email?: string;
+  smtp_from_name?: string;
+  email_auth_enabled?: boolean;
+  email_register_enabled?: boolean;
+  verification_code_ttl_minutes?: number;
+  verification_resend_interval_seconds?: number;
+}
+
 // 设置类型定义
 export interface Settings {
   id: string;
@@ -22,6 +81,7 @@ export interface Settings {
   temperature: number;
   max_tokens: number;
   system_prompt?: string;
+  disable_thinking?: boolean;
   cover_api_provider?: string;
   cover_api_key?: string;
   cover_api_base_url?: string;
@@ -40,6 +100,7 @@ export interface SettingsUpdate {
   temperature?: number;
   max_tokens?: number;
   system_prompt?: string;
+  disable_thinking?: boolean;
   cover_api_provider?: string;
   cover_api_key?: string;
   cover_api_base_url?: string;
@@ -84,6 +145,7 @@ export interface PresetListResponse {
   presets: APIKeyPreset[];
   total: number;
   active_preset_id?: string;
+  chapter_analysis_preset_id?: string;
 }
 
 // LinuxDO 授权 URL 响应
@@ -211,6 +273,118 @@ export interface OutlineUpdate {
   content?: string;
   structure?: string;  // 支持修改structure字段
   // order_index 只能通过 reorder 接口批量调整
+}
+
+export interface AgentConversation {
+  id: string;
+  user_id: string;
+  project_id: string;
+  title: string;
+  summary?: string;
+  status: string;
+  last_message_at: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentMessage {
+  id: string;
+  conversation_id: string;
+  role: 'user' | 'assistant' | 'tool' | 'system';
+  content: string;
+  model?: string;
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  created_at: string;
+}
+
+export interface AgentToolCall {
+  id: string;
+  conversation_id: string;
+  message_id?: string;
+  tool_name: string;
+  arguments: Record<string, unknown>;
+  risk_level: number;
+  requires_confirmation: boolean;
+  status: string;
+  preview?: {
+    entity_type: string;
+    entity_id: string;
+    label: string;
+    changes: Record<string, { before: unknown; after: unknown }>;
+    resources: string[];
+  };
+  result?: Record<string, unknown>;
+  error_message?: string;
+  created_at: string;
+}
+
+export interface AgentExecutionStep {
+  id: string;
+  conversation_id: string;
+  user_message_id?: string;
+  assistant_message_id?: string;
+  tool_call_id?: string;
+  sequence: number;
+  step_type: 'thought' | 'tool' | 'skill' | string;
+  category: 'analysis' | 'project' | 'mcp' | 'skill' | string;
+  title: string;
+  content?: string;
+  status: 'running' | 'completed' | 'failed' | 'cancelled' | 'rejected' | 'waiting_confirmation' | string;
+  detail?: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AgentConversationDetail extends AgentConversation {
+  messages: AgentMessage[];
+  tool_calls: AgentToolCall[];
+  execution_steps: AgentExecutionStep[];
+}
+
+export interface AgentToolDecision {
+  success: boolean;
+  message: string;
+  tool_call: AgentToolCall;
+  resources: string[];
+}
+
+export type OutlineImportMode = 'append' | 'merge';
+
+export interface OutlineImportPreview {
+  valid: boolean;
+  version: string;
+  source_type: 'outlines' | 'project' | 'unknown';
+  source_project?: {
+    title: string;
+    outline_mode: 'one-to-one' | 'one-to-many';
+  } | null;
+  target_outline_mode?: 'one-to-one' | 'one-to-many' | null;
+  mode: OutlineImportMode;
+  statistics: {
+    total: number;
+    will_create: number;
+    will_update: number;
+    will_create_chapters: number;
+  };
+  errors: string[];
+  warnings: string[];
+}
+
+export interface OutlineImportResult {
+  success: boolean;
+  message: string;
+  mode: OutlineImportMode;
+  imported: number;
+  updated: number;
+  created_chapters: number;
+  details: Array<{
+    source_order_index: number;
+    target_order_index: number;
+    title: string;
+    action: 'created' | 'updated';
+  }>;
+  warnings: string[];
 }
 
 // 角色类型定义
@@ -685,12 +859,26 @@ export interface StoryMemory {
   is_foreshadow: 0 | 1 | 2; // 0=普通, 1=已埋下, 2=已回收
 }
 
+export interface EntityChangesSummaryItem {
+  updated_count?: number;
+  state_updated_count?: number;
+  relationship_created_count?: number;
+  relationship_updated_count?: number;
+  org_updated_count?: number;
+  changes: string[];
+}
+
 // 章节分析结果响应 - 匹配后端API返回
 export interface ChapterAnalysisResponse {
   chapter_id: string;
   analysis: AnalysisData;  // 注意：后端返回的是analysis而不是analysis_data
   memories: StoryMemory[];
   created_at: string;
+  entity_changes?: {
+    careers: EntityChangesSummaryItem;
+    character_states: EntityChangesSummaryItem;
+    organization_states: EntityChangesSummaryItem;
+  };
 }
 
 // 手动触发分析响应
@@ -926,6 +1114,7 @@ export interface ForeshadowContextResponse {
 
 export type BookImportTaskStatus = 'pending' | 'running' | 'completed' | 'failed' | 'cancelled';
 export type BookImportWarningLevel = 'info' | 'warning' | 'error';
+export type BookImportExtractMode = 'tail' | 'full';
 
 export interface BookImportWarning {
   code: string;
@@ -980,6 +1169,12 @@ export interface BookImportApplyPayload {
   chapters: BookImportChapter[];
   outlines: BookImportOutline[];
   import_mode?: 'append' | 'overwrite';
+}
+
+export interface BookImportCreateTaskPayload {
+  file: File;
+  extract_mode?: BookImportExtractMode;
+  tail_chapter_count?: number;
 }
 
 export interface BookImportResult {
@@ -1086,6 +1281,69 @@ export interface PromptWorkshopAdminStats {
   total_likes: number;
 }
 
+// ==================== 公告类型定义 ====================
+
+export type AnnouncementLevel = 'info' | 'success' | 'warning' | 'error';
+export type AnnouncementStatus = 'draft' | 'published' | 'hidden';
+
+export interface Announcement {
+  id: string;
+  title: string;
+  content: string;
+  summary?: string | null;
+  level: AnnouncementLevel;
+  status?: AnnouncementStatus;
+  pinned: boolean;
+  author_id?: string | null;
+  author_name?: string | null;
+  publish_at?: string | null;
+  expire_at?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+export interface AnnouncementCreate {
+  title: string;
+  content: string;
+  summary?: string;
+  level?: AnnouncementLevel;
+  status?: AnnouncementStatus;
+  pinned?: boolean;
+  publish_at?: string;
+  expire_at?: string;
+}
+
+export interface AnnouncementUpdate {
+  title?: string;
+  content?: string;
+  summary?: string;
+  level?: AnnouncementLevel;
+  status?: AnnouncementStatus;
+  pinned?: boolean;
+  publish_at?: string | null;
+  expire_at?: string | null;
+}
+
+export interface AnnouncementListResponse {
+  success: boolean;
+  data: {
+    total: number;
+    page: number;
+    limit: number;
+    items: Announcement[];
+    active_ids?: string[];
+    latest_updated_at?: string | null;
+    server_time?: string;
+  };
+}
+
+export interface AnnouncementStatusResponse {
+  mode: 'client' | 'server' | string;
+  instance_id: string;
+  cloud_url?: string;
+  cloud_connected?: boolean;
+}
+
 // 提示词工坊分类常量
 export const PROMPT_CATEGORIES: Record<string, string> = {
   general: '通用',
@@ -1099,3 +1357,56 @@ export const PROMPT_CATEGORIES: Record<string, string> = {
   game: '游戏/电竞',
   other: '其他',
 };
+
+
+export interface KnowledgeBaseSettings {
+  retrieval_enabled: boolean;
+  top_k: number;
+  min_score: number;
+  max_context_chars: number;
+}
+
+export interface KnowledgeBase {
+  id: string;
+  project_id: string;
+  name: string;
+  description?: string;
+  scope: string;
+  status: string;
+  settings?: KnowledgeBaseSettings;
+  document_count: number;
+  chunk_count: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface KnowledgeDocument {
+  id: string;
+  knowledge_base_id: string;
+  title: string;
+  original_filename: string;
+  source_type: string;
+  mime_type?: string;
+  file_size: number;
+  status: string;
+  error_message?: string;
+  extracted_char_count: number;
+  chunk_count: number;
+  indexed_at?: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface KnowledgeSearchHit {
+  chunk_id: string;
+  content: string;
+  score: number;
+  distance: number;
+  metadata: {
+    title?: string;
+    original_filename?: string;
+    section_title?: string;
+    heading_path?: string | string[];
+    [key: string]: unknown;
+  };
+}

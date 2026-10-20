@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Card, Button, Space, Typography, message, Progress } from 'antd';
+import { Card, Button, Space, Typography, message, Progress, Modal, theme } from 'antd';
 import { CheckCircleOutlined, LoadingOutlined } from '@ant-design/icons';
 import { wizardStreamApi } from '../services/api';
 import type { ApiError } from '../types';
@@ -45,14 +45,24 @@ interface WorldBuildingResult {
   rules: string;
 }
 
+const isAbortError = (error: unknown): boolean =>
+  typeof error === 'object'
+  && error !== null
+  && 'name' in error
+  && error.name === 'AbortError';
+
 export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
   config,
   storagePrefix,
   onComplete,
+  onBack,
   isMobile = false,
   resumeProjectId
 }) => {
   const navigate = useNavigate();
+  const { token } = theme.useToken();
+  const alphaColor = (color: string, alpha: number) =>
+    `color-mix(in srgb, ${color} ${(alpha * 100).toFixed(0)}%, transparent)`;
 
   // 状态管理
   const [loading, setLoading] = useState(false);
@@ -99,22 +109,65 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
     localStorage.removeItem(storageKeys.currentStep);
   };
 
+  const handleRestartGeneration = () => {
+    Modal.confirm({
+      title: '确认重新开始生成',
+      content: '当前生成进度将被放弃，并返回灵感对话重新配置。已创建的项目数据不会自动删除。',
+      okText: '重新开始',
+      cancelText: '取消',
+      centered: true,
+      okButtonProps: { danger: true },
+      onOk: () => {
+        clearStorage();
+        onBack?.();
+      },
+    });
+  };
+
+  // 使用配置内容作为依赖，避免父组件创建等价的新对象时重新启动生成流程。
+  const generationKey = JSON.stringify([
+    config.title,
+    config.description,
+    config.theme,
+    config.genre,
+    config.narrative_perspective,
+    config.target_words,
+    config.chapter_count,
+    config.character_count,
+    config.outline_mode,
+  ]);
+
   // 开始自动化生成流程
   useEffect(() => {
-    if (config) {
+    const controller = new AbortController();
+
+    // 延迟到下一轮事件循环：StrictMode 会立即清理首次探测 Effect，
+    // 因此探测执行不会真正发出生成请求，第二次正式 Effect 才会启动流程。
+    const startTimer = window.setTimeout(() => {
+      if (controller.signal.aborted) return;
+
       if (resumeProjectId) {
         // 恢复生成模式
-        handleResumeGenerate(config, resumeProjectId);
+        void handleResumeGenerate(config, resumeProjectId, controller.signal);
       } else {
         // 新建项目模式
-        handleAutoGenerate(config);
+        void handleAutoGenerate(config, controller.signal);
       }
-    }
+    }, 0);
+
+    return () => {
+      window.clearTimeout(startTimer);
+      controller.abort();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, resumeProjectId]);
+  }, [generationKey, resumeProjectId]);
 
   // 恢复未完成项目的生成
-  const handleResumeGenerate = async (data: GenerationConfig, projectIdParam: string) => {
+  const handleResumeGenerate = async (
+    data: GenerationConfig,
+    projectIdParam: string,
+    signal?: AbortSignal,
+  ) => {
     try {
       setLoading(true);
       setProgress(0);
@@ -125,7 +178,8 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
 
       // 获取项目信息,判断当前完成到哪一步
       const response = await fetch(`/api/projects/${projectIdParam}`, {
-        credentials: 'include'
+        credentials: 'include',
+        signal,
       });
       if (!response.ok) {
         throw new Error('获取项目信息失败');
@@ -148,27 +202,27 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
         // 从世界观开始
         message.info('从世界观步骤开始生成...');
         setGenerationSteps({ worldBuilding: 'processing', careers: 'pending', characters: 'pending', outline: 'pending' });
-        await resumeFromWorldBuilding(data);
+        await resumeFromWorldBuilding(data, signal);
       } else if (wizardStep === 1) {
         // 世界观已完成，从职业体系开始
         message.info('世界观已完成，从职业体系步骤继续...');
         setGenerationSteps({ worldBuilding: 'completed', careers: 'processing', characters: 'pending', outline: 'pending' });
         setWorldBuildingResult(worldResult);
         setProgress(20);
-        await resumeFromCareers(data, worldResult);
+        await resumeFromCareers(data, worldResult, signal);
       } else if (wizardStep === 2) {
         // 职业体系已完成，从角色开始
         message.info('职业体系已完成，从角色步骤继续...');
         setGenerationSteps({ worldBuilding: 'completed', careers: 'completed', characters: 'processing', outline: 'pending' });
         setWorldBuildingResult(worldResult);
         setProgress(40);
-        await resumeFromCharacters(data, worldResult);
+        await resumeFromCharacters(data, worldResult, signal);
       } else if (wizardStep === 3) {
         // 角色已完成，从大纲开始
         message.info('角色已完成，从大纲步骤继续...');
         setGenerationSteps({ worldBuilding: 'completed', careers: 'completed', characters: 'completed', outline: 'processing' });
         setProgress(70);
-        await resumeFromOutline(data, projectIdParam);
+        await resumeFromOutline(data, projectIdParam, signal);
       } else {
         // 已全部完成
         message.success('项目已完成,正在跳转...');
@@ -179,6 +233,8 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
         }, 1000);
       }
     } catch (error) {
+      if (isAbortError(error)) return;
+
       const apiError = error as ApiError;
       const errorMsg = apiError.response?.data?.detail || apiError.message || '未知错误';
       console.error('恢复生成失败:', errorMsg);
@@ -189,7 +245,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
   };
 
   // 恢复:从世界观步骤开始
-  const resumeFromWorldBuilding = async (data: GenerationConfig) => {
+  const resumeFromWorldBuilding = async (data: GenerationConfig, signal?: AbortSignal) => {
     const genreString = Array.isArray(data.genre) ? data.genre.join('、') : data.genre;
 
     const worldResult = await wizardStreamApi.generateWorldBuildingStream(
@@ -205,6 +261,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
         outline_mode: data.outline_mode || 'one-to-many',  // 传递大纲模式
       },
       {
+        signal,
         onProgress: (msg, prog) => {
           // 直接使用后端返回的进度值
           setProgress(prog);
@@ -227,11 +284,15 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       }
     );
 
-    await resumeFromCareers(data, worldResult);
+    await resumeFromCareers(data, worldResult, signal);
   };
 
   // 恢复:从职业体系步骤继续
-  const resumeFromCareers = async (data: GenerationConfig, worldResult: WorldBuildingResult) => {
+  const resumeFromCareers = async (
+    data: GenerationConfig,
+    worldResult: WorldBuildingResult,
+    signal?: AbortSignal,
+  ) => {
     const pid = projectId || worldResult.project_id;
 
     setGenerationSteps(prev => ({ ...prev, careers: 'processing' }));
@@ -242,6 +303,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
         project_id: pid,
       },
       {
+        signal,
         onProgress: (msg, prog) => {
           setProgress(prog);
           setProgressMessage(msg);
@@ -263,11 +325,15 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       }
     );
 
-    await resumeFromCharacters(data, worldResult);
+    await resumeFromCharacters(data, worldResult, signal);
   };
 
   // 恢复:从角色步骤继续
-  const resumeFromCharacters = async (data: GenerationConfig, worldResult: WorldBuildingResult) => {
+  const resumeFromCharacters = async (
+    data: GenerationConfig,
+    worldResult: WorldBuildingResult,
+    signal?: AbortSignal,
+  ) => {
     const genreString = Array.isArray(data.genre) ? data.genre.join('、') : data.genre;
     const pid = projectId || worldResult.project_id;
 
@@ -288,6 +354,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
         genre: genreString,
       },
       {
+        signal,
         onProgress: (msg, prog) => {
           // 直接使用后端返回的进度值
           setProgress(prog);
@@ -310,11 +377,15 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       }
     );
 
-    await resumeFromOutline(data, pid);
+    await resumeFromOutline(data, pid, signal);
   };
 
   // 恢复:从大纲步骤继续
-  const resumeFromOutline = async (data: GenerationConfig, pid: string) => {
+  const resumeFromOutline = async (
+    data: GenerationConfig,
+    pid: string,
+    signal?: AbortSignal,
+  ) => {
     setGenerationSteps(prev => ({ ...prev, outline: 'processing' }));
     setProgressMessage('正在生成大纲...');
 
@@ -326,6 +397,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
         target_words: data.target_words,
       },
       {
+        signal,
         onProgress: (msg, prog) => {
           // 直接使用后端返回的进度值
           setProgress(prog);
@@ -362,7 +434,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
   };
 
   // 自动化生成流程
-  const handleAutoGenerate = async (data: GenerationConfig) => {
+  const handleAutoGenerate = async (data: GenerationConfig, signal?: AbortSignal) => {
     try {
       setLoading(true);
       setProgress(0);
@@ -390,6 +462,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
           outline_mode: data.outline_mode || 'one-to-many',  // 传递大纲模式
         },
         {
+          signal,
           onProgress: (msg, prog) => {
             // 直接使用后端返回的进度值
             setProgress(prog);
@@ -431,6 +504,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
           project_id: createdProjectId,
         },
         {
+          signal,
           onProgress: (msg, prog) => {
             setProgress(prog);
             setProgressMessage(msg);
@@ -470,6 +544,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
           genre: genreString,
         },
         {
+          signal,
           onProgress: (msg, prog) => {
             // 直接使用后端返回的进度值
             setProgress(prog);
@@ -504,6 +579,7 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
           target_words: data.target_words,
         },
         {
+          signal,
           onProgress: (msg, prog) => {
             // 直接使用后端返回的进度值
             setProgress(prog);
@@ -541,6 +617,8 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
       }, 1000);
 
     } catch (error) {
+      if (isAbortError(error)) return;
+
       const apiError = error as ApiError;
       const errorMsg = apiError.response?.data?.detail || apiError.message || '未知错误';
       console.error('创建项目失败:', errorMsg);
@@ -947,12 +1025,45 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
   };
 
 
-  // 获取步骤状态图标和颜色
+  // 获取步骤状态图标和样式
   const getStepStatus = (step: GenerationStep) => {
-    if (step === 'completed') return { icon: <CheckCircleOutlined />, color: 'var(--color-success)' };
-    if (step === 'processing') return { icon: <LoadingOutlined />, color: 'var(--color-primary)' };
-    if (step === 'error') return { icon: '✗', color: 'var(--color-error)' };
-    return { icon: '○', color: 'var(--color-text-quaternary)' };
+    if (step === 'completed') {
+      return {
+        icon: <CheckCircleOutlined />,
+        color: token.colorSuccess,
+        text: '已完成',
+        background: `linear-gradient(135deg, ${alphaColor(token.colorSuccess, 0.12)} 0%, ${token.colorBgContainer} 100%)`,
+        borderColor: alphaColor(token.colorSuccess, 0.28),
+      };
+    }
+
+    if (step === 'processing') {
+      return {
+        icon: <LoadingOutlined spin />,
+        color: token.colorPrimary,
+        text: '进行中',
+        background: `linear-gradient(135deg, ${alphaColor(token.colorPrimary, 0.14)} 0%, ${token.colorBgContainer} 100%)`,
+        borderColor: alphaColor(token.colorPrimary, 0.32),
+      };
+    }
+
+    if (step === 'error') {
+      return {
+        icon: '✕',
+        color: token.colorError,
+        text: '失败',
+        background: `linear-gradient(135deg, ${alphaColor(token.colorError, 0.12)} 0%, ${token.colorBgContainer} 100%)`,
+        borderColor: alphaColor(token.colorError, 0.32),
+      };
+    }
+
+    return {
+      icon: '○',
+      color: token.colorTextQuaternary,
+      text: '等待中',
+      background: token.colorFillQuaternary,
+      borderColor: token.colorBorderSecondary,
+    };
   };
 
   const hasError = generationSteps.worldBuilding === 'error' ||
@@ -960,95 +1071,215 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
     generationSteps.characters === 'error' ||
     generationSteps.outline === 'error';
 
+  const progressAccentColor = hasError
+    ? token.colorError
+    : progress === 100
+      ? token.colorSuccess
+      : token.colorPrimary;
+
+  const stepItems = [
+    { key: 'worldBuilding', label: '生成世界观', step: generationSteps.worldBuilding },
+    { key: 'careers', label: '生成职业体系', step: generationSteps.careers },
+    { key: 'characters', label: '生成角色', step: generationSteps.characters },
+    { key: 'outline', label: '生成大纲', step: generationSteps.outline },
+  ];
+
+  const availableViewportHeight = isMobile
+    ? 'calc(100dvh - 96px)'
+    : 'calc(100dvh - 128px)';
+
   // 渲染生成进度页面
   const renderGenerating = () => (
-    <div style={{
-      textAlign: 'center',
-      padding: isMobile ? '32px 16px' : '40px 20px',
-      maxWidth: '100%',
-      overflow: 'hidden'
-    }}>
-      <Title
-        level={isMobile ? 4 : 3}
+    <div
+      style={{
+        padding: isMobile ? '4px 0 8px' : '8px 0 12px',
+        maxWidth: 920,
+        margin: '0 auto',
+        overflow: 'hidden',
+        minHeight: availableViewportHeight,
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: hasError ? 'flex-start' : 'center',
+      }}
+    >
+      <div
         style={{
-          marginBottom: 32,
-          color: 'var(--color-text-primary)',
-          wordBreak: 'break-word',
-          whiteSpace: 'normal',
-          overflowWrap: 'break-word'
+          marginBottom: 14,
+          padding: isMobile ? '18px 16px' : '24px 24px 20px',
+          borderRadius: 18,
+          border: `1px solid ${alphaColor(hasError ? token.colorError : token.colorPrimary, 0.18)}`,
+          background: `linear-gradient(135deg, ${alphaColor(token.colorPrimary, 0.12)} 0%, ${token.colorBgContainer} 48%, ${alphaColor(hasError ? token.colorError : token.colorSuccess, hasError ? 0.08 : 0.04)} 100%)`,
+          boxShadow: `0 12px 28px ${alphaColor(token.colorText, 0.06)}`,
+          textAlign: 'center',
         }}
       >
-        正在为《{config.title}》生成内容
-      </Title>
-
-      <Card style={{ marginBottom: 24, maxWidth: '100%' }}>
-        <Progress
-          percent={progress}
-          status={hasError ? 'exception' : (progress === 100 ? 'success' : 'active')}
-          strokeColor={{
-            '0%': 'var(--color-primary)',
-            '100%': 'var(--color-primary-active)',
+        <Title
+          level={isMobile ? 4 : 3}
+          style={{
+            marginBottom: 8,
+            color: token.colorTextHeading,
+            wordBreak: 'break-word',
+            whiteSpace: 'normal',
+            overflowWrap: 'break-word',
           }}
-          style={{ marginBottom: 24 }}
-        />
+        >
+          正在为《{config.title}》生成内容
+        </Title>
 
         <Paragraph
           style={{
-            fontSize: isMobile ? 14 : 16,
-            marginBottom: 32,
-            color: hasError ? 'var(--color-error)' : 'var(--color-text-secondary)',
+            maxWidth: 620,
+            margin: '0 auto',
+            color: token.colorTextSecondary,
+            fontSize: isMobile ? 13 : 14,
+            lineHeight: 1.7,
             wordBreak: 'break-word',
             whiteSpace: 'normal',
-            overflowWrap: 'break-word'
+            overflowWrap: 'break-word',
           }}
         >
-          {progressMessage}
+          {hasError
+            ? '生成流程中断，已保留当前进度与上下文信息，可从失败步骤继续重试。'
+            : '系统会依次生成世界观、职业体系、角色与大纲，请耐心等待。'}
         </Paragraph>
+      </div>
 
-        {errorDetails && (
-          <Card
-            size="small"
+      <Card
+        style={{
+          marginBottom: 12,
+          borderRadius: 18,
+          border: `1px solid ${alphaColor(token.colorText, 0.08)}`,
+          background: `linear-gradient(180deg, ${alphaColor(token.colorBgContainer, 0.97)} 0%, ${alphaColor(token.colorPrimary, 0.03)} 100%)`,
+          boxShadow: `0 10px 24px ${alphaColor(token.colorText, 0.06)}`,
+        }}
+        styles={{
+          body: {
+            padding: isMobile ? 14 : 20,
+          }
+        }}
+      >
+        <div
+          style={{
+            padding: isMobile ? '14px 14px 16px' : '16px 18px 18px',
+            marginBottom: 16,
+            borderRadius: 14,
+            background: token.colorFillQuaternary,
+            border: `1px solid ${alphaColor(progressAccentColor, 0.18)}`,
+          }}
+        >
+          <div
             style={{
-              marginBottom: 24,
-              background: 'var(--color-error-bg)',
-              borderColor: 'var(--color-error-border)',
-              textAlign: 'left',
-              maxWidth: '100%',
-              overflow: 'hidden'
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: isMobile ? 'flex-start' : 'center',
+              flexDirection: isMobile ? 'column' : 'row',
+              gap: 10,
+              marginBottom: 10,
             }}
           >
-            <Text strong style={{ color: 'var(--color-error)' }}>错误详情：</Text>
-            <br />
+            <div style={{ flex: 1, textAlign: 'left' }}>
+              <Text
+                style={{
+                  display: 'block',
+                  marginBottom: 6,
+                  color: token.colorTextTertiary,
+                  fontSize: 12,
+                  letterSpacing: 0.4,
+                }}
+              >
+                当前进度
+              </Text>
+              <Paragraph
+                style={{
+                  margin: 0,
+                  color: hasError ? token.colorError : token.colorText,
+                  fontSize: isMobile ? 13 : 15,
+                  lineHeight: 1.7,
+                  wordBreak: 'break-word',
+                  whiteSpace: 'normal',
+                  overflowWrap: 'break-word',
+                }}
+              >
+                {progressMessage || '准备生成...'}
+              </Paragraph>
+            </div>
+
+            <div
+              style={{
+                minWidth: isMobile ? 'auto' : 96,
+                textAlign: isMobile ? 'left' : 'right',
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: isMobile ? 24 : 32,
+                  lineHeight: 1,
+                  fontWeight: 700,
+                  color: progressAccentColor,
+                }}
+              >
+                {progress}%
+              </Text>
+            </div>
+          </div>
+
+          <Progress
+            percent={progress}
+            showInfo={false}
+            status={hasError ? 'exception' : (progress === 100 ? 'success' : 'active')}
+            strokeColor={progress === 100
+              ? {
+                '0%': token.colorSuccess,
+                '100%': token.colorSuccessActive,
+              }
+              : {
+                '0%': token.colorPrimary,
+                '100%': token.colorPrimaryActive,
+              }}
+            trailColor={token.colorFillTertiary}
+            strokeLinecap="round"
+            style={{ marginBottom: 0 }}
+          />
+        </div>
+
+        {errorDetails && (
+          <div
+            style={{
+              marginBottom: 16,
+              padding: isMobile ? '12px 14px' : '14px 16px',
+              borderRadius: 14,
+              background: `linear-gradient(135deg, ${alphaColor(token.colorError, 0.12)} 0%, ${token.colorBgContainer} 100%)`,
+              border: `1px solid ${alphaColor(token.colorError, 0.24)}`,
+              textAlign: 'left',
+              overflow: 'hidden',
+            }}
+          >
+            <Text strong style={{ color: token.colorError, display: 'block', marginBottom: 8 }}>
+              错误详情
+            </Text>
             <Text
               style={{
-                color: 'var(--color-text-secondary)',
+                color: token.colorTextSecondary,
                 fontSize: 14,
+                lineHeight: 1.7,
                 wordBreak: 'break-word',
                 whiteSpace: 'normal',
                 overflowWrap: 'break-word',
-                display: 'block'
+                display: 'block',
               }}
             >
               {errorDetails}
             </Text>
-          </Card>
+          </div>
         )}
 
-        <Space
-          direction="vertical"
-          size={16}
+        <div
           style={{
-            width: '100%',
-            maxWidth: isMobile ? '100%' : 400,
-            margin: '0 auto'
+            display: 'grid',
+            gap: 10,
           }}
         >
-          {[
-            { key: 'worldBuilding', label: '生成世界观', step: generationSteps.worldBuilding },
-            { key: 'careers', label: '生成职业体系', step: generationSteps.careers },
-            { key: 'characters', label: '生成角色', step: generationSteps.characters },
-            { key: 'outline', label: '生成大纲', step: generationSteps.outline },
-          ].map(({ key, label, step }) => {
+          {stepItems.map(({ key, label, step }) => {
             const status = getStepStatus(step);
             return (
               <div
@@ -1057,71 +1288,145 @@ export const AIProjectGenerator: React.FC<AIProjectGeneratorProps> = ({
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  padding: isMobile ? '10px 12px' : '12px 20px',
-                  background: step === 'processing' ? 'var(--color-info-bg)' : (step === 'error' ? 'var(--color-error-bg)' : 'var(--color-bg-layout)'),
-                  borderRadius: 8,
-                  border: `1px solid ${step === 'processing' ? 'var(--color-info-border)' : (step === 'error' ? 'var(--color-error-border)' : 'var(--color-border-secondary)')}`,
-                  gap: '8px',
+                  padding: isMobile ? '10px 12px' : '12px 14px',
+                  background: status.background,
+                  borderRadius: 14,
+                  border: `1px solid ${status.borderColor}`,
+                  gap: 12,
                   maxWidth: '100%',
-                  overflow: 'hidden'
+                  overflow: 'hidden',
                 }}
               >
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 12,
+                    flex: 1,
+                    minWidth: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      width: 30,
+                      height: 30,
+                      borderRadius: '50%',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: status.color,
+                      background: alphaColor(status.color, 0.12),
+                      fontSize: 18,
+                      flexShrink: 0,
+                    }}
+                  >
+                    {status.icon}
+                  </span>
+
+                  <div
+                    style={{
+                      minWidth: 0,
+                      flex: 1,
+                      textAlign: 'left',
+                    }}
+                  >
+                    <Text
+                      style={{
+                        display: 'block',
+                        fontSize: isMobile ? 13 : 14,
+                        fontWeight: step === 'processing' ? 600 : 500,
+                        color: token.colorText,
+                        wordBreak: 'break-word',
+                        whiteSpace: 'normal',
+                        overflowWrap: 'break-word',
+                      }}
+                    >
+                      {label}
+                    </Text>
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        color: step === 'pending' ? token.colorTextTertiary : status.color,
+                      }}
+                    >
+                      {status.text}
+                    </Text>
+                  </div>
+                </div>
+
                 <Text
                   style={{
-                    fontSize: isMobile ? 14 : 16,
-                    fontWeight: step === 'processing' ? 600 : 400,
-                    wordBreak: 'break-word',
-                    whiteSpace: 'normal',
-                    overflowWrap: 'break-word',
-                    flex: 1,
-                    textAlign: 'left'
-                  }}
-                >
-                  {label}
-                </Text>
-                <span
-                  style={{
-                    fontSize: 20,
+                    fontSize: 12,
+                    fontWeight: 600,
                     color: status.color,
-                    flexShrink: 0
+                    padding: '4px 10px',
+                    borderRadius: 999,
+                    background: alphaColor(status.color, 0.1),
+                    whiteSpace: 'nowrap',
+                    flexShrink: 0,
                   }}
                 >
-                  {status.icon}
-                </span>
+                  {status.text}
+                </Text>
               </div>
             );
           })}
-        </Space>
+        </div>
       </Card>
 
       <Paragraph
         type="secondary"
         style={{
-          color: 'var(--color-text-secondary)',
-          opacity: 0.9,
+          marginBottom: hasError ? 14 : 0,
+          color: token.colorTextSecondary,
+          opacity: 0.92,
+          textAlign: 'center',
           wordBreak: 'break-word',
           whiteSpace: 'normal',
           overflowWrap: 'break-word',
-          fontSize: isMobile ? 14 : 16
+          fontSize: isMobile ? 13 : 14,
         }}
       >
-        {hasError ? '生成过程中出现错误，请点击重试按钮重新生成' : '请耐心等待，AI正在为您精心创作...'}
+        {hasError ? '可点击下方智能重试，从失败节点继续生成，避免重复执行已完成步骤。' : '请勿关闭页面，生成完成后将自动进入项目详情页。'}
       </Paragraph>
 
       {hasError && (
-        <Space style={{ marginTop: 16 }}>
+        <Space
+          direction={isMobile ? 'vertical' : 'horizontal'}
+          style={{ width: '100%', justifyContent: 'center' }}
+        >
           <Button
             type="primary"
             size="large"
             onClick={handleSmartRetry}
             loading={loading}
             disabled={loading}
+            style={{
+              minWidth: isMobile ? '100%' : 160,
+              height: 44,
+              borderRadius: 12,
+              boxShadow: `0 10px 24px ${alphaColor(token.colorPrimary, 0.22)}`,
+            }}
           >
             智能重试
           </Button>
+          {onBack && (
+            <Button
+              size="large"
+              danger
+              onClick={handleRestartGeneration}
+              disabled={loading}
+              style={{
+                minWidth: isMobile ? '100%' : 160,
+                height: 44,
+                borderRadius: 12,
+              }}
+            >
+              重新开始生成
+            </Button>
+          )}
         </Space>
       )}
-
     </div>
   );
 

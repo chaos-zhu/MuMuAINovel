@@ -2,8 +2,10 @@
 
 <div align="center">
 
-![Version](https://img.shields.io/badge/version-1.4.3-blue.svg)
-![Python](https://img.shields.io/badge/python-3.11-blue.svg)
+<img src="frontend/public/logo.svg" alt="MuMuAINovel logo" width="120" />
+
+![Version](https://img.shields.io/badge/version-1.5.7-blue.svg)
+![Python](https://img.shields.io/badge/python-3.12-blue.svg)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.109.0-green.svg)
 ![React](https://img.shields.io/badge/react-18.3.1-blue.svg)
 ![License](https://img.shields.io/badge/license-GPL%20v3-blue.svg)
@@ -36,7 +38,7 @@
 
 **[☕ 请我喝杯咖啡](https://mumuverse.space:1588/)**
 
-**[🌐 MuMuのAPI站点](https://api.mumuverse.space/register?aff=4NN8)**
+**[🌐 MuMuのAPI站点](https://zhongzhuan.mumuverse.space/register?aff=gt7d)**
 
 > 在 MuMu の API 站点充值满 50 元及以上，也可以获得下方赞助专属权益。
 
@@ -48,19 +50,24 @@
 | 🚀 **Windows一键启动** | 获取免安装 EXE 程序，双击即可使用 |
 | 💬 **专属技术支持** | 加入赞助者内部群，获得远程协助和配置指导 |
 
-### ☕ 赞助 / API 站点充值档位
-
-| 金额 | 描述 |
-|------|------|
-| ¥5 | 🌶️ 一包辣条 |
-| ¥10 | 🍱 一顿拼好饭 |
-| ¥20 | 🧋 一杯咖啡 |
-| ¥50 | 🍖 一次烧烤  |
-| ¥99 | 🍲 一顿海底捞 |
-
 您的支持是我持续开发的动力！🙏
 
 </div>
+
+---
+
+## 🤝 赞助商
+
+> [希望合作或赞助本项目？](https://qm.qq.com/q/B5N2BgEmbu)
+
+<table>
+<tr>
+<td width="200" align="center" valign="middle"><a href="https://www.aiyoyoo.com/register?aff=4AXY9WGE2C5Q"><img src="images/CrazyToken.png" alt="CrazyToken" width="180"></a></td>
+<td valign="middle">感谢 <strong>CrazyToken</strong> 赞助支持本项目！CrazyToken 提供 Claude、GPT、Gemini、Kimi、GLM、DeepSeek、Qwen、Grok 等全系主流模型，覆盖大纲构思、正文续写、爽点打磨、润色改稿，针对不同环节选择最合适的模型。全模型低至官方价格的 5%（<code>0.05×</code>），Token 级账单透明可查；官方原生通道，不掺水、不混模、不压缩长上下文，保持模型原生输出体验；稳定高速、高并发不限流，支持多书创作和章节批量生成。新用户通过 <a href="https://www.aiyoyoo.com/register?aff=4AXY9WGE2C5Q">专属链接</a> 注册即送 <code>$20</code> 体验额度，充值额外加赠，并提供独家 1 对 1 远程配置服务，全程真人协助，开箱即用。</td>
+</tr>
+</table>
+
+<br>
 
 ---
 
@@ -281,7 +288,7 @@ services:
     environment:
       # 应用配置
       - APP_NAME=${APP_NAME:-MuMuAINovel}
-      - APP_VERSION=${APP_VERSION:-1.0.0}
+      - APP_VERSION=${APP_VERSION:-1.5.7}
       - APP_HOST=${APP_HOST:-0.0.0.0}
       - APP_PORT=8000
       - DEBUG=${DEBUG:-false}
@@ -297,7 +304,7 @@ services:
       - DATABASE_POOL_RECYCLE=${DATABASE_POOL_RECYCLE:-1800}
       - DATABASE_POOL_PRE_PING=${DATABASE_POOL_PRE_PING:-True}
       - DATABASE_POOL_USE_LIFO=${DATABASE_POOL_USE_LIFO:-True}
-      # 代理配置（可选）
+      # 全局代理配置（可选）
       - HTTP_PROXY=${HTTP_PROXY:-}
       - HTTPS_PROXY=${HTTPS_PROXY:-}
       - NO_PROXY=${NO_PROXY:-localhost,127.0.0.1}
@@ -312,10 +319,13 @@ services:
       - DEFAULT_MODEL=${DEFAULT_MODEL:-gpt-4o-mini}
       - DEFAULT_TEMPERATURE=${DEFAULT_TEMPERATURE:-0.7}
       - DEFAULT_MAX_TOKENS=${DEFAULT_MAX_TOKENS:-32000}
+      - ALLOW_PRIVATE_AI_ENDPOINTS=${ALLOW_PRIVATE_AI_ENDPOINTS:-false}
+      - ALLOWED_AI_HOSTS=${ALLOWED_AI_HOSTS:-}
       # LinuxDO OAuth 配置
       - LINUXDO_CLIENT_ID=${LINUXDO_CLIENT_ID:-11111}
       - LINUXDO_CLIENT_SECRET=${LINUXDO_CLIENT_SECRET:-11111}
       - LINUXDO_REDIRECT_URI=${LINUXDO_REDIRECT_URI:-http://localhost:8000/api/auth/linuxdo/callback}
+      - LINUXDO_PROXY_URL=${LINUXDO_PROXY_URL:-}
       - FRONTEND_URL=${FRONTEND_URL:-http://localhost:8000}
       # 本地账户登录配置
       - LOCAL_AUTH_ENABLED=${LOCAL_AUTH_ENABLED:-true}
@@ -325,6 +335,7 @@ services:
       # 会话配置
       - SESSION_EXPIRE_MINUTES=${SESSION_EXPIRE_MINUTES:-120}
       - SESSION_REFRESH_THRESHOLD_MINUTES=${SESSION_REFRESH_THRESHOLD_MINUTES:-30}
+      - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-true}
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
@@ -437,11 +448,41 @@ LOCAL_AUTH_PASSWORD=your_password
 LINUXDO_CLIENT_ID=your_client_id
 LINUXDO_CLIENT_SECRET=your_client_secret
 LINUXDO_REDIRECT_URI=http://localhost:8000/api/auth/callback
+# LinuxDO 登录专用代理（可选，仅影响 OAuth token 与用户信息请求）
+LINUXDO_PROXY_URL=http://127.0.0.1:7890
 
 # PostgreSQL 连接池（高并发优化）
 DATABASE_POOL_SIZE=30
 DATABASE_MAX_OVERFLOW=20
+
+# 会话 Cookie Secure 标记
+# 默认 true，适合 HTTPS 部署；如果使用 HTTP 访问并且浏览器不保存登录 Cookie，可设为 false
+SESSION_COOKIE_SECURE=true
+
+# 本地 / Docker 内网 LLM（默认关闭，保持 SSRF 防护）
+# ALLOW_PRIVATE_AI_ENDPOINTS=true
+# ALLOWED_AI_HOSTS=host.docker.internal,127.0.0.1
 ```
+
+> **🔐 Cookie Secure 说明**
+>
+> - HTTPS 部署：建议保持 `SESSION_COOKIE_SECURE=true`，浏览器只会通过 HTTPS 发送登录 Cookie。
+> - HTTP 部署：如果登录后浏览器没有保存 Cookie，请在 `.env` 中设置 `SESSION_COOKIE_SECURE=false`，然后重启后端或 Docker 容器。
+> - Docker Compose 示例默认使用 `SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-true}`，如需关闭必须在 `.env` 中显式配置。
+>
+> **🌐 LinuxDO 专用代理说明**
+>
+> - 如果只有 LinuxDO 授权登录在当前网络不可达，优先配置 `LINUXDO_PROXY_URL`，不要配置全局 `HTTP_PROXY` / `HTTPS_PROXY`。
+> - `LINUXDO_PROXY_URL` 只会用于 LinuxDO OAuth 的 token 交换和用户信息请求，不影响 AI 服务、SMTP、数据库等其他网络调用。
+> - 常见示例：`LINUXDO_PROXY_URL=http://127.0.0.1:7890`；Docker 容器内访问宿主机代理时通常需要使用宿主机在 Docker 网络中的地址，而不是容器内的 `127.0.0.1`。
+> - 当前示例按 HTTP 代理配置；如果需要 SOCKS 代理，请先确保运行环境安装了 httpx 的 SOCKS 支持依赖。
+>
+> **🖥️ 本地 / Docker 内网 LLM 说明**
+>
+> - 默认会拒绝 `localhost`、`127.0.0.1`、私网 IP 以及解析到内网的主机名（例如 `host.docker.internal`），用于降低 SSRF 风险。
+> - 如果 AI 服务跑在本机 Ollama / llama.cpp，或 Docker 容器需要访问宿主机上的模型，请在 `.env` 中设置 `ALLOW_PRIVATE_AI_ENDPOINTS=true`，或把允许的主机名写入 `ALLOWED_AI_HOSTS`。
+> - 即使开启本地放行，链路本地地址（如云厂商元数据 `169.254.169.254`）仍然会被拒绝。
+> - MCP 插件 URL 不受该开关影响，继续走严格的公网校验。
 
 ### 中转 API 配置
 
@@ -619,11 +660,11 @@ Made with ❤️
 
 ## Star History
 
-<a href="https://www.star-history.com/#xiamuceer-j/MuMuAINovel&type=date&legend=top-left">
+<a href="https://star-history.dera.page/#xiamuceer-j/MuMuAINovel&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=xiamuceer-j/MuMuAINovel&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=xiamuceer-j/MuMuAINovel&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=xiamuceer-j/MuMuAINovel&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=xiamuceer-j/MuMuAINovel&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=xiamuceer-j/MuMuAINovel&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=xiamuceer-j/MuMuAINovel&type=date&legend=top-left" />
  </picture>
 </a>
 

@@ -21,7 +21,10 @@ from app.models import (
     Settings, WritingStyle, ProjectDefaultStyle,
     RelationshipType, CharacterRelationship, Organization, OrganizationMember,
     StoryMemory, PlotAnalysis, AnalysisTask, BatchGenerationTask,
-    RegenerationTask, Career, CharacterCareer, User, MCPPlugin, PromptTemplate
+    RegenerationTask, Career, CharacterCareer, User, MCPPlugin, PromptTemplate,
+    BackgroundTask, Announcement,
+    AgentConversation, AgentMessage, AgentToolCall, AgentExecutionStep,
+    KnowledgeBase, KnowledgeDocument, KnowledgeChunk,
 )
 
 # 引擎缓存：每个用户一个引擎
@@ -175,7 +178,7 @@ async def get_db(request: Request):
             await session.rollback()
     except GeneratorExit:
         _session_stats["generator_exits"] += 1
-        logger.warning(f"⚠️ GeneratorExit [User:{user_id}][ID:{session_id}] - SSE连接断开（总计:{_session_stats['generator_exits']}次）")
+        # logger.warning(f"⚠️ GeneratorExit [User:{user_id}][ID:{session_id}] - SSE连接断开（总计:{_session_stats['generator_exits']}次）")
         try:
             if session.in_transaction():
                 await session.rollback()

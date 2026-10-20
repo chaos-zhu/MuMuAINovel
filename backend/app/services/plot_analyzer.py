@@ -2,8 +2,9 @@
 from typing import Dict, Any, List, Optional, Callable, Awaitable
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.ai_service import AIService
+from app.services.json_helper import loads_json
 from app.services.prompt_service import prompt_service, PromptService
-from app.logger import get_logger
+from app.logger import get_logger, safe_preview
 import json
 import re
 import asyncio
@@ -90,7 +91,7 @@ class PlotAnalyzer:
         )
         
         last_error = None
-        logger.debug(f"章节分析提示词{prompt}")
+        logger.debug(f"章节分析提示词完成: chapter_number={chapter_number}, prompt_length={len(prompt)}")
         for attempt in range(1, max_retries + 1):
             try:
                 # 调用AI进行分析
@@ -103,6 +104,8 @@ class PlotAnalyzer:
                         temperature=0.3  # 降低温度以获得更稳定的JSON输出
                     ):
                         accumulated_text += chunk
+                except asyncio.CancelledError:
+                    raise
                 except GeneratorExit:
                     # 流式响应被中断
                     logger.warning(f"⚠️ 流式响应被中断(GeneratorExit)，已累积 {len(accumulated_text)} 字符")
@@ -165,6 +168,8 @@ class PlotAnalyzer:
                         logger.error(f"❌ 第{chapter_number}章分析失败: JSON解析错误，已达最大重试次数")
                         return None
                     
+            except asyncio.CancelledError:
+                raise
             except Exception as e:
                 last_error = str(e)
                 logger.error(f"❌ 章节分析异常(尝试 {attempt}/{max_retries}): {last_error}")
@@ -277,7 +282,7 @@ class PlotAnalyzer:
             cleaned = self.ai_service._clean_json_response(response)
             
             # 尝试解析JSON
-            result = json.loads(cleaned)
+            result = loads_json(cleaned)
             
             # 验证必要字段
             required_fields = ['hooks', 'plot_points', 'scores']
@@ -291,7 +296,7 @@ class PlotAnalyzer:
             
         except json.JSONDecodeError as e:
             logger.error(f"❌ JSON解析失败: {str(e)}")
-            logger.error(f"  原始响应(前500字): {response[:500]}")
+            logger.error(f"  原始响应预览: {safe_preview(response, 200)}")
             return None
         except Exception as e:
             logger.error(f"❌ 解析异常: {str(e)}")

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Modal, Spin, Alert, Tabs, Card, Tag, List, Empty, Statistic, Row, Col, Button, theme } from 'antd';
 import {
   ThunderboltOutlined,
@@ -38,10 +38,23 @@ export default function ChapterAnalysis({ chapterId, visible, onClose }: Chapter
   const [chapterInfo, setChapterInfo] = useState<{ title: string; chapter_number: number; content: string } | null>(null);
   const [newGeneratedContent, setNewGeneratedContent] = useState('');
   const [newContentWordCount, setNewContentWordCount] = useState(0);
+  const pollTimerRef = useRef<number | null>(null);
+  const requestGenerationRef = useRef(0);
 
   useEffect(() => {
+    const generation = requestGenerationRef.current + 1;
+    requestGenerationRef.current = generation;
+    if (pollTimerRef.current !== null) {
+      window.clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
+    }
+
     if (visible && chapterId) {
-      fetchAnalysisStatus();
+      setTask(null);
+      setAnalysis(null);
+      setChapterInfo(null);
+      setError(null);
+      void fetchAnalysisStatus(chapterId, generation);
     }
 
     // 监听窗口大小变化
@@ -54,17 +67,25 @@ export default function ChapterAnalysis({ chapterId, visible, onClose }: Chapter
     // 清理函数：组件卸载或关闭时清除轮询
     return () => {
       window.removeEventListener('resize', handleResize);
-      // 清除可能存在的轮询
+      requestGenerationRef.current += 1;
+      if (pollTimerRef.current !== null) {
+        window.clearTimeout(pollTimerRef.current);
+        pollTimerRef.current = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, chapterId]);
 
   // 🔧 新增：独立的章节信息加载函数
-  const loadChapterInfo = async () => {
+  const loadChapterInfo = async (
+    requestedChapterId = chapterId,
+    generation = requestGenerationRef.current,
+  ) => {
     try {
-      const chapterResponse = await fetch(`/api/chapters/${chapterId}`);
+      const chapterResponse = await fetch(`/api/chapters/${requestedChapterId}`);
       if (chapterResponse.ok) {
         const chapterData = await chapterResponse.json();
+        if (requestGenerationRef.current !== generation) return;
         setChapterInfo({
           title: chapterData.title,
           chapter_number: chapterData.chapter_number,
@@ -77,15 +98,19 @@ export default function ChapterAnalysis({ chapterId, visible, onClose }: Chapter
     }
   };
 
-  const fetchAnalysisStatus = async () => {
+  const fetchAnalysisStatus = async (
+    requestedChapterId = chapterId,
+    generation = requestGenerationRef.current,
+  ) => {
     try {
       setLoading(true);
       setError(null);
 
       // 🔧 使用独立的章节加载函数
-      await loadChapterInfo();
+      await loadChapterInfo(requestedChapterId, generation);
 
-      const response = await fetch(`/api/chapters/${chapterId}/analysis/status`);
+      const response = await fetch(`/api/chapters/${requestedChapterId}/analysis/status`);
+      if (requestGenerationRef.current !== generation) return;
 
       if (response.status === 404) {
         setTask(null);
@@ -109,56 +134,80 @@ export default function ChapterAnalysis({ chapterId, visible, onClose }: Chapter
       setTask(taskData);
 
       if (taskData.status === 'completed') {
-        await fetchAnalysisResult();
+        await fetchAnalysisResult(requestedChapterId, generation);
       } else if (taskData.status === 'running' || taskData.status === 'pending') {
-        // 开始轮询
-        startPolling();
+        startPolling(requestedChapterId, generation);
       }
     } catch (err) {
-      setError((err as Error).message);
+      if (requestGenerationRef.current === generation) {
+        setError((err as Error).message);
+      }
     } finally {
-      setLoading(false);
+      if (requestGenerationRef.current === generation) {
+        setLoading(false);
+      }
     }
   };
 
-  const fetchAnalysisResult = async () => {
+  const fetchAnalysisResult = async (
+    requestedChapterId = chapterId,
+    generation = requestGenerationRef.current,
+  ) => {
     try {
-      const response = await fetch(`/api/chapters/${chapterId}/analysis`);
+      const response = await fetch(`/api/chapters/${requestedChapterId}/analysis`);
       if (!response.ok) {
         throw new Error('获取分析结果失败');
       }
       const data: ChapterAnalysisResponse = await response.json();
+      if (requestGenerationRef.current !== generation) return;
       setAnalysis(data);
     } catch (err) {
-      setError((err as Error).message);
+      if (requestGenerationRef.current === generation) {
+        setError((err as Error).message);
+      }
     }
   };
 
-  const startPolling = () => {
-    const pollInterval = setInterval(async () => {
+  const startPolling = (requestedChapterId: string, generation: number) => {
+    const deadline = Date.now() + 11 * 60 * 1000;
+
+    const poll = async (): Promise<void> => {
+      if (requestGenerationRef.current !== generation) return;
+      if (Date.now() >= deadline) {
+        setError('查询分析状态超时，请关闭后重新打开');
+        return;
+      }
+
       try {
-        const response = await fetch(`/api/chapters/${chapterId}/analysis/status`);
-        if (!response.ok) return;
+        const response = await fetch(`/api/chapters/${requestedChapterId}/analysis/status`);
+        if (requestGenerationRef.current !== generation) return;
+        if (!response.ok) throw new Error('获取分析状态失败');
 
         const taskData: AnalysisTask = await response.json();
         setTask(taskData);
 
         if (taskData.status === 'completed') {
-          clearInterval(pollInterval);
-          await fetchAnalysisResult();
-          // 🔧 分析完成后刷新章节内容，确保显示最新内容
-          await loadChapterInfo();
+          await fetchAnalysisResult(requestedChapterId, generation);
+          await loadChapterInfo(requestedChapterId, generation);
+          return;
         } else if (taskData.status === 'failed') {
-          clearInterval(pollInterval);
           setError(taskData.error_message || '分析失败');
+          return;
         }
       } catch (err) {
         console.error('轮询错误:', err);
       }
-    }, 2000);
 
-    // 5分钟超时
-    setTimeout(() => clearInterval(pollInterval), 300000);
+      if (requestGenerationRef.current === generation) {
+        pollTimerRef.current = window.setTimeout(() => {
+          void poll();
+        }, 2000);
+      }
+    };
+
+    pollTimerRef.current = window.setTimeout(() => {
+      void poll();
+    }, 2000);
   };
 
   const triggerAnalysis = async () => {
@@ -333,7 +382,14 @@ export default function ChapterAnalysis({ chapterId, visible, onClose }: Chapter
   const renderAnalysisResult = () => {
     if (!analysis) return null;
 
-    const { analysis: analysis_data, memories } = analysis;
+    const { analysis: analysis_data, memories, entity_changes } = analysis;
+    const hasEntityChanges = Boolean(
+      entity_changes && (
+        (entity_changes.careers?.changes?.length || 0) > 0 ||
+        (entity_changes.character_states?.changes?.length || 0) > 0 ||
+        (entity_changes.organization_states?.changes?.length || 0) > 0
+      )
+    );
 
     return (
       <Tabs
@@ -408,6 +464,71 @@ export default function ChapterAnalysis({ chapterId, visible, onClose }: Chapter
                     <pre style={{ whiteSpace: 'pre-wrap', fontFamily: 'inherit', fontSize: isMobile ? 13 : 14 }}>
                       {analysis_data.analysis_report}
                     </pre>
+                  </Card>
+                )}
+
+                {hasEntityChanges && entity_changes && (
+                  <Card title="实体联动更新" style={{ marginBottom: 16 }} size={isMobile ? 'small' : 'default'}>
+                    <Row gutter={isMobile ? 8 : 16} style={{ marginBottom: 16 }}>
+                      <Col span={isMobile ? 24 : 8}>
+                        <Statistic
+                          title="职业更新"
+                          value={entity_changes.careers?.updated_count || 0}
+                        />
+                      </Col>
+                      <Col span={isMobile ? 24 : 8}>
+                        <Statistic
+                          title="角色状态/关系更新"
+                          value={
+                            (entity_changes.character_states?.state_updated_count || 0) +
+                            (entity_changes.character_states?.relationship_created_count || 0) +
+                            (entity_changes.character_states?.relationship_updated_count || 0) +
+                            (entity_changes.character_states?.org_updated_count || 0)
+                          }
+                        />
+                      </Col>
+                      <Col span={isMobile ? 24 : 8}>
+                        <Statistic
+                          title="组织状态更新"
+                          value={entity_changes.organization_states?.updated_count || 0}
+                        />
+                      </Col>
+                    </Row>
+
+                    {entity_changes.careers?.changes?.length ? (
+                      <div style={{ marginBottom: 12 }}>
+                        <strong>职业变化：</strong>
+                        <div style={{ marginTop: 8 }}>
+                          {entity_changes.careers.changes.map((change, index) => (
+                            <Tag key={`career-${index}`} color="blue" style={{ marginBottom: 8 }}>
+                              {change}
+                            </Tag>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {entity_changes.character_states?.changes?.length ? (
+                      <div style={{ marginBottom: 12 }}>
+                        <strong>角色/关系变化：</strong>
+                        <List
+                          size="small"
+                          dataSource={entity_changes.character_states.changes}
+                          renderItem={(item) => <List.Item>{item}</List.Item>}
+                        />
+                      </div>
+                    ) : null}
+
+                    {entity_changes.organization_states?.changes?.length ? (
+                      <div>
+                        <strong>组织状态变化：</strong>
+                        <List
+                          size="small"
+                          dataSource={entity_changes.organization_states.changes}
+                          renderItem={(item) => <List.Item>{item}</List.Item>}
+                        />
+                      </div>
+                    ) : null}
                   </Card>
                 )}
 

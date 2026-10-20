@@ -2,14 +2,15 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { List, Button, Modal, Form, Input, Select, message, Empty, Space, Badge, Tag, Card, InputNumber, Alert, Radio, Descriptions, Collapse, Popconfirm, Pagination, theme } from 'antd';
 import { EditOutlined, FileTextOutlined, ThunderboltOutlined, LockOutlined, DownloadOutlined, SettingOutlined, FundOutlined, SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, RocketOutlined, StopOutlined, InfoCircleOutlined, CaretRightOutlined, DeleteOutlined, BookOutlined, FormOutlined, PlusOutlined, ReadOutlined } from '@ant-design/icons';
 import { useStore } from '../store';
+import { eventBus, EventNames } from '../store/eventBus';
 import { useChapterSync } from '../store/hooks';
+import { generateChapterBackground } from '../services/backgroundTaskService';
 import { projectApi, writingStyleApi, chapterApi } from '../services/api';
 import type { Chapter, ChapterUpdate, ApiError, WritingStyle, AnalysisTask, ExpansionPlanData } from '../types';
 import type { TextAreaRef } from 'antd/es/input/TextArea';
 import ChapterAnalysis from '../components/ChapterAnalysis';
 import ExpansionPlanEditor from '../components/ExpansionPlanEditor';
 import { SSELoadingOverlay } from '../components/SSELoadingOverlay';
-import { SSEProgressModal } from '../components/SSEProgressModal';
 import ChapterReader from '../components/ChapterReader';
 import PartialRegenerateToolbar from '../components/PartialRegenerateToolbar';
 import PartialRegenerateModal from '../components/PartialRegenerateModal';
@@ -64,13 +65,22 @@ export default function Chapters() {
   const [availableModels, setAvailableModels] = useState<Array<{ value: string, label: string }>>([]);
   const [selectedModel, setSelectedModel] = useState<string | undefined>();
   const [batchSelectedModel, setBatchSelectedModel] = useState<string | undefined>(); // 批量生成的模型选择
+  const [batchSelectedSkillKey, setBatchSelectedSkillKey] = useState<string | undefined>(); // 批量生成的Skill选择
   const [temporaryNarrativePerspective, setTemporaryNarrativePerspective] = useState<string | undefined>(); // 临时人称选择
+  const [availableSkills, setAvailableSkills] = useState<Array<{ template_key: string; template_name: string; description: string; category: string }>>([]);
+  const [selectedSkillKey, setSelectedSkillKey] = useState<string | undefined>();
   const [analysisVisible, setAnalysisVisible] = useState(false);
   const [analysisChapterId, setAnalysisChapterId] = useState<string | null>(null);
   // 分析任务状态管理
   const [analysisTasksMap, setAnalysisTasksMap] = useState<Record<string, AnalysisTask>>({});
   const analysisPollingIntervalRef = useRef<number | null>(null);
   const activeAnalysisPollingIdsRef = useRef<Set<string>>(new Set());
+  const analysisPollingInFlightRef = useRef(false);
+  const analysisPollingRequestIdRef = useRef(0);
+  const currentProjectIdRef = useRef<string | undefined>(currentProject?.id);
+  currentProjectIdRef.current = currentProject?.id;
+  const editingIdRef = useRef<string | null>(editingId);
+  editingIdRef.current = editingId;
 
   // 列表查询与分页状态
   const [chapterSearchKeyword, setChapterSearchKeyword] = useState('');
@@ -97,6 +107,7 @@ export default function Chapters() {
   const [singleChapterProgress, setSingleChapterProgress] = useState(0);
   const [singleChapterProgressMessage, setSingleChapterProgressMessage] = useState('');
 
+
   // 批量生成相关状态
   const [batchGenerateVisible, setBatchGenerateVisible] = useState(false);
   const [batchGenerating, setBatchGenerating] = useState(false);
@@ -122,92 +133,69 @@ export default function Chapters() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // 处理文本选中 - 检测选中文本并显示浮动工具栏
-  const handleTextSelection = useCallback(() => {
-    // 只在编辑器打开时处理选中
-    if (!isEditorOpen || isGenerating) {
-      setPartialRegenerateToolbarVisible(false);
-      return;
-    }
+  // 读取 textarea 原生选区。textarea 的选区不会出现在 window.getSelection() 中，
+  // 且失焦后 selectionStart/selectionEnd 仍然保留，因此可以稳定支持拖拽出编辑框和点击外部。
+  const getTextAreaSelection = useCallback(() => {
+    if (!isEditorOpen || isGenerating) return null;
 
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) {
-      setPartialRegenerateToolbarVisible(false);
-      return;
-    }
-
-    const selectedText = selection.toString().trim();
-    
-    // 至少选中10个字符才显示工具栏
-    if (selectedText.length < 10) {
-      setPartialRegenerateToolbarVisible(false);
-      return;
-    }
-
-    // 检查选中是否在 TextArea 内
     const textArea = contentTextAreaRef.current?.resizableTextArea?.textArea;
-    if (!textArea) {
-      setPartialRegenerateToolbarVisible(false);
-      return;
-    }
-    
-    // 检查选中是否在 textarea 内（需要特殊处理，因为 textarea 的选中不会创建 range）
-    if (document.activeElement !== textArea) {
-      setPartialRegenerateToolbarVisible(false);
-      return;
-    }
+    if (!textArea) return null;
 
-    // 获取 textarea 中的选中位置
     const start = textArea.selectionStart;
     const end = textArea.selectionEnd;
-    const textContent = textArea.value;
-    const selectedInTextArea = textContent.substring(start, end);
+    if (end <= start) return null;
 
-    if (selectedInTextArea.trim().length < 10) {
+    const selectedText = textArea.value.substring(start, end);
+    if (selectedText.trim().length < 10) return null;
+
+    return { textArea, start, end, selectedText };
+  }, [isEditorOpen, isGenerating]);
+
+  // 处理文本选中 - 检测选中文本并显示浮动工具栏
+  const handleTextSelection = useCallback(() => {
+    const currentSelection = getTextAreaSelection();
+    if (!currentSelection) {
       setPartialRegenerateToolbarVisible(false);
       return;
     }
+
+    const { textArea, start, end, selectedText: selectedInTextArea } = currentSelection;
+    const textContent = textArea.value;
 
     // 计算浮动工具栏位置
     const rect = textArea.getBoundingClientRect();
     const computedStyle = window.getComputedStyle(textArea);
     const lineHeight = parseFloat(computedStyle.lineHeight) || 24;
     const paddingTop = parseFloat(computedStyle.paddingTop) || 0;
-    
+
     // 计算选中文本起始位置所在的行号
     const textBeforeSelection = textContent.substring(0, start);
     const startLine = textBeforeSelection.split('\n').length - 1;
-    
-    // 计算选中文本在 textarea 中的视觉位置
-    // 需要考虑 scrollTop（textarea 内部滚动偏移）
+
+    // 计算选中文本在 textarea 中的视觉位置，并考虑内部滚动偏移
     const scrollTop = textArea.scrollTop;
     const visualTop = (startLine * lineHeight) + paddingTop - scrollTop;
-    
-    // 工具栏位置：textarea 顶部 + 选中文本的视觉位置 - 工具栏高度偏移
     const toolbarTop = rect.top + visualTop - 45;
-    
-    // 水平位置：放在 textarea 的右侧区域，避免遮挡文本
     const toolbarLeft = rect.right - 180;
 
     setSelectedTextForRegenerate(selectedInTextArea);
     setSelectionStartPosition(start);
     setSelectionEndPosition(end);
-    
-    // 计算工具栏位置，如果选中位置不在可视区域内，固定在边缘
+
+    // 如果选中位置不在可视区域内，固定在 textarea 边缘
     let finalTop = toolbarTop;
     if (visualTop < 0) {
       finalTop = rect.top + 10;
     } else if (visualTop > textArea.clientHeight) {
       finalTop = rect.bottom - 50;
     }
-    
+
     setPartialRegenerateToolbarPosition({
       top: Math.max(rect.top + 10, Math.min(finalTop, rect.bottom - 50)),
       left: Math.min(Math.max(rect.left + 20, toolbarLeft), window.innerWidth - 200),
     });
     setPartialRegenerateToolbarVisible(true);
-  }, [isEditorOpen, isGenerating]);
-
+  }, [getTextAreaSelection]);
   // 更新工具栏位置的函数（不检测选中，只更新位置）
   const updateToolbarPosition = useCallback(() => {
     if (!partialRegenerateToolbarVisible || !selectedTextForRegenerate) return;
@@ -256,26 +244,32 @@ export default function Chapters() {
     const textArea = contentTextAreaRef.current?.resizableTextArea?.textArea;
     if (!textArea) return;
 
-    const handleMouseUp = () => {
-      // 鼠标释放时检查选中
-      setTimeout(handleTextSelection, 50);
+    const handleMouseUp = (event: MouseEvent) => {
+      const target = event.target;
+      if (target instanceof Element && target.closest('[data-partial-regenerate-toolbar]')) return;
+
+      // 在 document 级别监听，拖拽出 textarea 后松开鼠标也能捕获选区。
+      window.setTimeout(handleTextSelection, 0);
     };
 
-    const handleKeyUp = (e: KeyboardEvent) => {
-      // Shift + 方向键选中时检查
-      if (e.shiftKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
-        setTimeout(handleTextSelection, 50);
-      }
+    const handleKeyUp = () => {
+      // 键盘扩选、收缩选区以及清除选区都通过统一逻辑处理。
+      window.setTimeout(handleTextSelection, 0);
     };
 
+    const handleSelect = () => {
+      // 原生 textarea 的 select 事件比 window.selection 更可靠。
+      handleTextSelection();
+    };
     const handleScroll = () => {
       // 滚动时更新位置（使用 requestAnimationFrame 优化性能）
       requestAnimationFrame(updateToolbarPosition);
     };
 
     // 监听 textarea 滚动
-    textArea.addEventListener('mouseup', handleMouseUp);
+    document.addEventListener('mouseup', handleMouseUp, true);
     textArea.addEventListener('keyup', handleKeyUp);
+    textArea.addEventListener('select', handleSelect);
     textArea.addEventListener('scroll', handleScroll);
 
     // 同时监听 Modal body 滚动（Modal 内容可能在外层容器滚动）
@@ -288,8 +282,9 @@ export default function Chapters() {
     window.addEventListener('resize', handleScroll);
 
     return () => {
-      textArea.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('mouseup', handleMouseUp, true);
       textArea.removeEventListener('keyup', handleKeyUp);
+      textArea.removeEventListener('select', handleSelect);
       textArea.removeEventListener('scroll', handleScroll);
       if (modalBody) {
         modalBody.removeEventListener('scroll', handleScroll);
@@ -298,35 +293,7 @@ export default function Chapters() {
     };
   }, [isEditorOpen, handleTextSelection, updateToolbarPosition]);
 
-  // 点击其他区域时隐藏工具栏
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      
-      // 如果点击的是工具栏，不隐藏
-      if (target.closest('[data-partial-regenerate-toolbar]')) {
-        return;
-      }
-      
-      // 如果点击的是 textarea，不隐藏
-      if (target.tagName === 'TEXTAREA') {
-        return;
-      }
-      
-      // 如果点击的是 Modal 内部（包括滚动条），不隐藏
-      if (target.closest('.ant-modal-content')) {
-        return;
-      }
-      
-      // 点击 Modal 外部才隐藏工具栏
-      setPartialRegenerateToolbarVisible(false);
-    };
 
-    if (partialRegenerateToolbarVisible) {
-      document.addEventListener('click', handleClickOutside);
-      return () => document.removeEventListener('click', handleClickOutside);
-    }
-  }, [partialRegenerateToolbarVisible]);
 
   const {
     refreshChapters,
@@ -337,9 +304,22 @@ export default function Chapters() {
 
   useEffect(() => {
     if (currentProject?.id) {
-      refreshChapters();
+      const projectId = currentProject.id;
+      if (analysisPollingIntervalRef.current !== null) {
+        clearInterval(analysisPollingIntervalRef.current);
+        analysisPollingIntervalRef.current = null;
+      }
+      analysisPollingRequestIdRef.current += 1;
+      analysisPollingInFlightRef.current = false;
+      activeAnalysisPollingIdsRef.current.clear();
+      setAnalysisTasksMap({});
+
+      void refreshChapters(projectId).then((latestChapters) => {
+        if (currentProjectIdRef.current === projectId) {
+          void loadAnalysisTasks(latestChapters, projectId);
+        }
+      });
       loadWritingStyles();
-      loadAnalysisTasks();
       checkAndRestoreBatchTask();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -347,14 +327,14 @@ export default function Chapters() {
 
   // 清理轮询定时器
   useEffect(() => {
-    const batchPollingInterval = batchPollingIntervalRef.current;
     return () => {
-      if (analysisPollingIntervalRef.current) {
+      if (analysisPollingIntervalRef.current !== null) {
         clearInterval(analysisPollingIntervalRef.current);
         analysisPollingIntervalRef.current = null;
       }
-      if (batchPollingInterval) {
-        clearInterval(batchPollingInterval);
+      if (batchPollingIntervalRef.current !== null) {
+        clearInterval(batchPollingIntervalRef.current);
+        batchPollingIntervalRef.current = null;
       }
     };
   }, []);
@@ -367,7 +347,8 @@ export default function Chapters() {
   }, []);
 
   const pollActiveAnalysisTasks = useCallback(async () => {
-    if (!currentProject?.id) return;
+    const projectId = currentProjectIdRef.current;
+    if (!projectId || analysisPollingInFlightRef.current) return;
 
     const activeIds = Array.from(activeAnalysisPollingIdsRef.current);
     if (activeIds.length === 0) {
@@ -375,8 +356,14 @@ export default function Chapters() {
       return;
     }
 
+    analysisPollingInFlightRef.current = true;
+    const requestId = analysisPollingRequestIdRef.current + 1;
+    analysisPollingRequestIdRef.current = requestId;
+
     try {
-      const response = await chapterApi.getBatchAnalysisStatuses(currentProject.id, activeIds);
+      const response = await chapterApi.getBatchAnalysisStatuses(projectId, activeIds);
+      if (currentProjectIdRef.current !== projectId) return;
+
       const tasksMap = response.items || {};
 
       setAnalysisTasksMap(prev => ({
@@ -400,8 +387,12 @@ export default function Chapters() {
       clearAnalysisPollingIfIdle();
     } catch (error) {
       console.error('批量轮询分析任务失败:', error);
+    } finally {
+      if (analysisPollingRequestIdRef.current === requestId) {
+        analysisPollingInFlightRef.current = false;
+      }
     }
-  }, [clearAnalysisPollingIfIdle, currentProject?.id]);
+  }, [clearAnalysisPollingIfIdle]);
 
   const ensureAnalysisPolling = useCallback(() => {
     if (analysisPollingIntervalRef.current) return;
@@ -416,9 +407,13 @@ export default function Chapters() {
 
   // 加载所有章节的分析任务状态（批量接口，避免逐章请求风暴）
   // 接受可选的 chaptersToLoad 参数，解决 React 状态更新延迟导致的问题
-  const loadAnalysisTasks = async (chaptersToLoad?: typeof chapters) => {
+  const loadAnalysisTasks = useCallback(async (
+    chaptersToLoad?: typeof chapters,
+    projectId?: string,
+  ) => {
     const targetChapters = chaptersToLoad || chapters;
-    if (!targetChapters || targetChapters.length === 0 || !currentProject?.id) return;
+    const targetProjectId = projectId || currentProjectIdRef.current;
+    if (!targetChapters || targetChapters.length === 0 || !targetProjectId) return;
 
     const chapterIds = targetChapters
       .filter(chapter => chapter.content && chapter.content.trim() !== '')
@@ -432,7 +427,9 @@ export default function Chapters() {
     }
 
     try {
-      const response = await chapterApi.getBatchAnalysisStatuses(currentProject.id, chapterIds);
+      const response = await chapterApi.getBatchAnalysisStatuses(targetProjectId, chapterIds);
+      if (currentProjectIdRef.current !== targetProjectId) return;
+
       const tasksMap = response.items || {};
       setAnalysisTasksMap(tasksMap);
 
@@ -451,7 +448,19 @@ export default function Chapters() {
     } catch (error) {
       console.error('批量加载分析任务状态失败:', error);
     }
-  };
+  }, [chapters, clearAnalysisPollingIfIdle, ensureAnalysisPolling]);
+
+  useEffect(() => {
+    const handleTaskSettled = (payload?: unknown) => {
+      if (!payload || typeof payload !== 'object') return;
+      const data = payload as { projectId?: string; resources?: string[] };
+      if (data.projectId && data.projectId !== currentProjectIdRef.current) return;
+      if (!data.resources?.includes('analysis')) return;
+      void refreshChapters().then(latestChapters => loadAnalysisTasks(latestChapters));
+    };
+    eventBus.on(EventNames.BACKGROUND_TASK_SETTLED, handleTaskSettled);
+    return () => eventBus.off(EventNames.BACKGROUND_TASK_SETTLED, handleTaskSettled);
+  }, [loadAnalysisTasks, refreshChapters]);
 
   // 启动单个章节的任务轮询（内部合并到批量轮询）
   const startPollingTask = (chapterId: string) => {
@@ -477,6 +486,21 @@ export default function Chapters() {
     }
   };
 
+  // 加载可用的 Skill 列表
+  const loadAvailableSkills = async () => {
+    try {
+      const response = await fetch('/api/skills/list');
+      if (response.ok) {
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          setAvailableSkills(data);
+        }
+      }
+    } catch (error) {
+      console.error('加载 Skill 列表失败:', error);
+    }
+  };
+
   const loadAvailableModels = async () => {
     try {
       // 从设置API获取用户配置的模型列表
@@ -485,10 +509,10 @@ export default function Chapters() {
         const settings = await settingsResponse.json();
         const { api_key, api_base_url, api_provider } = settings;
 
-        if (api_key && api_base_url) {
+        if (api_base_url) {
           try {
             const modelsResponse = await fetch(
-              `/api/settings/models?api_key=${encodeURIComponent(api_key)}&api_base_url=${encodeURIComponent(api_base_url)}&provider=${api_provider}`
+              `/api/settings/models?api_key=${encodeURIComponent(api_key || '')}&api_base_url=${encodeURIComponent(api_base_url)}&provider=${api_provider}`
             );
             if (modelsResponse.ok) {
               const data = await modelsResponse.json();
@@ -523,7 +547,7 @@ export default function Chapters() {
       if (data.has_active_task && data.task) {
         const task = data.task;
 
-        // 恢复任务状态
+        // 恢复任务状态（只在顶部进度条显示，不弹出Modal）
         setBatchTaskId(task.batch_id);
         setBatchProgress({
           status: task.status,
@@ -532,12 +556,12 @@ export default function Chapters() {
           current_chapter_number: task.current_chapter_number,
         });
         setBatchGenerating(true);
-        setBatchGenerateVisible(true);
+        // 不设置 setBatchGenerateVisible(true)，避免弹出Modal遮挡页面
 
         // 启动轮询
         startBatchPolling(task.batch_id);
 
-        message.info('检测到未完成的批量生成任务，已自动恢复');
+        message.info('检测到未完成的批量生成任务，请查看任务列表');
       }
     } catch (error) {
       console.error('检查批量生成任务失败:', error);
@@ -787,9 +811,11 @@ export default function Chapters() {
       });
       setEditingId(id);
       setTemporaryNarrativePerspective(undefined); // 重置人称选择
+      setSelectedSkillKey(undefined); // 重置Skill选择
       setIsEditorOpen(true);
-      // 打开编辑窗口时加载模型列表
+      // 打开编辑窗口时加载模型列表和Skill列表
       loadAvailableModels();
+      loadAvailableSkills();
     }
   };
 
@@ -839,7 +865,8 @@ export default function Chapters() {
           setSingleChapterProgressMessage(progressMsg);
         },
         selectedModel,  // 传递选中的模型
-        temporaryNarrativePerspective  // 传递临时人称参数
+        temporaryNarrativePerspective,  // 传递临时人称参数
+        selectedSkillKey  // 传递选中的Skill
       );
 
       message.success('AI创作成功，正在分析章节内容...');
@@ -971,9 +998,76 @@ export default function Chapters() {
     });
   };
 
+
+  // 后台生成章节（关闭浏览器也不影响）
+  // 不再强制显示进度弹窗，任务进度在右下角悬浮任务框中显示
+  const handleBackgroundGenerate = async () => {
+    if (!editingId) return;
+    if (!selectedStyleId) {
+      message.error("请先选择写作风格");
+      return;
+    }
+
+    try {
+      const generatedChapterId = editingId;
+      const generatedProjectId = currentProject?.id;
+      let analysisTrackingStarted = false;
+
+      const refreshGeneratedChapter = async () => {
+        if (!generatedProjectId || currentProjectIdRef.current !== generatedProjectId) return [];
+
+        const latestChapters = await refreshChapters(generatedProjectId);
+        const latestChapter = latestChapters.find(chapter => chapter.id === generatedChapterId);
+        if (latestChapter && editingIdRef.current === generatedChapterId) {
+          setCurrentChapter(latestChapter);
+          editorForm.setFieldsValue({
+            title: latestChapter.title,
+            content: latestChapter.content,
+          });
+        }
+
+        projectApi.getProject(generatedProjectId).then(setCurrentProject).catch(console.error);
+        return latestChapters;
+      };
+
+      await generateChapterBackground(
+        generatedChapterId,
+        {
+          style_id: selectedStyleId,
+          target_word_count: targetWordCount,
+          model: selectedModel,
+          narrative_perspective: temporaryNarrativePerspective,
+        },
+        async (status) => {
+          if (status.progress_details?.stage !== 'analyzing' || analysisTrackingStarted) return;
+
+          analysisTrackingStarted = true;
+          const latestChapters = await refreshGeneratedChapter();
+          await loadAnalysisTasks(latestChapters);
+        },
+        async () => {
+          message.success("后台章节生成和分析完成！");
+          const latestChapters = await refreshGeneratedChapter();
+          await loadAnalysisTasks(latestChapters);
+        },
+        async (error) => {
+          message.error("后台章节任务失败: " + error);
+          const latestChapters = await refreshGeneratedChapter();
+          await loadAnalysisTasks(latestChapters);
+        }
+      );
+
+      message.info("章节生成任务已提交，可在右下角任务面板查看进度");
+      // 通知悬浮任务框刷新
+      eventBus.emit('background-task-created');
+    } catch {
+      message.error("创建后台任务失败");
+    }
+  };
   const getStatusColor = (status: string) => {
     const colors: Record<string, string> = {
       'draft': 'default',
+      'pending': 'warning',
       'writing': 'processing',
       'completed': 'success',
     };
@@ -983,6 +1077,7 @@ export default function Chapters() {
   const getStatusText = (status: string) => {
     const texts: Record<string, string> = {
       'draft': '草稿',
+      'pending': '待处理',
       'writing': '创作中',
       'completed': '已完成',
     };
@@ -1083,7 +1178,7 @@ export default function Chapters() {
 
     try {
       setBatchGenerating(true);
-      setBatchGenerateVisible(false); // 关闭配置对话框，避免遮挡进度弹窗
+      setBatchGenerateVisible(false); // 关闭配置对话框，任务进度在悬浮任务框中显示
 
       const requestBody: {
         start_chapter_number: number;
@@ -1092,10 +1187,11 @@ export default function Chapters() {
         style_id: number;
         target_word_count: number;
         model?: string;
+        skill_key?: string;
       } = {
         start_chapter_number: values.startChapterNumber,
         count: values.count,
-        enable_analysis: true,
+        enable_analysis: values.enableAnalysis,
         style_id: styleId,
         target_word_count: wordCount,
       };
@@ -1106,6 +1202,12 @@ export default function Chapters() {
         console.log('[批量生成] 请求体包含model:', model);
       } else {
         console.log('[批量生成] 请求体不包含model，使用后端默认模型');
+      }
+
+      // 如果有 Skill 参数，添加到请求体中
+      if (batchSelectedSkillKey) {
+        requestBody.skill_key = batchSelectedSkillKey;
+        console.log('[批量生成] 请求体包含skill_key:', batchSelectedSkillKey);
       }
 
       console.log('[批量生成] 完整请求体:', JSON.stringify(requestBody, null, 2));
@@ -1133,7 +1235,9 @@ export default function Chapters() {
         estimated_time_minutes: result.estimated_time_minutes,
       });
 
-      message.success(`批量生成任务已创建，预计需要 ${result.estimated_time_minutes} 分钟`);
+      message.success(`批量生成任务已创建，预计需要 ${result.estimated_time_minutes} 分钟，可在右下角任务面板查看进度`);
+      // 通知悬浮任务框刷新
+      eventBus.emit('background-task-created');
 
       // 🔔 触发浏览器通知（任务开始）
       showBrowserNotification(
@@ -1293,8 +1397,9 @@ export default function Chapters() {
       return;
     }
 
-    // 打开对话框时加载模型列表，等待完成
+    // 打开对话框时加载模型列表和Skill列表，等待完成
     const defaultModel = await loadAvailableModels();
+    loadAvailableSkills();
 
     console.log('[打开批量生成] defaultModel:', defaultModel);
     console.log('[打开批量生成] selectedStyleId:', selectedStyleId);
@@ -1306,7 +1411,7 @@ export default function Chapters() {
     batchForm.setFieldsValue({
       startChapterNumber: firstIncompleteChapter.chapter_number,
       count: 5,
-      enableAnalysis: false,
+      enableAnalysis: true,
       styleId: selectedStyleId,
       targetWordCount: getCachedWordCount(),
     });
@@ -1387,6 +1492,7 @@ export default function Chapters() {
           >
             <Select>
               <Select.Option value="draft">草稿</Select.Option>
+              <Select.Option value="pending">待处理</Select.Option>
               <Select.Option value="writing">创作中</Select.Option>
               <Select.Option value="completed">已完成</Select.Option>
             </Select>
@@ -1935,12 +2041,13 @@ export default function Chapters() {
             type="primary"
             icon={<RocketOutlined />}
             onClick={handleOpenBatchGenerate}
-            disabled={chapters.length === 0}
+            disabled={chapters.length === 0 || batchGenerating}
+            loading={batchGenerating}
             block={isMobile}
             size={isMobile ? 'middle' : 'middle'}
-            style={{ background: token.colorInfo, borderColor: token.colorInfo }}
+            style={batchGenerating ? {} : { background: token.colorInfo, borderColor: token.colorInfo }}
           >
-            批量生成
+            {batchGenerating ? '生成中...' : '批量生成'}
           </Button>
           <Button
             type="default"
@@ -1954,6 +2061,7 @@ export default function Chapters() {
           </Button>
         </Space>
       </div>
+
 
       <div style={{ flex: 1, overflowY: 'auto', minHeight: 0 }}>
         {chapters.length === 0 ? (
@@ -2435,6 +2543,7 @@ export default function Chapters() {
           <Form.Item label="状态" name="status">
             <Select placeholder="选择状态">
               <Select.Option value="draft">草稿</Select.Option>
+              <Select.Option value="pending">待处理</Select.Option>
               <Select.Option value="writing">创作中</Select.Option>
               <Select.Option value="completed">已完成</Select.Option>
             </Select>
@@ -2497,6 +2606,7 @@ export default function Chapters() {
                 const disabledReason = currentChapter ? getGenerateDisabledReason(currentChapter) : '';
 
                 return (
+                  <>
                   <Button
                     type="primary"
                     icon={canGenerate ? <ThunderboltOutlined /> : <LockOutlined />}
@@ -2505,14 +2615,25 @@ export default function Chapters() {
                     disabled={!canGenerate}
                     danger={!canGenerate}
                     style={{ fontWeight: 'bold' }}
-                    title={!canGenerate ? disabledReason : '根据大纲和前置章节内容创作'}
+                    title={!canGenerate ? disabledReason : '根据大纲和前置章节内容创作（流式）'}
                   >
                     {isMobile ? 'AI' : 'AI创作'}
                   </Button>
+                  <Button
+                    icon={<RocketOutlined />}
+                    onClick={handleBackgroundGenerate}
+                    disabled={!canGenerate || isContinuing}
+                    style={{ fontWeight: 'bold' }}
+                    title={!canGenerate ? disabledReason : '后台生成：关闭浏览器也不影响，完成后自动保存'}
+                  >
+                    {isMobile ? '后台' : '后台生成'}
+                  </Button>
+                  </>
                 );
               })()}
             </Space.Compact>
           </Form.Item>
+
 
           {/* 第一行：写作风格 + 叙事角度 */}
           <div style={{
@@ -2568,12 +2689,45 @@ export default function Chapters() {
             </Form.Item>
           </div>
 
-          {/* 第二行：目标字数 + AI模型 */}
+          {/* 第二行：目标字数 + AI模型 + Skill */}
           <div style={{
             display: isMobile ? 'block' : 'flex',
             gap: isMobile ? 0 : 16,
             marginBottom: isMobile ? 16 : 12
           }}>
+            <Form.Item
+              label="应用 Skill"
+              tooltip="选择一个 Skill 工作流指导 AI 创作，不选则使用标准创作流程"
+              style={{ flex: 1, marginBottom: isMobile ? 16 : 0 }}
+            >
+              <Select
+                placeholder="不使用 Skill（标准创作）"
+                value={selectedSkillKey}
+                onChange={setSelectedSkillKey}
+                allowClear
+                disabled={isGenerating}
+                showSearch
+                optionFilterProp="label"
+              >
+                {availableSkills.map(skill => (
+                  <Select.Option key={skill.template_key} value={skill.template_key} label={skill.template_name}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span>{skill.template_name}</span>
+                      <Tag style={{ fontSize: 11, lineHeight: '18px', padding: '0 4px' }}>{skill.category}</Tag>
+                    </div>
+                  </Select.Option>
+                ))}
+              </Select>
+              {selectedSkillKey && (() => {
+                const skill = availableSkills.find(s => s.template_key === selectedSkillKey);
+                return skill ? (
+                  <div style={{ color: token.colorSuccess, fontSize: 12, marginTop: 4 }}>
+                    ✓ {skill.description}
+                  </div>
+                ) : null;
+              })()}
+            </Form.Item>
+
             <Form.Item
               label="目标字数"
               tooltip="AI生成章节时的目标字数，实际可能略有偏差（修改后会自动记住）"
@@ -2849,7 +3003,7 @@ export default function Chapters() {
               </Form.Item>
             </div>
 
-            {/* 第三行：AI模型 + 同步分析 */}
+            {/* 第三行：AI模型 + Skill */}
             <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: isMobile ? 0 : 16 }}>
               <Form.Item
                 label="AI模型"
@@ -2873,18 +3027,43 @@ export default function Chapters() {
               </Form.Item>
 
               <Form.Item
-                label="同步分析"
-                name="enableAnalysis"
-                tooltip="必须开启，确保剧情连贯"
-                style={{ marginBottom: 12 }}
+                label="应用 Skill"
+                tooltip="选择一个 Skill 工作流指导批量创作，不选则使用标准创作流程"
+                style={{ flex: 1, marginBottom: 12 }}
               >
-                <Radio.Group disabled>
-                  <Radio value={true}>
-                    <span style={{ fontSize: 12, color: token.colorSuccess }}>✓ 自动更新角色状态</span>
-                  </Radio>
-                </Radio.Group>
+                <Select
+                  placeholder="不使用 Skill（标准创作）"
+                  value={batchSelectedSkillKey}
+                  onChange={setBatchSelectedSkillKey}
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                >
+                  {availableSkills.map(skill => (
+                    <Select.Option key={skill.template_key} value={skill.template_key} label={skill.template_name}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span>{skill.template_name}</span>
+                        <Tag style={{ fontSize: 11, lineHeight: '18px', padding: '0 4px' }}>{skill.category}</Tag>
+                      </div>
+                    </Select.Option>
+                  ))}
+                </Select>
               </Form.Item>
             </div>
+
+            {/* 同步分析（固定开启） */}
+            <Form.Item
+              label="同步分析"
+              name="enableAnalysis"
+              tooltip="必须开启，确保剧情连贯"
+              style={{ marginBottom: 12 }}
+            >
+              <Radio.Group disabled>
+                <Radio value={true}>
+                  <span style={{ fontSize: 12, color: token.colorSuccess }}>✓ 自动更新角色状态</span>
+                </Radio>
+              </Radio.Group>
+            </Form.Item>
           </Form>
         ) : (
           <div>
@@ -2932,30 +3111,6 @@ export default function Chapters() {
         loading={isGenerating}
         progress={singleChapterProgress}
         message={singleChapterProgressMessage}
-      />
-
-      {/* 批量生成进度显示 - 使用统一的进度组件 */}
-      <SSEProgressModal
-        visible={batchGenerating}
-        progress={batchProgress ? Math.round((batchProgress.completed / batchProgress.total) * 100) : 0}
-        message={
-          batchProgress?.current_chapter_number
-            ? `正在生成第 ${batchProgress.current_chapter_number} 章... (${batchProgress.completed}/${batchProgress.total})`
-            : `批量生成进行中... (${batchProgress?.completed || 0}/${batchProgress?.total || 0})`
-        }
-        title="批量生成章节"
-        onCancel={() => {
-          modal.confirm({
-            title: '确认取消',
-            content: '确定要取消批量生成吗？已生成的章节将保留。',
-            okText: '确定取消',
-            cancelText: '继续生成',
-            okButtonProps: { danger: true },
-            centered: true,
-            onOk: handleCancelBatchGenerate,
-          });
-        }}
-        cancelButtonText="取消任务"
       />
 
       {/* 章节阅读器 */}

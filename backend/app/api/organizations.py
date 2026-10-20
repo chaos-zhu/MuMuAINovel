@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 import json
 
 from app.database import get_db
-from app.utils.sse_response import SSEResponse, create_sse_response, WizardProgressTracker
+from app.utils.sse_response import SSEResponse, create_sse_response, WizardProgressTracker, wrap_stream_with_heartbeat, HEARTBEAT
 from app.models.relationship import Organization, OrganizationMember
 from app.models.character import Character
 from app.models.project import Project
@@ -24,8 +24,10 @@ from app.schemas.relationship import (
 )
 from app.schemas.character import CharacterResponse
 from app.services.ai_service import AIService
+from app.services.json_helper import loads_json
 from app.services.prompt_service import prompt_service, PromptService
-from app.logger import get_logger
+from app.services.knowledge_service import knowledge_service
+from app.logger import get_logger, safe_preview
 from app.api.settings import get_user_ai_service
 from app.api.common import verify_project_access
 
@@ -491,6 +493,16 @@ async def generate_organization_stream(
                 user_input=user_input
             )
             
+            knowledge_context = await knowledge_service.get_generation_context(
+                user_id,
+                gen_request.project_id,
+                f"{project.title}\n{project.theme or ''}\n{project.genre or ''}\n{gen_request.background or ''}\n{gen_request.requirements or ''}\n{project.world_rules or ''}",
+                db,
+                purpose="organization",
+            )
+            if knowledge_context:
+                prompt += "\n\n" + knowledge_context
+
             yield await tracker.generating(0, max(3000, len(prompt) * 8), "调用AI服务生成组织...")
             logger.info(f"🎯 开始为项目 {gen_request.project_id} 生成组织（SSE流式）")
             
@@ -500,7 +512,15 @@ async def generate_organization_stream(
                 chunk_count = 0
                 estimated_total = max(3000, len(prompt) * 8)
                 
-                async for chunk in user_ai_service.generate_text_stream(prompt=prompt):
+                async for chunk in wrap_stream_with_heartbeat(
+                    user_ai_service.generate_text_stream(prompt=prompt),
+                    heartbeat_interval=15.0
+                ):
+                    # 心跳哨兵：发送心跳保活，不混入AI响应
+                    if chunk is HEARTBEAT:
+                        yield await tracker.heartbeat()
+                        continue
+
                     chunk_count += 1
                     ai_content += chunk
                     
@@ -529,11 +549,11 @@ async def generate_organization_stream(
             # ✅ 使用统一的 JSON 清洗方法
             try:
                 cleaned_response = user_ai_service._clean_json_response(ai_content)
-                organization_data = json.loads(cleaned_response)
+                organization_data = loads_json(cleaned_response)
                 logger.info(f"✅ 组织JSON解析成功")
             except json.JSONDecodeError as e:
                 logger.error(f"❌ 组织JSON解析失败: {e}")
-                logger.error(f"   原始响应预览: {ai_content[:200]}")
+                logger.debug(f"   原始响应预览: {safe_preview(ai_content, 200)}")
                 yield await tracker.error(f"AI返回的内容无法解析为JSON：{str(e)}")
                 return
             
